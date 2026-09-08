@@ -1,0 +1,5 @@
+
+## 2026-09-08T17:45:00Z session-agent — 自适应补档冷却（新发加速+活跃度冷却）
+- 做了什么：人类交办"按视频新发布程度/评论/播放活跃度设计检测频率冷却"。设计并实现有效间隔=基准×新发系数(<24h 0.5/<7d 1/<30d 2/≥30d 4)×活跃系数(最近两统计快照 view/时+reply/天 分档 0.5/1/2/4)，clamp [基准/4, min(8×基准,14天)]；作用三处：dueParts 视频级伸缩（源级周期不变）、sync_stats_all 冷却跳过、Scheduler.freshSweep 新发 24h 内 45min touch_stats 加速。顺带修复 SyncVideoStats 不 bump last_stats_at 的时间戳失真。adaptive_sync=false 全回退。踩坑：全量 build 曾被并行 agent 的 teriteri 半成品阻塞，等 90s 后对方修复再跑门；gofmt 引入 CRLF 需重排。
+- 涉及：internal/app/adaptive.go(新)+app.go(dueParts/jobSyncStatsAll)+adaptive_test.go(新6用例)；internal/jobs/jobs.go(Scheduler.Adaptive+freshSweep)；internal/store/ops_videos.go(RecentStats/FreshStatsDue)+schema.sql(idx_videos_pubdate)；internal/collector/collector.go(SyncVideoStats bump)；internal/config/config.go(AdaptiveSync)；internal/server/admin.go(handleConfig 一行)；cmd/bili-saver/main.go(接线)；config.example.yaml；ARCHITECTURE §4/§5(v8)/§6.3；CLAIMS 留言 core-agent。
+- 结果/状态：验收门 gofmt+build+vet+20 包 test 全绿；服务新二进制实测 adaptive_sync=true 暴露、索引老库自升级、调度正常；claim done-review（L2：sync_stats_all 语义变化+collector 写路径，待人类抽查）。

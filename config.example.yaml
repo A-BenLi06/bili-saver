@@ -1,0 +1,62 @@
+# bili-saver 示例配置。全部字段都可用环境变量 BILI_SAVER_<大写字段路径> 覆盖。
+data_dir: ./data
+listen: ":8080"
+
+log:
+  level: info
+  # file: ./data/bili-saver.log
+
+ffmpeg:
+  # path: /usr/bin/ffmpeg   # 留空则从 PATH 查找；缺失时自动降级为“仅元数据归档”
+
+bilibili:
+  # cookie_file: ./data/cookies.json   # `bili-saver login` 生成
+  min_req_ms: 350        # 全局请求最小间隔，宁慢勿封；被风控可调大
+
+download:
+  # 清晰度白名单，空 = 全部画质（默认，取当前账号可用的最高档）。
+  # 指定若干档时取其中可用的最高档，全部不可用则回落更低档：
+  #   4k / 1080p60 / 1080p-high(需登录) / 1080p / 720p60 / 720p / 480p / 360p
+  # 例: qualities: ["1080p", "720p"]
+  qualities: []
+  quality: ""            # 旧版单档位（上限语义），qualities 非空时忽略；留空即可
+  audio_qualities: []    # 音频质量偏好: hires(Hi-Res无损) / dolby(杜比全景声) / 192k / 132k / 64k
+                         # 空 = 标准最高（192k>132k>64k，不取空间音频）；指定时集合优先、标准链兜底
+  concurrency: 2         # 下载任务并发
+  segments: 4            # 单流分段并行连接数（B站CDN支持Range，多连接显著提速；1=单线程）
+  allow_av1: false       # HEVC/AV1 编码（部分播放器不兼容）；默认最高画质建议开启（4K/高码率多为新编码）
+  allow_4k: false        # 4K 需要大会员登录态；false 时即使 qualities 含 4k 也会被剔除
+  download_danmaku: true
+  auto_download: true    # 归档后自动下载视频文件
+
+collector:
+  comments_max: 0              # 单视频评论抓取上限（0=不限）
+  sub_replies_max: 0           # 单条主楼楼中楼上限（0=不限）
+  full_resync_comments: true   # 重同步时全量翻页以检测消失评论
+  sync_default_minutes: 360    # 监控源默认重同步间隔
+  stats_resync_hours: 24       # 全库统计重同步周期（点赞/收藏曲线），0=禁用
+  adaptive_sync: true          # 自适应补档频率：发布24h内加速（调度器45min轻量刷统计）、
+                               # 按评论/播放活跃度冷却沉寂视频（有效间隔=基准×新发系数×活跃系数，
+                               # 上限8×基准且≤14天）；false=固定间隔旧行为
+  hot_video_views: 1000000     # 热门提示：播放量阈值，管理端手动补档前要求二次确认；0=禁用
+  hot_video_replies: 10000     # 热门提示：评论数阈值（评论全量翻页耗时随评论数线性增长）；0=禁用
+
+media:
+  enabled: true
+  # root: ./data/library       # 媒体库输出根（Emby/Plex/Jellyfin/Kodi 指向这里）
+  layout: movie              # movie | show | collection
+  link_mode: auto            # auto(=symlink→hardlink→copy) | symlink | hardlink | copy
+
+teriteri:
+  enabled: true              # teriteri-client 适配层
+  admin_user: admin
+  admin_pass: bili-saver     # 前端登录用；请修改
+  jwt_secret: ""             # 留空用内置默认；生产建议设置
+  # frontend_url: "http://127.0.0.1:8081"  # teriteri 前端地址（管理页“观看入口”）；Docker 部署为 http://127.0.0.1:8081，留空显示部署提示
+
+admin:
+  token: ""                  # 非空则管理 API 需要 Authorization: Bearer <token>
+
+plugins:
+  enabled: true
+  # dir: ./data/plugins       # 每个子目录一个 manifest.yaml

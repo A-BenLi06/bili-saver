@@ -1,0 +1,7 @@
+# 仓库内统一 LF；二进制不做行尾处理
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ttf binary
+*.woff2 binary
+*.mp4 binary

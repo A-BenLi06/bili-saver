@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>bili-saver 播放站</title>
+<style>
+:root { --pink:#fb7299; --blue:#2563eb; --bg:#fafafa; --card:#fff; --line:#e5e7eb; --txt:#111827; --sub:#6b7280; }
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:"HarmonyOS Sans SC","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--txt); }
+header { background:#fff; border-bottom:1px solid var(--line); padding:10px 24px; display:flex; align-items:center; gap:18px; position:sticky; top:0; z-index:10;}
+header h1 { font-size:17px; cursor:pointer; } header h1 b{color:var(--pink);}
+#search { flex:1; max-width:420px; padding:8px 14px; border:1px solid var(--line); border-radius:8px; font-size:14px; }
+main { max-width:1200px; margin:20px auto; padding:0 16px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:16px; }
+.card { background:var(--card); border-radius:10px; overflow:hidden; cursor:pointer; border:1px solid var(--line); transition:box-shadow .2s; }
+.card:hover { box-shadow:0 6px 18px rgba(0,0,0,.09); }
+.card .cover { position:relative; width:100%; aspect-ratio:16/10; background:#e8eaed; }
+.card .cover img { width:100%; height:100%; object-fit:cover; display:block; }
+.card .dur { position:absolute; right:6px; bottom:6px; background:rgba(0,0,0,.65); color:#fff; font-size:12px; padding:1px 6px; border-radius:4px; }
+.card .info { padding:10px 12px 12px; }
+.card .t { font-size:14px; line-height:1.4; max-height:2.8em; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.card .m { margin-top:6px; font-size:12px; color:var(--sub); display:flex; gap:10px; }
+.detail { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:18px; }
+@media (max-width:960px){ .detail{grid-template-columns:1fr;} }
+.player-wrap { position:relative; background:#000; border-radius:10px; overflow:hidden; }
+.player-wrap video { width:100%; display:block; }
+#dmLayer { position:absolute; inset:0 0 68px 0; overflow:hidden; pointer-events:none; }
+.dm { position:absolute; white-space:nowrap; font-size:18px; font-weight:600; color:#fff; text-shadow:0 0 2px rgba(0,0,0,.8); will-change:transform; }
+.dmline { display:flex; gap:14px; margin-bottom:10px; flex-wrap:wrap; }
+.dmline button { border:none; padding:5px 14px; border-radius:6px; cursor:pointer; background:var(--bg); color:var(--sub); font-size:13px; }
+.dmline button.active { background:var(--pink); color:#fff; }
+.vinfo { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-top:12px; }
+.vinfo h1 { font-size:17px; line-height:1.5; }
+.vmeta { margin-top:8px; font-size:13px; color:var(--sub); }
+.vdesc { margin-top:10px; font-size:13px; line-height:1.7; white-space:pre-wrap; }
+.vtags { margin-top:10px; }
+.vtags span { display:inline-block; margin:2px 6px 2px 0; padding:2px 10px; border-radius:10px; font-size:12px; background:#f0f1f3; color:var(--sub); cursor:pointer; }
+.side { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; }
+.side h3 { font-size:14px; color:var(--sub); margin-bottom:10px; }
+.cmt { border-top:1px solid var(--line); padding:12px 0; }
+.cmt .head { display:flex; align-items:center; gap:8px; font-size:13px; }
+.cmt .ava { width:28px; height:28px; border-radius:50%; background:var(--pink); color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; flex:none; }
+.cmt .name { font-weight:600; }
+.cmt .like { margin-left:auto; color:var(--sub); font-size:12px; }
+.cmt .body { margin:6px 0 0 36px; font-size:14px; line-height:1.6; word-break:break-word; }
+.cmt .time { margin:4px 0 0 36px; font-size:12px; color:var(--sub); }
+.cmt.deleted .name, .cmt.deleted .body { color:#9499a0; }
+.cmt .replies { margin:8px 0 0 36px; border-left:2px solid var(--line); padding-left:10px; }
+.cmt .replies .cmt { border:none; padding:6px 0; }
+.cmt .replies .body, .cmt .replies .time { margin-left:0; }
+.more-btn { width:100%; padding:8px; border:1px dashed var(--line); background:none; border-radius:8px; color:var(--sub); cursor:pointer; margin-top:8px; }
+.back { display:inline-block; margin-bottom:12px; color:var(--sub); font-size:13px; text-decoration:none; }
+.empty { text-align:center; color:var(--sub); padding:40px 0; }
+.aibadge { display:inline-block; margin-right:6px; padding:1px 8px; border-radius:4px; font-size:12px; background:#fdeef3; color:var(--pink); }
+.bibadge { display:inline-block; margin-right:6px; padding:1px 8px; border-radius:4px; font-size:12px; background:#e3f6fd; color:var(--blue); }
+</style>
+</head>
+<body>
+<header>
+  <h1 onclick="location.hash='#/'"><b>bili</b>-saver 播放站</h1>
+  <input id="search" placeholder="搜索归档视频…（回车）">
+  <span id="whoami" style="margin-left:auto;font-size:13px;color:var(--sub)"></span>
+</header>
+<main id="main"></main>
+<script>
+const $ = s => document.querySelector(s);
+const api = p => fetch(p).then(r => r.json());
+const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtDur = s => { s = +s || 0; const m = Math.floor(s/60); return m+':'+String(s%60).padStart(2,'0'); };
+const fmtNum = n => n > 10000 ? (n/10000).toFixed(1)+'万' : n;
+const fmtDate = t => new Date(t).toLocaleDateString('zh-CN');
+
+window.onhashchange = render;
+$('#search').onkeydown = e => { if (e.key === 'Enter') { location.hash = '#/search/' + encodeURIComponent(e.target.value.trim()); } };
+
+async function render() {
+  const h = decodeURIComponent(location.hash || '#/');
+  if (h.startsWith('#/v/')) return renderVideo(h.slice(4));
+  if (h.startsWith('#/search/')) return renderSearch(h.slice(9));
+  return renderHome();
+}
+
+function card(v) {
+  return `<div class="card" onclick="location.hash='#/v/${v.bvid}'">
+    <div class="cover"><img src="${esc(v.pic)}" loading="lazy" onerror="this.style.opacity=0"><span class="dur">${fmtDur(v.duration)}</span></div>
+    <div class="info"><div class="t">${esc(v.title)}</div>
+    <div class="m"><span>${esc(v.owner_name)}</span><span>▶ ${fmtNum(v.view||0)}</span></div></div></div>`;
+}
+
+async function renderHome() {
+  $('#main').innerHTML = '<div class="empty">加载中…</div>';
+  const vs = await api('/api/v1/videos?limit=60');
+  if (!vs.length) { $('#main').innerHTML = '<div class="empty">还没有归档内容，去管理页添加吧</div>'; return; }
+  // 补充播放量（stats 快照最新值）
+  const cards = vs.map(v => card(v)).join('');
+  $('#main').innerHTML = `<div class="grid">${cards}</div>`;
+  hydrateStats(vs);
+}
+
+async function hydrateStats(vs) {
+  for (const v of vs) {
+    try {
+      const d = await api(`/api/video/getone?vid=${v.bvid}`);
+      const el = [...document.querySelectorAll(`.card[onclick*="${v.bvid}"] .m span`)].find(x => x.textContent.startsWith('▶'));
+      if (el && d.data) el.textContent = '▶ ' + fmtNum(d.data.stats.play);
+    } catch (e) {}
+  }
+}
+
+async function renderSearch(kw) {
+  $('#search').value = kw;
+  $('#main').innerHTML = '<div class="empty">搜索中…</div>';
+  const vs = await api('/api/v1/videos?q=' + encodeURIComponent(kw) + '&limit=40');
+  if (!vs.length) { $('#main').innerHTML = '<div class="empty">没有找到“' + esc(kw) + '”相关归档</div>'; return; }
+  $('#main').innerHTML = `<div class="grid">${vs.map(v => card(v)).join('')}</div>`;
+  hydrateStats(vs);
+}
+
+let dmList = [], dmSpawned = new Set(), dmRAF = null;
+const LANES = 14;
+
+async function renderVideo(bvid) {
+  $('#main').innerHTML = '<div class="empty">加载中…</div>';
+  window.scrollTo(0, 0);
+  const d = await api('/api/video/getone?vid=' + bvid);
+  if (d.code !== 200) { $('#main').innerHTML = '<div class="empty">视频不存在或未归档</div>'; return; }
+  const v = d.data.video, u = d.data.user, st = d.data.stats;
+
+  const tagList = (v.tags || '').split('\r\n').filter(x => x.trim());
+  $('#main').innerHTML = `
+  <a class="back" href="#/">← 返回首页</a>
+  <div class="detail">
+    <div>
+      <div class="player-wrap">
+        <video id="player" controls src="${esc(v.videoUrl)}" poster="${esc(v.coverUrl)}"></video>
+        <div id="dmLayer"></div>
+      </div>
+      <div class="dmline" style="margin-top:10px">
+        <button id="dmToggle" class="active" onclick="toggleDm()">弹幕关</button>
+        <span style="font-size:12px;color:var(--sub);align-self:center">弹幕为归档快照，播放时按时间重现</span>
+      </div>
+      <div class="vinfo">
+        <h1>${esc(v.title)}</h1>
+        <div class="vmeta">${esc(u.nickname)} · ${fmtDate(v.uploadDate)} · ▶ ${fmtNum(st.play)} · 💬 ${fmtNum(st.comment)} · 🎬 ${fmtNum(st.danmu)}</div>
+        ${v.descr ? `<div class="vdesc">${esc(v.descr)}</div>` : ''}
+        <div class="vtags">${tagList.map(t => `<span onclick="location.hash='#/search/${encodeURIComponent(t)}'">${esc(t)}</span>`).join('')}</div>
+      </div>
+    </div>
+    <div class="side"><h3>评论 <span id="cmtCount"></span></h3><div id="cmts"><div class="empty">加载中…</div></div></div>
+  </div>`;
+
+  // 弹幕
+  dmList = []; dmSpawned = new Set();
+  stopDmRAF();
+  const dms = await api('/api/danmu-list/' + bvid);
+  dmList = Array.isArray(dms) ? dms : [];
+  dmList.sort((a, b) => a.timePoint - b.timePoint);
+  const video = $('#player');
+  video.addEventListener('play', startDmRAF);
+  video.addEventListener('pause', stopDmRAF);
+  video.addEventListener('ended', stopDmRAF);
+  video.addEventListener('seeked', () => dmSpawned = new Set(dmList.filter(x => x.timePoint > video.currentTime).map(x => x.timePoint + ':' + x.id)));
+
+  // 简介 AI 小结标记已在 descr 内（适配层附加），评论区
+  loadComments(bvid, 0);
+  $('#cmtCount').textContent = fmtNum(st.comment);
+}
+
+/* ---- 弹幕 ---- */
+let dmOn = true;
+function toggleDm() {
+  dmOn = !dmOn;
+  $('#dmToggle').classList.toggle('active', dmOn);
+  $('#dmToggle').textContent = dmOn ? '弹幕关' : '弹幕开';
+  if (!dmOn) $('#dmLayer').innerHTML = '';
+}
+function startDmRAF() { if (!dmRAF) dmRAF = requestAnimationFrame(dmTick); }
+function stopDmRAF() { if (dmRAF) { cancelAnimationFrame(dmRAF); dmRAF = null; } }
+const laneBusy = new Array(LANES).fill(0);
+function dmTick() {
+  dmRAF = requestAnimationFrame(dmTick);
+  if (!dmOn) return;
+  const video = $('#player'); if (!video) return;
+  const t = video.currentTime;
+  for (const dm of dmList) {
+    const key = dm.timePoint + ':' + dm.id;
+    if (dmSpawned.has(key)) continue;
+    if (dm.timePoint <= t && t - dm.timePoint < 0.5) {
+      dmSpawned.add(key);
+      spawnDm(dm);
+    }
+  }
+}
+function spawnDm(dm) {
+  const layer = $('#dmLayer'); if (!layer) return;
+  const w = layer.clientWidth;
+  let lane = -1;
+  for (let i = 0; i < LANES; i++) { if (laneBusy[i] <= performance.now()) { lane = i; break; } }
+  if (lane < 0) return; // 全满，丢弃
+  const el = document.createElement('div');
+  el.className = 'dm';
+  el.textContent = dm.content;
+  el.style.color = '#' + (dm.color || 0xffffff).toString(16).padStart(6, '0');
+  el.style.top = (lane * 6 + 4) + '%';
+  layer.appendChild(el);
+  const dist = w + el.offsetWidth;
+  const dur = 9;
+  laneBusy[lane] = performance.now() + dur * 1000;
+  el.style.transition = `transform ${dur}s linear`;
+  requestAnimationFrame(() => { el.style.transform = `translateX(${-dist}px)`; });
+  setTimeout(() => el.remove(), dur * 1000 + 100);
+}
+
+/* ---- 评论 ---- */
+async function loadComments(bvid, offset) {
+  const box = $('#cmts');
+  const d = await api(`/api/comment/get?vid=${bvid}&offset=${offset}&type=1`);
+  if (offset === 0) box.innerHTML = '';
+  const old = box.querySelector('.more-btn'); if (old) old.remove();
+  for (const c of (d.data.comments || [])) {
+    box.insertAdjacentHTML('beforeend', renderComment(c));
+  }
+  const more = d.data.more;
+  if (more) {
+    const btn = document.createElement('button');
+    btn.className = 'more-btn';
+    btn.textContent = '加载更多评论';
+    btn.onclick = () => loadComments(bvid, offset + (d.data.comments || []).length);
+    box.appendChild(btn);
+  }
+  if (offset === 0 && !(d.data.comments || []).length) box.innerHTML = '<div class="empty">暂无评论</div>';
+}
+function renderComment(c) {
+  const deleted = c.content.startsWith('【已消失');
+  const replies = (c.replies || []).map(r => renderComment(r)).join('');
+  return `<div class="cmt ${deleted ? 'deleted' : ''}">
+    <div class="head"><span class="ava">${esc((c.user.nickname || '?')[0])}</span>
+    <span class="name">${esc(c.user.nickname)}</span>
+    <span class="like">👍 ${fmtNum(c.love)}</span></div>
+    <div class="body">${esc(c.content)}</div>
+    <div class="time">${fmtDate(c.createTime)}${c.count > (c.replies || []).length ? ' · 共 ' + c.count + ' 条回复' : ''}</div>
+    ${replies ? `<div class="replies">${replies}</div>` : ''}
+  </div>`;
+}
+
+render();
+</script>
+</body>
+</html>

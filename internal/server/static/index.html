@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>bili-saver</title>
+<style>
+:root {
+  --bg:#fafafa; --panel:#ffffff; --line:#e5e7eb; --line-strong:#d1d5db;
+  --txt:#111827; --sub:#6b7280; --faint:#9ca3af;
+  --accent:#fb7299; --accent-soft:#fdf2f5;
+  --ok:#059669; --warn:#d97706; --err:#dc2626; --info:#2563eb;
+  --mono:ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { height:100%; }
+body { font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; background:var(--bg); color:var(--txt); font-size:14px; -webkit-font-smoothing:antialiased; }
+a { color:var(--info); text-decoration:none; }
+a:hover { text-decoration:underline; }
+
+.layout { display:grid; grid-template-columns:200px 1fr; min-height:100vh; }
+aside { background:var(--panel); border-right:1px solid var(--line); padding:16px 0; position:sticky; top:0; height:100vh; overflow-y:auto; }
+.brand { padding:4px 20px 16px; font-size:15px; font-weight:700; letter-spacing:.2px; }
+.brand span { color:var(--accent); }
+nav { display:flex; flex-direction:column; gap:1px; }
+nav button { display:flex; align-items:center; gap:10px; width:100%; text-align:left; border:none; background:none;
+  padding:8px 20px; font-size:13.5px; color:var(--sub); cursor:pointer; border-left:2px solid transparent; }
+nav button:hover { background:var(--bg); color:var(--txt); }
+nav button.active { color:var(--txt); font-weight:600; background:var(--accent-soft); border-left-color:var(--accent); }
+nav .sec { padding:16px 20px 6px; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); }
+
+main { padding:28px 36px; max-width:1180px; }
+.pagehead { display:flex; align-items:baseline; gap:14px; margin-bottom:20px; flex-wrap:wrap; }
+.pagehead h1 { font-size:19px; font-weight:650; }
+.pagehead .desc { color:var(--sub); font-size:13px; }
+.pagehead .spacer { flex:1; }
+
+.sect { margin-bottom:28px; }
+.sect > h2 { font-size:13px; font-weight:600; color:var(--sub); padding-bottom:8px; border-bottom:1px solid var(--line); margin-bottom:14px; letter-spacing:.02em; }
+
+.statrow { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:1px; background:var(--line); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.stat { background:var(--panel); padding:14px 16px; }
+.stat .num { font-size:22px; font-weight:650; font-variant-numeric:tabular-nums; }
+.stat .num small { font-size:12px; color:var(--faint); font-weight:400; }
+.stat .lab { font-size:12px; color:var(--sub); margin-top:2px; }
+
+table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+th { text-align:left; font-size:12px; font-weight:500; color:var(--sub); padding:9px 12px; border-bottom:1px solid var(--line); background:#fcfcfd; white-space:nowrap; }
+td { padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
+tr:last-child td { border-bottom:none; }
+tbody tr:hover { background:#fafbfc; }
+td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+td.thumb img { width:64px; height:40px; object-fit:cover; border-radius:4px; display:block; background:var(--bg); }
+.cell-sub { font-size:12px; color:var(--sub); margin-top:2px; }
+
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:6px; vertical-align:1px; }
+.dot.ok { background:var(--ok); } .dot.err { background:var(--err); } .dot.run { background:var(--info); }
+.dot.queued { background:var(--faint); } .dot.warn { background:var(--warn); } .dot.off { background:#d1d5db; }
+.st { font-size:12.5px; color:var(--sub); white-space:nowrap; }
+
+form { display:flex; flex-direction:column; gap:14px; max-width:680px; }
+.field { display:flex; flex-direction:column; gap:5px; }
+.field > label { font-size:12.5px; font-weight:500; color:var(--sub); }
+.field .hint { font-size:12px; color:var(--faint); }
+input[type=text],input[type=number],select {
+  padding:7px 10px; border:1px solid var(--line-strong); border-radius:6px; font-size:13.5px; background:var(--panel); color:var(--txt); width:100%; }
+input:focus,select:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
+.inline { display:flex; gap:16px; flex-wrap:wrap; }
+.inline .field { flex:1; min-width:130px; }
+.check { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--txt); }
+
+.btn { padding:7px 14px; border-radius:6px; font-size:13px; cursor:pointer; border:1px solid var(--line-strong); background:var(--panel); color:var(--txt); }
+.btn:hover { background:var(--bg); }
+.btn.primary { background:var(--txt); color:#fff; border-color:var(--txt); }
+.btn.primary:hover { background:#374151; }
+.btn.danger { color:var(--err); }
+.btn.sm { padding:3px 9px; font-size:12px; }
+.actions { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+
+.banner { padding:10px 14px; border-radius:8px; font-size:13px; line-height:1.6; margin-bottom:4px; }
+.banner.ok { background:#f0fdf4; color:#166534; }
+.banner.warn { background:#fffbeb; color:#92400e; }
+.banner.info { background:#eff6ff; color:#1e40af; }
+
+.kv { display:grid; grid-template-columns:150px 1fr; gap:8px 16px; font-size:13px; }
+.kv dt { color:var(--sub); }
+.kv dd { font-variant-numeric:tabular-nums; }
+code, .path { font-family:var(--mono); font-size:12px; background:var(--bg); padding:1px 5px; border-radius:4px; word-break:break-all; }
+.pre { font-family:var(--mono); font-size:12px; color:var(--sub); white-space:pre-wrap; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px 12px; max-height:220px; overflow:auto; }
+
+.spark { display:inline-flex; align-items:flex-end; gap:2px; height:36px; }
+.spark i { width:7px; background:var(--faint); border-radius:1px; min-height:2px; }
+.meta-note { font-size:12px; color:var(--faint); }
+.tagtext { color:var(--sub); font-size:12.5px; }
+.tagtext b { color:var(--txt); font-weight:500; }
+.origin { font-size:11px; color:var(--faint); font-weight:400; }
+mark { background:var(--accent-soft); color:var(--txt); padding:0 1px; border-radius:2px; }
+.tabs { display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:14px; flex-wrap:wrap; }
+.tabs button { border:none; background:none; padding:7px 12px; font-size:13px; color:var(--sub); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; }
+.tabs button:hover { color:var(--txt); }
+.tabs button.active { color:var(--txt); font-weight:600; border-bottom-color:var(--accent); }
+.tabs .n { font-size:11px; color:var(--faint); margin-left:4px; font-weight:400; }
+.pgn { display:flex; align-items:center; gap:12px; padding:10px 0 0; font-size:12.5px; color:var(--sub); }
+.backlink { display:inline-block; margin-bottom:14px; font-size:13px; }
+.empty { padding:36px 0; text-align:center; color:var(--faint); font-size:13px; }
+#toasts { position:fixed; right:20px; top:16px; z-index:100; display:flex; flex-direction:column; gap:8px; }
+.toast { padding:10px 14px; border-radius:8px; font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.10);
+  background:var(--panel); border:1px solid var(--line); animation:tin .18s ease-out; max-width:340px; }
+.toast.ok { border-left:3px solid var(--ok); } .toast.err { border-left:3px solid var(--err); }
+.toast.info { border-left:3px solid var(--info); }
+@keyframes tin { from{opacity:0; transform:translateX(12px)} to{opacity:1; transform:none} }
+.pbar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; min-width:70px; }
+.pbar i { display:block; height:100%; background:var(--info); transition:width .4s; }
+.pbar.done i { background:var(--ok); }
+.ratenum { font-size:17px; font-weight:650; font-variant-numeric:tabular-nums; }
+nav button { position:relative; }
+.navbadge { position:absolute; right:12px; top:50%; transform:translateY(-50%);
+  background:var(--accent); color:#fff; font-size:10px; border-radius:8px; padding:1px 5px; font-weight:600; }
+nav button.active .navbadge { background:var(--accent); }
+@media (max-width:900px){ .layout{grid-template-columns:1fr;} aside{position:static;height:auto;} main{padding:20px;} }
+</style>
+</head>
+<body>
+<div class="layout">
+<aside>
+  <div class="brand"><span>bili</span>-saver</div>
+  <nav id="nav">
+    <div class="sec">管理</div>
+    <button data-p="dash" class="active">总览</button>
+    <button data-p="add">采集</button>
+    <button data-p="videos">归档项目</button>
+    <button data-p="search">搜索</button>
+    <button data-p="sources">监控源</button>
+    <button data-p="tracks">跟踪列表</button>
+    <button data-p="libraries">媒体库</button>
+    <div class="sec">系统</div>
+    <button data-p="jobs">任务</button>
+    <button data-p="login">账号</button>
+    <button data-p="plugins">插件</button>
+    <button data-p="settings">设置</button>
+  </nav>
+</aside>
+<main id="main"></main>
+<div id="toasts"></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const api = (p, opt) => fetch('/api/v1'+p, opt).then(r => r.json().then(j => (r.ok ? j : Promise.reject(j.error||r.status))));
+const esc = s => (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtT = s => { s=+s; if(!s) return '—'; return new Date(s*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); };
+const fmtN = n => n > 10000 ? (n/10000).toFixed(1)+'万' : (n ?? 0);
+let page = 'dash', timer = null, recogSeq = 0;
+
+function toast(msg, type='info'){
+  const t = document.createElement('div');
+  t.className = 'toast '+type; t.textContent = msg;
+  document.getElementById('toasts').appendChild(t);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(), 320); }, 3500);
+}
+const fmtB = n => { n=+n||0; if(n<1024) return n+' B/s';
+  if(n<1024*1024) return (n/1024).toFixed(1)+' KB/s';
+  return (n/1024/1024).toFixed(2)+' MB/s'; };
+const fmtBT = n => { n=+n||0; if(n<1024*1024) return (n/1024).toFixed(0)+' KB';
+  if(n<1024*1024*1024) return (n/1024/1024).toFixed(1)+' MB';
+  return (n/1024/1024/1024).toFixed(2)+' GB'; };
+
+// 全局活动任务徽标（导航"任务"按钮）
+let liveTimer = setInterval(async ()=>{
+  try{
+    const l = await fetch('/api/v1/live').then(r=>r.json());
+    const n = (l.running||0)+(l.queued||0);
+    const btn = document.querySelector('#nav button[data-p=jobs]');
+    let b = btn.querySelector('.navbadge');
+    if(n>0){ if(!b){ b=document.createElement('span'); b.className='navbadge'; btn.appendChild(b);} b.textContent=n; }
+    else if(b) b.remove();
+    window.__live = l;
+  }catch(e){}
+}, 4000);
+
+document.querySelectorAll('#nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#nav button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active'); page = b.dataset.p; clearInterval(timer); render();
+});
+window.switchPage = p => { document.querySelector(`#nav button[data-p=${p}]`).click(); };
+
+async function render(){
+  const m = $('#main');
+  ({dash:renderDash, add:renderAdd, videos:renderVideos, search:renderSearch, sources:renderSources,
+    tracks:renderTracks, libraries:renderLibraries, jobs:renderJobs, login:renderLogin, plugins:renderPlugins,
+    settings:renderSettings})[page](m);
+}
+
+/* ============ 总览 ============ */
+async function renderDash(m){
+  m.innerHTML = '<div class="empty">加载中…</div>';
+  const [st, cfg, libs] = await Promise.all([api('/stats'), api('/config'), api('/libraries').catch(()=>[])]);
+  m.innerHTML = `
+  <div class="pagehead"><h1>总览</h1><span class="desc">归档规模与系统状态</span></div>
+  <div class="sect"><h2>归档规模</h2>
+    <div class="statrow">
+      <div class="stat"><div class="num">${st.archive.videos}</div><div class="lab">视频</div></div>
+      <div class="stat"><div class="num">${st.archive.downloaded}</div><div class="lab">已下载</div></div>
+      <div class="stat"><div class="num">${st.archive.comments}<small> +${st.archive.deleted_comments} 消失</small></div><div class="lab">评论</div></div>
+      <div class="stat"><div class="num">${st.archive.danmaku}</div><div class="lab">弹幕</div></div>
+      <div class="stat"><div class="num">${st.archive.subtitles}</div><div class="lab">字幕</div></div>
+      <div class="stat"><div class="num">${st.archive.snapshots}</div><div class="lab">原始快照</div></div>
+      <div class="stat"><div class="num">${st.sources}</div><div class="lab">监控源</div></div>
+    </div>
+  </div>
+  ${st.archive.videos===0?`<div class="sect"><h2>快速开始</h2><ol style="padding-left:20px;line-height:2;color:var(--sub);font-size:13.5px">
+    <li>到 <a href="#" onclick="switchPage('add');return false">采集</a> 页粘贴一个视频链接或收藏夹，选择同步策略后提交</li>
+    <li>在 <a href="#" onclick="switchPage('jobs');return false">任务</a> 页观察归档进度</li>
+    <li>建议到 <a href="#" onclick="switchPage('login');return false">账号</a> 页扫码登录：解锁 UP 主源与评论消失检测</li>
+  </ol></div>`:''}
+  <div class="sect"><h2>实时</h2>
+    <div class="statrow" id="liveRow">
+      <div class="stat"><div class="num ratenum" id="lvDl">—</div><div class="lab">下载速率 <span class="meta-note" id="lvDlT"></span></div></div>
+      <div class="stat"><div class="num ratenum" id="lvUl">—</div><div class="lab">上传速率 <span class="meta-note" id="lvUlT"></span></div></div>
+      <div class="stat"><div class="num" id="lvRun">—</div><div class="lab">进行中任务</div></div>
+      <div class="stat"><div class="num" id="lvQ">—</div><div class="lab">排队任务</div></div>
+    </div>
+    <div id="lvJobs" style="margin-top:10px"></div>
+  </div>
+  <div class="sect"><h2>系统</h2>
+    <dl class="kv">
+      <dt>B 站登录</dt><dd>${st.login?'<span class="dot ok"></span>已登录':'<span class="dot warn"></span>未登录 — 评论消失检测需要登录（账号页扫码）'}</dd>
+      <dt>ffmpeg</dt><dd>${st.ffmpeg?'<span class="dot ok"></span>可用':'<span class="dot err"></span>不可用'}</dd>
+    </dl>
+  </div>
+  <div class="sect"><h2>源健康</h2><div id="srcHealth"><span class="meta-note">加载中…</span></div></div>
+  <div class="sect"><h2>TeriTeri 多端（播放站 / 审核台）</h2><div id="teriBox"><span class="meta-note">加载中…</span></div></div>
+  <div class="sect"><h2>观看渠道</h2>
+    <dl class="kv">
+      <dt>teriteri 前端</dt><dd>${cfg.frontend_url?`<a href="${esc(cfg.frontend_url)}" target="_blank">${esc(cfg.frontend_url)}</a>`:'未部署 · 可在上方一键安装，或 <span class="meta-note">deploy/docker-compose.yml 的 web 服务</span>'}</dd>
+      <dt>媒体库</dt><dd>${(libs||[]).filter(l=>l.enabled).length} 个已启用 · <a href="#" onclick="switchPage('libraries');return false">管理</a></dd>
+      <dt>内置播放器</dt><dd><a href="/static/teriteri.html" target="_blank">打开</a> <span class="meta-note">轻量预览兜底</span></dd>
+    </dl>
+  </div>`;
+  renderSrcHealth();
+  updateLive();
+  loadTeriteri();
+  if(window.__dashTimer) clearInterval(window.__dashTimer);
+  window.__dashTimer = setInterval(()=>{ if(page==='dash') updateLive(); }, 2000);
+}
+
+async function updateLive(){
+  const l = window.__live || await fetch('/api/v1/live').then(r=>r.json()).catch(()=>null);
+  if(!l) return;
+  const set=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+  set('lvDl', fmtB(l.download_bps)); set('lvDlT', '累计 '+fmtBT(l.download_total));
+  set('lvUl', fmtB(l.upload_bps));   set('lvUlT', '累计 '+fmtBT(l.upload_total));
+  set('lvRun', l.running||0); set('lvQ', l.queued||0);
+  const box = document.getElementById('lvJobs');
+  if(box){
+    const js = l.jobs||[];
+    box.innerHTML = (js.length? js.map(j=>`
+      <div style="display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)">
+        <span class="st" style="min-width:70px">#${j.id} ${esc(j.type)}</span>
+        <div class="pbar" style="flex:1"><i style="width:${Math.max(2,Math.round((j.progress||0)*100))}%"></i></div>
+        <span class="st num" style="min-width:40px">${Math.round((j.progress||0)*100)}%</span>
+        <span class="st" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(j.detail||'')}</span>
+      </div>`).join('') : '<span class="meta-note">当前没有进行中的任务</span>');
+  }
+}
+
+async function renderSrcHealth(){
+  const box = document.getElementById('srcHealth'); if(!box) return;
+  const cfg = await api('/config').catch(()=>null);
+  const srcs = await api('/sources').catch(()=>[]);
+  if(!srcs||!srcs.length){ box.innerHTML='<span class="meta-note">还没有监控源</span>'; return; }
+  const defMin = cfg ? cfg.sync_default_minutes : 360;
+  box.innerHTML = `<table><thead><tr><th>源</th><th>类型</th><th>模式</th><th>上次同步</th><th>下次同步</th><th></th></tr></thead><tbody>`+
+    srcs.map(x=>{
+      let next='—';
+      if(!x.watch) next='<span class="meta-note">已暂停</span>';
+      else if(x.sync_mode==='once') next = x.last_sync_at?'<span class="meta-note">已完成</span>':'首次待同步';
+      else {
+        const iv=(x.sync_interval_minutes||defMin)*60;
+        next = x.last_sync_at ? fmtT(x.last_sync_at+iv) : '待首次同步';
+      }
+      return `<tr><td>${esc(x.title)}</td><td class="st">${esc(x.type)}</td>
+        <td class="st">${x.watch?(x.sync_mode==='once'?'<span class="dot warn"></span>仅一次':'<span class="dot ok"></span>周期'):'<span class="dot off"></span>暂停'}</td>
+        <td class="st">${fmtT(x.last_sync_at)}</td><td class="st">${next}</td>
+        <td><button class="btn sm" onclick="syncSrc(${x.id})">同步</button></td></tr>`;
+    }).join('')+'</tbody></table>';
+}
+
+/* ============ 采集 ============ */
+const TYPE_META = {
+  video:   { name:'单视频', hint:'归档弹幕/评论/字幕/统计。跟踪可选仅一次或周期重同步（周期模式检测消失与变化）。' },
+  space:   { name:'UP主',   hint:'展开全部投稿并持续跟踪。注意：投稿列表接口需已扫码登录。' },
+  favlist: { name:'收藏夹', hint:'展开收藏夹全部视频；新增收藏触发补档。无需登录。' },
+  season:  { name:'合集',   hint:'展开合集全部视频；合集更新触发补档。无需登录。' },
+  series:  { name:'系列',   hint:'展开系列全部视频；系列更新触发补档。无需登录。' },
+};
+function renderAdd(m){
+  m.innerHTML = `
+  <div class="pagehead"><h1>采集</h1><span class="desc">识别链接后展开对应选项</span></div>
+  <div class="sect">
+    <form onsubmit="return false">
+      <div class="field"><label>输入</label>
+        <input type="text" id="inp" placeholder="视频链接 / BV号 / UP主主页 / 收藏夹 / 合集链接"></div>
+      <div id="recognize"></div>
+      <div id="baseOpts" style="display:none" class="inline">
+        <label class="check"><input type="checkbox" id="dl" checked><span id="dlLabel">下载视频文件</span></label>
+        <label class="check"><input type="checkbox" id="watch" checked><span id="watchLabel"></span></label>
+      </div>
+      <div id="typeOpts" style="display:none">
+        <div class="inline">
+          <div class="field"><label>同步模式</label>
+            <select id="syncMode"><option value="interval">周期同步</option><option value="once">仅一次</option></select></div>
+          <div class="field"><label>主刷新间隔（分）</label><input type="number" id="ivMain" value="0" min="0"><span class="hint">0 = 全局默认</span></div>
+        </div>
+        <div class="inline">
+          <div class="field"><label>评论间隔（分）</label><input type="number" id="ivCmt" value="0" min="-1"><span class="hint">-1 = 从不 · 0 = 跟随主间隔</span></div>
+          <div class="field"><label>弹幕间隔（分）</label><input type="number" id="ivDm" value="0" min="-1"></div>
+          <div class="field"><label>字幕间隔（分）</label><input type="number" id="ivSub" value="0" min="-1"></div>
+        </div>
+        <div class="meta-note" id="syncHint" style="margin-top:-4px;line-height:1.7"></div>
+      </div>
+      <div class="actions" style="margin-top:4px">
+        <button class="btn primary" id="go">开始归档</button>
+        <button class="btn" id="rebuild">重建媒体库</button>
+      </div>
+    </form>
+    <p></p><div class="pre" id="out" style="display:none"></div>
+  </div>`;
+  let t=null;
+  $('#inp').addEventListener('input', ()=>{ clearTimeout(t); t=setTimeout(()=>recognizeInput(++recogSeq),350); });
+  $('#syncMode').addEventListener('change', updateSyncHint);
+  $('#go').onclick = async () => {
+    const v=$('#inp').value.trim(); if(!v) return;
+    const out=$('#out'); out.style.display='block'; out.textContent='提交中…';
+    const submit = confirmHot => api('/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        input:v, download:$('#dl')?.checked, watch:$('#watch')?.checked,
+        sync_mode:$('#syncMode')?.value||'interval', interval_minutes:+($('#ivMain')?.value)||0,
+        interval_comments:+($('#ivCmt')?.value)||0, interval_danmaku:+($('#ivDm')?.value)||0,
+        interval_subtitles:+($('#ivSub')?.value)||0, confirm_hot:confirmHot})});
+    try{
+      let r=await submit(false);
+      if(r.need_confirm){
+        out.style.display='block'; out.textContent=r.reason;
+        if(!confirm(r.reason)) { out.textContent='已取消'; return; }
+        r=await submit(true);
+      }
+      $('#inp').value=''; $('#recognize').innerHTML='';
+      $('#baseOpts').style.display='none'; $('#typeOpts').style.display='none';
+      out.style.display='none';
+      toast('已入队，可在任务页跟踪进度', 'ok');
+      const ok=document.createElement('div');
+      ok.className='banner ok';
+      ok.innerHTML='已入队（'+esc(r.type||'')+'）· <a href="#" onclick="switchPage(\'jobs\');return false">查看任务进度</a>'+(r.mode==='once'?' · 仅一次模式':'');
+      $('#recognize').appendChild(ok);
+      $('#inp').focus();
+    }catch(e){
+      out.style.display='block'; out.textContent='失败：'+e;
+    }
+  };
+  $('#rebuild').onclick = async () => {
+    const out=$('#out'); out.style.display='block'; out.textContent='重建中…';
+    try{ out.textContent=JSON.stringify(await api('/media/rebuild',{method:'POST'}),null,1);}catch(e){out.textContent='失败：'+e;}
+  };
+}
+const WATCH_LABELS = {
+  video:'跟踪该视频（周期重同步检测消失）', space:'持续监控（新投稿自动归档，需登录）',
+  favlist:'持续监控（新收藏自动归档）', season:'持续监控（合集更新自动归档）', series:'持续监控（系列更新自动归档）' };
+const DL_LABELS = {
+  video:'下载视频文件', space:'新视频自动下载（触发器）', favlist:'新视频自动下载（触发器）',
+  season:'新视频自动下载（触发器）', series:'新视频自动下载（触发器）' };
+let curType = '';
+function syncHintText(type, mode){
+  if(type==='video'){
+    return mode==='once'
+      ? '仅归档一次，之后不再跟踪（无消失检测）。单视频不涉及新视频触发器。'
+      : '周期重同步：刷新播放量/统计并检测评论、弹幕消失。单视频不涉及新视频触发器。';
+  }
+  if(mode==='once'){
+    return '仅一次：首次归档后自动停止监控——不再发现新视频，也不再刷新数据。';
+  }
+  return '按间隔周期刷新评论/弹幕/字幕与统计，并在此过程中发现新视频。'
+    +'新视频是否自动下载由「新视频触发器」控制，可随时在监控源页调整；触发器关闭时新视频仍会归档数据，只是不下载文件。';
+}
+function updateSyncHint(){
+  const el=$('#syncHint'); if(!el||!curType) return;
+  const mode=$('#syncMode')?.value||'interval';
+  el.textContent=syncHintText(curType, mode);
+  el.style.color=(curType!=='video'&&mode==='once')?'var(--warn)':'';
+}
+function showTypeUI(type){
+  curType=type;
+  $('#baseOpts').style.display='flex';
+  $('#watchLabel').textContent=WATCH_LABELS[type]||'监控';
+  $('#dlLabel').textContent=DL_LABELS[type]||'下载视频文件';
+  $('#typeOpts').style.display='block';
+  updateSyncHint();
+}
+async function recognizeInput(seq){
+  const box=$('#recognize'), val=$('#inp').value.trim();
+  if(!val){ box.innerHTML=''; curType=''; $('#baseOpts').style.display='none'; $('#typeOpts').style.display='none'; return; }
+  if(val.includes('b23.tv')){
+    box.innerHTML='<div class="banner info">b23 短链 — 提交时自动展开识别</div>';
+    showTypeUI('video'); return;
+  }
+  const r=await api('/resolve?input='+encodeURIComponent(val));
+  if(seq!==recogSeq) return;
+  const meta=TYPE_META[r.type];
+  if(!r.ok||!meta){
+    box.innerHTML=`<div class="banner warn">未识别 — ${esc(r.message||'请检查格式，或使用完整链接')}</div>`;
+    $('#baseOpts').style.display='none'; $('#typeOpts').style.display='none'; return;
+  }
+  box.innerHTML=`<div class="banner ok"><b>${meta.name}</b> ${esc(r.ext_id)} — ${meta.hint}</div>`;
+  showTypeUI(r.type);
+}
+
+/* ============ 归档项目 ============ */
+async function renderVideos(m){
+  m.innerHTML = `
+  <div class="pagehead"><h1>归档项目</h1><span class="desc">状态与完整度 · 观看请使用 teriteri 或媒体库</span></div>
+  <div class="sect">
+    <div class="actions" style="margin-bottom:12px">
+      <input type="text" id="q" placeholder="搜索标题/简介…" style="max-width:280px;padding:7px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13.5px">
+      <button class="btn" id="s">搜索</button>
+    </div>
+    <div id="list" class="empty">加载中…</div>
+  </div>`;
+  const load = async () => {
+    const q=encodeURIComponent($('#q').value.trim());
+    const vs=await api('/videos?limit=100'+(q?`&q=${q}`:''));
+    $('#list').innerHTML = (vs.length?`<table><thead><tr><th></th><th>项目</th><th>完整度</th><th>状态</th><th>最后同步</th><th></th></tr></thead><tbody>`+
+      vs.map(v=>`<tr>
+        <td class="thumb"><img src="${esc(v.pic)}" loading="lazy" onerror="this.style.visibility='hidden'"></td>
+        <td><a href="#" onclick="openArchive('${v.bvid}');return false">${esc(v.title)}</a>
+            <div class="cell-sub">${esc(v.owner_name)} · ${esc(v.bvid)}</div></td>
+        <td class="tagtext">视频 <b>${v.downloaded?'✓':'—'}</b> · 评论 <b>${v.comments_visible}</b>${v.comments_deleted?` <span style="color:var(--faint)">(+${v.comments_deleted} 消失)</span>`:''} · 弹幕 <b>${v.danmaku_count}</b> · 字幕 <b>${v.subtitle_count}</b></td>
+        <td class="st">${v.status==='ok'?'<span class="dot ok"></span>正常':'<span class="dot err"></span>'+esc(v.status)}</td>
+        <td class="st">${fmtT(v.last_sync_at)}</td>
+        <td><div class="actions">
+          <button class="btn sm" onclick="syncOne('${v.bvid}', this)">重同步</button>
+          ${v.downloaded?'':`<button class="btn sm" onclick="dlVideo('${v.bvid}', this)">下载</button>`}
+          <button class="btn sm" onclick="window.open('/api/v1/videos/${v.bvid}/card','_blank')">卡片</button>
+        </div></td></tr>`).join('')+'</tbody></table>':'<div class="empty">没有归档项目</div>');
+  };
+  $('#s').onclick=load; $('#q').onkeydown=e=>{if(e.key==='Enter')load();};
+  await load();
+}
+window.syncOne = async (b, el) => {
+  const submit = confirmHot => api(`/videos/${b}/archive`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({download:false, confirm_hot:confirmHot})});
+  try{
+    let r=await submit(false);
+    if(r.need_confirm && !confirm(r.reason)){ return; }
+    if(r.need_confirm) r=await submit(true);
+    toast('已入队重同步 '+b, 'ok'); if(el){el.disabled=true; el.textContent='已入队';}
+  }catch(e){ toast('重同步入队失败：'+e, 'err'); }
+};
+window.dlVideo = async (b, el) => {
+  try{ await api(`/videos/${b}/download`,{method:'POST'});
+       toast('已加入下载队列 '+b, 'ok'); if(el){el.disabled=true; el.textContent='排队中';}
+  }catch(e){ toast('下载入队失败：'+e, 'err'); }
+};
+window.openArchive = async b => {
+  const d=await api('/videos/'+b), v=d.video;
+  window.__hist = d.stats_history||[];
+  const back = page==='search' ? {p:'search', t:'搜索'} : {p:'videos', t:'归档项目'};
+  const tagsBili=(d.tags['bilibili']||[]).join(' · ');
+  const tagsAI=Object.entries(d.tags).filter(([k])=>k!=='bilibili').map(([o,ts])=>ts.map(t=>`${esc(t)} <span class="origin">${esc(o)}</span>`).join(' · ')).join('<br>');
+  const hist=d.stats_history||[], maxV=Math.max(1,...hist.map(x=>x.view));
+  const spark=hist.length?`<span class="spark">${hist.slice(-24).map(x=>`<i style="height:${Math.max(6,Math.round(x.view/maxV*100))}%"></i>`).join('')}</span>`:'<span class="meta-note">暂无</span>';
+  const last=hist[hist.length-1];
+  $('#main').innerHTML=`
+  <a class="backlink" href="#" onclick="switchPage('${back.p}');return false">← ${back.t}</a>
+  <div class="pagehead"><h1>${esc(v.title)}</h1><span class="desc">${esc(v.bvid)}</span></div>
+  <div class="sect"><h2>档案</h2>
+    <dl class="kv">
+      <dt>UP主</dt><dd>${esc(v.owner_name)}</dd>
+      <dt>发布</dt><dd>${fmtT(v.pubdate)}</dd>
+      <dt>状态</dt><dd>${v.status==='ok'?'<span class="dot ok"></span>正常':'<span class="dot err"></span>'+esc(v.status)} · 首次归档 ${fmtT(v.first_archived_at)}</dd>
+      <dt>完整度</dt><dd>视频 ${v.downloaded?'✓':'未下载'} · 评论 ${d.comments.visible} 现存${d.comments.deleted?` + ${d.comments.deleted} 已消失（保留）`:''} · 分P ×${v.pages_count}</dd>
+      <dt>B站标签</dt><dd class="tagtext">${esc(tagsBili)||'—'}</dd>
+      ${tagsAI?`<dt>AI标签</dt><dd class="tagtext">${tagsAI}</dd>`:''}
+      <dt>简介</dt><dd style="white-space:pre-wrap">${esc(v.description)||'—'}</dd>
+      ${v.local_path?`<dt>媒体文件</dt><dd><span class="path">${esc(v.local_path)}</span></dd>`:''}
+      ${d.source?`<dt>关联源</dt><dd>${esc(d.source.title)}（${esc(d.source.type)}）</dd>`:''}
+    </dl>
+    <p></p><div class="actions">
+      <button class="btn" onclick="syncOne('${v.bvid}', this)">重同步</button>
+      ${v.downloaded?'':`<button class="btn primary" onclick="dlVideo('${v.bvid}', this)">下载视频</button>`}
+      <a class="btn" href="/static/teriteri.html#/v/${esc(v.bvid)}" target="_blank">播放器预览</a>
+      <a class="btn" href="/api/v1/videos/${esc(v.bvid)}/card" target="_blank">预览卡片</a>
+      <a class="btn" href="/api/v1/videos/${esc(v.bvid)}/card?download=1">下载卡片</a>
+      <span class="meta-note">快速预览卡片（derived 层，供日后分享功能使用）</span>
+    </div>
+  </div>
+  <div class="sect"><h2>统计曲线 <span class="origin">origin: bilibili 快照</span></h2>
+    ${spark}
+    ${last?`<dl class="kv" style="margin-top:10px">
+      <dt>最新</dt><dd>播放 ${fmtN(last.view)} · 点赞 ${fmtN(last.like)} · 收藏 ${fmtN(last.favorite)} · 投币 ${fmtN(last.coin)}</dd>
+      <dt>快照次数</dt><dd>${hist.length}</dd></dl>`:''}
+    ${hist.length>1?`<div class="actions" style="margin-top:10px"><button class="btn sm" id="histBtn" onclick="toggleHist()">展开快照明细（${hist.length} 次）</button></div>
+    <div id="histTable" style="display:none;margin-top:10px"></div>`:''}
+  </div>
+  <div class="sect"><h2>评论审计 <span class="origin">消失内容与现存共存</span></h2>
+    <div class="actions" style="margin-bottom:10px">
+      <input type="text" id="cmtFilter" placeholder="过滤评论内容/用户…" oninput="filterCmts()" style="max-width:240px;padding:6px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13px">
+      <label class="check" style="font-size:12.5px;color:var(--sub)"><input type="checkbox" id="cmtDelOnly" onchange="loadCmts()"> 只看已消失</label>
+    </div>
+    <div id="cmtList" class="meta-note">加载中…</div>
+    <div class="actions" style="margin-top:8px"><button class="btn sm" id="cmtMore" style="display:none" onclick="loadCmts(true)">加载更多</button></div>
+  </div>
+  <div class="sect"><h2>弹幕审计</h2>
+    <div id="dmSummary" class="meta-note">加载中…</div>
+    <div id="dmList" style="margin-top:8px"></div>
+  </div>
+  ${d.ai_conclusion?`<div class="sect"><h2>官方AI小结 <span class="origin">origin: bilibili:ai-conclusion</span></h2><div style="white-space:pre-wrap;font-size:13px;line-height:1.7">${esc(d.ai_conclusion.summary)}</div></div>`:''}
+  ${(d.summaries||[]).map(s=>`<div class="sect"><h2>AI总结 <span class="origin">${esc(s.origin)} · ${esc(s.model)}</span></h2><div style="white-space:pre-wrap;font-size:13px;line-height:1.7">${esc(s.content)}</div></div>`).join('')}`;
+  window.scrollTo(0,0);
+};
+window.toggleHist = () => {
+  const box = document.getElementById('histTable'); if(!box) return;
+  const hist = window.__hist||[], btn = document.getElementById('histBtn');
+  if(box.style.display==='none'){
+    box.innerHTML = `<table><thead><tr><th>快照时间</th><th class="num">播放</th><th class="num">点赞</th><th class="num">投币</th><th class="num">收藏</th><th class="num">弹幕</th><th class="num">评论</th><th class="num">分享</th></tr></thead><tbody>`+
+      hist.slice().reverse().map(x=>`<tr><td class="st">${fmtT(x.ts)}</td>
+        <td class="num">${fmtN(x.view)}</td><td class="num">${fmtN(x.like)}</td><td class="num">${fmtN(x.coin)}</td><td class="num">${fmtN(x.favorite)}</td>
+        <td class="num">${fmtN(x.danmaku)}</td><td class="num">${fmtN(x.reply)}</td><td class="num">${fmtN(x.share)}</td></tr>`).join('')+'</tbody></table>';
+    box.style.display=''; if(btn) btn.textContent='收起快照明细';
+  }else{
+    box.style.display='none'; if(btn) btn.textContent=`展开快照明细（${hist.length} 次）`;
+  }
+};
+
+/* ============ 评论/弹幕审计 ============ */
+let cmtOffset = 0, cmtTotal = 0;
+async function loadCmts(more){
+  const bvid = document.querySelector('.pagehead .desc')?.textContent?.trim();
+  if(!bvid) return;
+  if(!more){ cmtOffset = 0; document.getElementById('cmtList').innerHTML='<span class="meta-note">加载中…</span>'; }
+  const delOnly = document.getElementById('cmtDelOnly').checked;
+  const list = await api(`/videos/${bvid}/comments?limit=100&offset=${cmtOffset}`+(delOnly?'&status=deleted':''));
+  cmtOffset += list.length;
+  const box = document.getElementById('cmtList');
+  if(!more) box.innerHTML = list.length?'':'<span class="meta-note">暂无评论</span>';
+  for(const c of list){
+    const el = document.createElement('div');
+    el.className='cmtrow'; el.dataset.text=(c.content+' '+c.member_name).toLowerCase();
+    el.style.cssText='padding:8px 0;border-bottom:1px solid var(--line);display:'+(c.status==='deleted'?'':'');
+    el.innerHTML = `<div style="display:flex;gap:10px;align-items:baseline">
+      <span class="st">${c.status==='deleted'?'<span class="dot err"></span>已消失':'<span class="dot ok"></span>现存'}</span>
+      <b style="font-weight:500;font-size:13px">${esc(c.member_name)||'匿名'}</b>
+      <span class="meta-note">👍 ${fmtN(c.like_count)} · ${fmtT(c.ctime)}${c.location?' · '+esc(c.location):''}</span>
+      ${c.status==='deleted'?`<span class="meta-note" style="color:var(--err)">消失于 ${fmtT(c.deleted_at)}</span>`:''}
+      ${c.root_rpid&&c.root_rpid!==c.rpid?'<span class="meta-note">· 楼中楼</span>':''}
+    </div>
+    <div style="font-size:13px;margin:3px 0 0 0;${c.status==='deleted'?'color:var(--faint);text-decoration:line-through':''}">${esc(c.content)}</div>`;
+    box.appendChild(el);
+  }
+  document.getElementById('cmtMore').style.display = list.length>=100 ? '' : 'none';
+  filterCmts();
+}
+function filterCmts(){
+  const q = (document.getElementById('cmtFilter').value||'').toLowerCase();
+  document.querySelectorAll('#cmtList .cmtrow').forEach(el=>{
+    el.style.display = !q || el.dataset.text.includes(q) ? '' : 'none';
+  });
+}
+async function loadDmAudit(){
+  const bvid = document.querySelector('.pagehead .desc')?.textContent?.trim();
+  if(!bvid) return;
+  const all = await api(`/videos/${bvid}/danmaku`);
+  const del = all.filter(x=>x.status==='deleted');
+  const vis = all.filter(x=>x.status!=='deleted');
+  document.getElementById('dmSummary').innerHTML =
+    `现存 <b>${vis.length}</b> · 已消失 <b style="color:var(--err)">${del.length}</b>` + (del.length?'（消失内容在下方灰显）':'');
+  const box = document.getElementById('dmList');
+  const rows = [...del.slice(0,20).map(x=>({...x,del:true})), ...vis.slice(-30).reverse()].slice(0,50);
+  box.innerHTML = rows.map(x=>`<div style="padding:4px 0;border-bottom:1px solid var(--line);font-size:12.5px;${x.del?'color:var(--faint);text-decoration:line-through':''}">
+    <span class="meta-note">[${Math.floor(x.timepoint/1000)}s]</span> ${esc(x.content)}
+    ${x.del?'<span class="meta-note" style="color:var(--err)"> · 消失于 '+fmtT(x.deleted_at)+'</span>':''}
+  </div>`).join('') || '<span class="meta-note">暂无弹幕</span>';
+}
+
+/* ============ 评论搜索 ============ */
+const hlTerms = (escaped, q) => {
+  const terms = q.split(/\s+/).filter(Boolean).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if(!terms.length) return escaped;
+  try{ return escaped.replace(new RegExp('('+terms.join('|')+')','gi'), '<mark>$1</mark>'); }
+  catch(e){ return escaped; }
+};
+async function renderSearch(m){
+  m.innerHTML = `
+  <div class="pagehead"><h1>搜索</h1><span class="desc">全部归档评论的全文检索 · 含已消失评论 · 空格分隔多关键词前缀匹配</span></div>
+  <div class="sect">
+    <div class="actions" style="margin-bottom:12px">
+      <input type="text" id="sq" placeholder="关键词，空格分隔多个，如：感谢 教程" style="max-width:320px;padding:7px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13.5px">
+      <select id="sst" style="width:auto">
+        <option value="">全部状态</option>
+        <option value="visible">仅现存</option>
+        <option value="deleted">仅已消失</option>
+      </select>
+      <button class="btn primary" id="sgo">搜索</button>
+    </div>
+    <div id="sres"><div class="empty">输入关键词开始检索</div></div>
+  </div>`;
+  const run = async () => {
+    const q = $('#sq').value.trim();
+    const box = $('#sres');
+    if(!q){ box.innerHTML = '<div class="empty">输入关键词开始检索</div>'; return; }
+    box.innerHTML = '<div class="empty">搜索中…</div>';
+    try{
+      const st = $('#sst').value;
+      const r = await api('/comments/search?q='+encodeURIComponent(q)+(st?`&status=${st}`:''));
+      const hits = r.hits||[];
+      if(!hits.length){ box.innerHTML = '<div class="empty">没有匹配的评论</div>'; return; }
+      box.innerHTML = `<div class="meta-note" style="margin-bottom:8px">命中 ${r.total} 条 · 按评论时间倒序${r.total>=100?'（已达单次上限，可加关键词缩小范围）':''}</div>
+      <table><thead><tr><th style="width:55%">评论</th><th>状态</th><th>来源视频</th></tr></thead><tbody>`+
+      hits.map(h=>{
+        const del = h.status==='deleted';
+        return `<tr>
+        <td><div style="font-size:13px;line-height:1.55;${del?'color:var(--faint);text-decoration:line-through':''}">${hlTerms(esc(h.content), q)}</div>
+          <div class="cell-sub"><b style="font-weight:500;color:var(--txt)">${esc(h.member_name)||'匿名'}</b> · ${fmtT(h.ctime)} · 👍 ${fmtN(h.like_count)}${h.location?' · '+esc(h.location):''}
+          ${h.root_rpid&&h.root_rpid!==h.rpid?' · 楼中楼':''}
+          ${del?` · <span style="color:var(--err);text-decoration:none">消失于 ${fmtT(h.deleted_at)}</span>`:''}</div></td>
+        <td class="st">${del?'<span class="dot err"></span>已消失':'<span class="dot ok"></span>现存'}</td>
+        <td class="st"><a href="#" onclick="openArchive('${h.bvid}');return false">${esc(h.video_title)||esc(h.bvid)}</a>
+          <div class="cell-sub">${esc(h.owner_name)||''} · ${esc(h.bvid)}</div></td>
+        </tr>`;
+      }).join('')+'</tbody></table>';
+    }catch(e){ box.innerHTML = `<div class="banner warn">搜索失败：${esc(String(e))}</div>`; }
+  };
+  $('#sgo').onclick = run;
+  $('#sq').onkeydown = e => { if(e.key==='Enter') run(); };
+  $('#sst').onchange = () => { if($('#sq').value.trim()) run(); };
+  $('#sq').focus();
+}
+
+/* ============ 监控源 ============ */
+async function renderSources(m){
+  const srcs=await api('/sources');
+  const cfg=await api('/config').catch(()=>null);
+  window.__gAuto = cfg ? !!cfg.auto_download : null;
+  const trigTxt = s => s.type==='video' ? '<span class="meta-note">—</span>'
+    : s.auto_download===1 ? '<span class="dot ok"></span>自动下载'
+    : s.auto_download===-1 ? '<span class="dot off"></span>仅归档数据'
+    : `<span class="dot run"></span>跟随全局${window.__gAuto===null?'':`（当前${window.__gAuto?'开':'关'}）`}`;
+  m.innerHTML=`
+  <div class="pagehead"><h1>监控源</h1><span class="desc">周期刷新评论/统计数据 · 新视频触发器决定是否自动下载</span></div>
+  <div class="sect">
+    ${(srcs&&srcs.length)?`<table><thead><tr><th>源</th><th>类型</th><th>模式</th><th>新视频触发器</th><th>刷新间隔 主/评论/弹幕/字幕</th><th>上次同步</th><th></th></tr></thead><tbody>`+
+    srcs.map(s=>`<tr>
+      <td><b style="font-weight:500">${esc(s.title)}</b><div class="cell-sub">${esc(s.ext_id)}</div></td>
+      <td class="st">${esc(s.type)}</td>
+      <td class="st">${s.watch?(s.sync_mode==='once'?'<span class="dot warn"></span>仅一次':'<span class="dot ok"></span>周期'):'<span class="dot off"></span>暂停'}</td>
+      <td class="st">${trigTxt(s)}</td>
+      <td class="st">${s.sync_interval_minutes||'默认'} / ${ivTxt(s.interval_comments_minutes)} / ${ivTxt(s.interval_danmaku_minutes)} / ${ivTxt(s.interval_subtitles_minutes)}</td>
+      <td class="st">${fmtT(s.last_sync_at)}</td>
+      <td><div class="actions">
+        <button class="btn sm" onclick="syncSrc(${s.id})">同步</button>
+        <button class="btn sm" onclick="editSrc(${s.id})">设置</button>
+        <button class="btn sm danger" onclick="delSrc(${s.id})">删除</button>
+      </div></td></tr>`).join('')+'</tbody></table>':'<div class="empty">还没有监控源，去「采集」页添加</div>'}
+  </div>
+  <div class="sect" id="srcEdit" style="display:none"><h2>编辑源 #<span id="seId"></span></h2>
+    <form onsubmit="return false">
+      <div class="inline">
+        <label class="check"><input type="checkbox" id="seWatch"> 监控</label>
+        <div class="field"><label>模式</label><select id="seMode"><option value="interval">周期同步</option><option value="once">仅一次</option></select><span class="hint" id="seModeHint"></span></div>
+        <div class="field"><label>主刷新间隔（分）</label><input type="number" id="seIvMain" min="0"></div>
+        <div class="field" id="seTrigField"><label>新视频触发器</label><select id="seTrig"><option value="0">跟随全局</option><option value="1">开启（自动下载）</option><option value="-1">关闭（仅归档数据）</option></select><span class="hint" id="seTrigHint"></span></div>
+      </div>
+      <div class="inline">
+        <div class="field"><label>评论</label><input type="number" id="seIvCmt" min="-1"></div>
+        <div class="field"><label>弹幕</label><input type="number" id="seIvDm" min="-1"></div>
+        <div class="field"><label>字幕</label><input type="number" id="seIvSub" min="-1"></div>
+      </div>
+      <div class="actions"><button class="btn primary" onclick="saveSrc()">保存</button>
+      <span class="meta-note">-1 = 从不 · 0 = 跟随主间隔/全局默认</span></div>
+    </form>
+  </div>`;
+  $('#seMode').onchange=seHints; $('#seTrig').onchange=seHints;
+}
+const ivTxt = v => v===-1?'从不':(v?v+'分':'跟随');
+function seHints(){
+  const mode=$('#seMode').value;
+  $('#seModeHint').textContent = mode==='once'
+    ? '仅一次：首次同步后自动停止监控，不再发现新视频或刷新数据'
+    : '周期刷新评论/弹幕/字幕与统计，并在此过程中发现新视频';
+  const t=$('#seTrig').value;
+  $('#seTrigHint').textContent = t==='0'
+    ? (window.__gAuto==null?'继承全局 download.auto_download 设置':`全局当前为「${window.__gAuto?'开':'关'}」，随全局设置变化`)
+    : (t==='1'?'发现新视频即自动下载并进跟踪列表':'新视频仅归档数据，不下载文件');
+}
+window.syncSrc = async id => { try{ await api(`/sources/${id}/sync`,{method:'POST'}); toast('源同步已入队','ok'); }catch(e){ toast('失败：'+e,'err'); } };
+window.delSrc = async id => { if(confirm('删除该监控源？已归档数据不受影响')){ await api(`/sources/${id}`,{method:'DELETE'}); renderSources($('#main')); } };
+window.editSrc = id => api('/sources').then(srcs=>{
+  const s=srcs.find(x=>x.id===id); if(!s) return;
+  $('#seId').textContent=id; $('#seWatch').checked=s.watch; $('#seMode').value=s.sync_mode||'interval';
+  $('#seIvMain').value=s.sync_interval_minutes||0; $('#seIvCmt').value=s.interval_comments_minutes??0;
+  $('#seIvDm').value=s.interval_danmaku_minutes??0; $('#seIvSub').value=s.interval_subtitles_minutes??0;
+  $('#seTrig').value=String(s.auto_download||0);
+  $('#srcEdit').dataset.type=s.type||'';
+  $('#seTrigField').style.display=(s.type==='video')?'none':'';
+  seHints();
+  $('#srcEdit').style.display='block'; $('#srcEdit').scrollIntoView({behavior:'smooth'});
+});
+window.saveSrc = async () => {
+  const id=$('#seId').textContent, type=$('#srcEdit').dataset.type;
+  const body={watch:$('#seWatch').checked, sync_mode:$('#seMode').value, interval_minutes:+$('#seIvMain').value||0,
+    interval_comments:+$('#seIvCmt').value||0, interval_danmaku:+$('#seIvDm').value||0, interval_subtitles:+$('#seIvSub').value||0};
+  if(type!=='video') body.auto_download=+$('#seTrig').value||0;
+  try{ await api('/sources/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast('源设置已保存','ok'); renderSources($('#main'));
+  }catch(e){ toast('保存失败：'+e,'err'); }
+};
+
+/* ============ 跟踪列表 ============ */
+let tkState = '', tkQ = '', tkOffset = 0;
+const TK_PAGE = 20;
+async function renderTracks(m){
+  m.innerHTML = `
+  <div class="pagehead"><h1>跟踪列表</h1><span class="desc">监控源触发器发现的新视频，自动归档并下载一次</span></div>
+  <div class="sect">
+    <div class="tabs" id="tkTabs">
+      <button data-st="">全部<span class="n" id="tkN"></span></button>
+      <button data-st="done"><span class="dot ok"></span>已下载<span class="n" id="tkNdone"></span></button>
+      <button data-st="queued"><span class="dot run"></span>排队中<span class="n" id="tkNqueued"></span></button>
+      <button data-st="failed"><span class="dot err"></span>失败<span class="n" id="tkNfailed"></span></button>
+    </div>
+    <div class="actions" style="margin-bottom:12px">
+      <input type="text" id="tkq" placeholder="搜索标题 / UP主 / BV号…" value="${esc(tkQ)}" style="max-width:260px;padding:7px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13.5px">
+      <button class="btn" id="tkgo">搜索</button>
+      ${(tkState||tkQ)?'<button class="btn" id="tkreset">清除筛选</button>':''}
+    </div>
+    <div id="tklist" class="empty">加载中…</div>
+    <div class="pgn" id="tkpgn"></div>
+  </div>`;
+  document.querySelectorAll('#tkTabs button').forEach(b => {
+    b.classList.toggle('active', b.dataset.st===tkState);
+    b.onclick = () => { tkState=b.dataset.st; tkOffset=0; loadTk(); };
+  });
+  const run = () => { tkQ=$('#tkq').value.trim(); tkOffset=0; loadTk(); };
+  $('#tkgo').onclick = run;
+  $('#tkq').onkeydown = e => { if(e.key==='Enter') run(); };
+  const reset = $('#tkreset');
+  if(reset) reset.onclick = () => { tkState=''; tkQ=''; tkOffset=0; renderTracks($('#main')); };
+  await loadTk();
+}
+const tkSetN = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=fmtN(v); };
+async function loadTk(){
+  const list=document.getElementById('tklist'); if(!list) return;
+  list.innerHTML='<div class="empty">加载中…</div>';
+  try{
+    const qp=new URLSearchParams();
+    if(tkState) qp.set('state',tkState);
+    if(tkQ) qp.set('q',tkQ);
+    qp.set('limit',TK_PAGE); qp.set('offset',tkOffset);
+    const r = await api('/tracks?'+qp);
+    const c=r.counts||{};
+    tkSetN('tkN', r.total||0); tkSetN('tkNdone', c.done||0); tkSetN('tkNqueued', c.queued||0); tkSetN('tkNfailed', c.failed||0);
+    const items=r.items||[];
+    const pg=document.getElementById('tkpgn');
+    if(!items.length){
+      list.innerHTML = `<div class="empty">${tkQ?'没有匹配的跟踪记录':(tkState==='failed'?'没有失败的跟踪记录':(tkState==='queued'?'没有排队中的记录':(tkState==='done'?'还没有已下载的跟踪记录':'暂无记录——在「监控源」的设置里开启「新视频触发器」，源内出现新视频时会自动下载并记录在这里')))}</div>`;
+      pg.style.display='none'; return;
+    }
+    list.innerHTML = `<table><thead><tr><th>视频</th><th>UP主</th><th>来源</th><th>状态</th><th>发现时间</th></tr></thead><tbody>`+
+      items.map(t=>{
+        const st = t.state==='done' ? '<span class="dot ok"></span>已下载'
+          : (t.state==='failed' ? '<span class="dot err"></span>失败' : '<span class="dot run"></span>排队/进行中');
+        return `<tr>
+        <td>${t.title?`<a href="#" onclick="openArchive('${t.bvid}');return false">${esc(t.title)}</a>`:'<b style="font-weight:500">（归档中）</b>'}
+          <div class="cell-sub">${esc(t.bvid)}${t.downloaded?' · 文件在库':''}</div></td>
+        <td class="st">${esc(t.owner_name)||'—'}</td>
+        <td class="st">${t.source_id?(esc(t.source_title)||('源 #'+t.source_id)):'—'}</td>
+        <td class="st">${st}${t.state==='failed'&&t.error?`<div class="cell-sub" style="color:var(--err);max-width:280px;white-space:normal">${esc(t.error)}</div>`:''}</td>
+        <td class="st">${fmtT(t.created_at)}</td>
+        </tr>`;
+      }).join('')+'</tbody></table>';
+    const pages = Math.max(1, Math.ceil((r.total||0)/TK_PAGE));
+    const page = Math.floor(tkOffset/TK_PAGE)+1;
+    if(pages<=1){ pg.style.display='none'; return; }
+    pg.style.display='flex';
+    pg.innerHTML = `<button class="btn sm" id="tkprev" ${page<=1?'disabled':''}>上一页</button>
+      <span>第 ${page} / ${pages} 页 · 共 ${fmtN(r.total)} 条</span>
+      <button class="btn sm" id="tknext" ${page>=pages?'disabled':''}>下一页</button>`;
+    const prev=document.getElementById('tkprev'), next=document.getElementById('tknext');
+    if(prev) prev.onclick = () => { tkOffset=(page-2)*TK_PAGE; loadTk(); };
+    if(next) next.onclick = () => { tkOffset=page*TK_PAGE; loadTk(); };
+  }catch(e){
+    list.innerHTML = `<div class="banner warn">加载失败：${esc(String(e))}</div>`;
+  }
+}
+
+/* ============ 媒体库 ============ */
+async function renderLibraries(m){
+  const libs=await api('/libraries');
+  m.innerHTML=`
+  <div class="pagehead"><h1>媒体库</h1><span class="desc">独立配置输出路径与元数据，可按标签路由</span>
+    <span class="spacer"></span><button class="btn primary" onclick="newLib()">新建媒体库</button>
+    <button class="btn" onclick="rebuildAll()">全部重建</button></div>
+  <div class="sect">
+    ${(libs&&libs.length)?`<table><thead><tr><th>名称</th><th>路径</th><th>布局</th><th>链接</th><th>元数据</th><th>路由</th><th></th></tr></thead><tbody>`+
+    libs.map(l=>{
+      let rule='所有视频';
+      try{ const rr=JSON.parse(l.match_rules||'{}');
+        if(rr.tags&&rr.tags.length) rule='标签: '+rr.tags.join(', ');
+        else if(rr.owner_mids&&rr.owner_mids.length) rule='UP主: '+rr.owner_mids.join(', '); }catch(e){}
+      return `<tr>
+      <td><b style="font-weight:500">${esc(l.name)}</b>${l.enabled?'':' <span class="meta-note">(停用)</span>'}</td>
+      <td><span class="path">${esc(l.root_path)}</span></td>
+      <td class="st">${esc(l.layout)}</td><td class="st">${esc(l.link_mode)}</td>
+      <td class="st">${esc(l.metadata_format)}</td><td class="st">${esc(rule)}</td>
+      <td><div class="actions">
+        <button class="btn sm" onclick="editLib(${l.id})">编辑</button>
+        <button class="btn sm danger" onclick="delLib(${l.id})">删除</button>
+      </div></td></tr>`;}).join('')+'</tbody></table>':'<div class="empty">还没有媒体库配置</div>'}
+  </div>
+  <div class="sect" id="libEdit" style="display:none"><h2 id="leTitle">新建媒体库</h2>
+    <form onsubmit="return false">
+      <div class="inline">
+        <div class="field"><label>名称</label><input type="text" id="leName"></div>
+        <div class="field" style="flex:2"><label>输出路径</label><input type="text" id="leRoot" placeholder="D:\\media\\bili 或 /srv/media/bili"></div>
+      </div>
+      <div class="inline">
+        <div class="field"><label>布局</label><select id="leLayout">
+          <option value="movie">电影（每视频一部）</option><option value="show">剧集（UP主=剧集）</option></select></div>
+        <div class="field"><label>链接方式</label><select id="leLink">
+          <option value="auto">自动（symlink→hardlink→copy）</option><option value="symlink">符号链接</option>
+          <option value="hardlink">硬链接</option><option value="copy">复制</option></select></div>
+        <div class="field"><label>元数据格式</label><select id="leMeta">
+          <option value="nfo">Kodi NFO（Emby/Jellyfin/Kodi）</option><option value="json">JSON sidecar</option><option value="none">无</option></select></div>
+      </div>
+      <div class="field"><label>路由 — 标签（逗号分隔，留空 = 所有视频）</label>
+        <input type="text" id="leTags" placeholder="美食, 教程"><span class="hint">命中任一 B 站标签的视频进入此库；分区/UP主维度后续开放</span></div>
+      <label class="check"><input type="checkbox" id="leEnabled" checked> 启用</label>
+      <div class="actions"><button class="btn primary" onclick="saveLib()">保存</button></div>
+    </form>
+  </div>`;
+}
+window.rebuildAll = async () => {
+  toast('媒体库重建中…','info');
+  const r = await api('/media/rebuild',{method:'POST'});
+  let html = `<table><thead><tr><th>媒体库</th><th class="num">新建</th><th class="num">跳过</th></tr></thead><tbody>`+
+    (r.libraries||[]).map(l=>`<tr><td>${esc(l.name)}</td><td class="num">${l.created}</td><td class="num">${l.skipped}</td></tr>`).join('')+
+    `</tbody></table>`;
+  if(r.errors&&r.errors.length) html += `<div class="banner warn" style="margin-top:10px">${r.errors.map(esc).join('<br>')}</div>`;
+  let box = document.getElementById('rebuildResult');
+  if(!box){ box=document.createElement('div'); box.id='rebuildResult';
+    document.querySelector('.pagehead').insertAdjacentElement('afterend', box); }
+  box.innerHTML = `<div class="sect"><h2>重建结果</h2>${html}</div>`;
+};
+window.newLib = () => {
+  $('#leTitle').textContent='新建媒体库'; $('#libEdit').dataset.id='';
+  $('#leName').value=''; $('#leRoot').value=''; $('#leLayout').value='movie'; $('#leLink').value='auto';
+  $('#leMeta').value='nfo'; $('#leTags').value=''; $('#leEnabled').checked=true;
+  $('#libEdit').style.display='block'; $('#libEdit').scrollIntoView({behavior:'smooth'});
+};
+window.editLib = id => api('/libraries').then(libs=>{
+  const l=libs.find(x=>x.id===id); if(!l) return;
+  $('#leTitle').textContent='编辑 '+l.name; $('#libEdit').dataset.id=id;
+  $('#leName').value=l.name; $('#leRoot').value=l.root_path; $('#leLayout').value=l.layout;
+  $('#leLink').value=l.link_mode; $('#leMeta').value=l.metadata_format;
+  try{ $('#leTags').value=(JSON.parse(l.match_rules||'{}').tags||[]).join(', ');}catch(e){}
+  $('#leEnabled').checked=l.enabled;
+  $('#libEdit').style.display='block'; $('#libEdit').scrollIntoView({behavior:'smooth'});
+});
+window.saveLib = async () => {
+  const id=$('#libEdit').dataset.id;
+  const tags=$('#leTags').value.split(',').map(x=>x.trim()).filter(Boolean);
+  const body={name:$('#leName').value.trim(), root_path:$('#leRoot').value.trim(),
+    layout:$('#leLayout').value, link_mode:$('#leLink').value, metadata_format:$('#leMeta').value,
+    match_rules:JSON.stringify(tags.length?{tags:tags}:{}), enabled:$('#leEnabled').checked};
+  if(!body.name||!body.root_path){ alert('名称与路径必填'); return; }
+  try{
+    if(id){ await api('/libraries/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
+    else { await api('/libraries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
+    toast('媒体库已保存','ok'); renderLibraries($('#main'));
+  }catch(e){ toast('保存失败：'+e,'err'); }
+};
+window.delLib = async id => { if(confirm('删除该媒体库配置？（不删除已输出的文件）')){ await api(`/libraries/${id}`,{method:'DELETE'}); renderLibraries($('#main')); } };
+
+/* ============ 任务 ============ */
+async function renderJobs(m){
+  const js=await api('/jobs?limit=60');
+  m.innerHTML=`
+  <div class="pagehead"><h1>任务</h1><span class="desc">队列与执行状态</span>
+    <span class="spacer"></span><button class="btn" onclick="syncNow()">全部同步</button></div>
+  <div class="sect">
+    ${(js&&js.length)?`<table><thead><tr><th class="num">#</th><th>类型</th><th>载荷</th><th>状态</th><th>进度</th><th>详情</th><th>时间</th></tr></thead><tbody>`+
+    js.map(j=>{
+      let p=''; try{p=Object.values(JSON.parse(j.payload_json)).join(' ');}catch(e){}
+      const dot={done:'ok',failed:'err',running:'run',queued:'queued'}[j.state]||'off';
+      return `<tr><td class="num">${j.id}</td><td class="st">${esc(j.type)}</td><td class="st">${esc(p)}</td>
+      <td class="st"><span class="dot ${dot}"></span>${j.state}</td>
+      <td style="min-width:110px"><div class="pbar ${j.state==='done'?'done':''}"><i style="width:${Math.max(2,Math.round(j.progress*100))}%"></i></div><span class="meta-note">${Math.round(j.progress*100)}%</span></td>
+      <td class="st">${esc(j.detail||j.error).slice(0,60)}</td><td class="st">${fmtT(j.created_at)}</td>
+      <td>${j.state==='failed'?`<button class="btn sm" onclick="retryJob(${j.id})">重试</button>`:''}</td></tr>`;}).join('')+'</tbody></table>':'<div class="empty">暂无任务</div>'}
+  </div>`;
+  clearInterval(timer);
+  const hasActive = (js||[]).some(j=>j.state==='running'||j.state==='queued');
+  if(hasActive){ // 仅存在活动任务时轮询；保持滚动位置避免闪烁
+    const y = window.scrollY;
+    timer=setInterval(async()=>{ if(page!=='jobs'){clearInterval(timer);return;}
+      await renderJobs(m); window.scrollTo(0,y); }, 3000);
+  }
+}
+window.retryJob = async id => { try{ await api(`/jobs/${id}/retry`,{method:'POST'}); toast('任务 #'+id+' 已重新入队','ok'); renderJobs($('#main')); }catch(e){ toast('重试失败：'+e,'err'); } };
+window.syncNow = async () => { try{ const r=await api('/sync-now',{method:'POST'}); toast('已排队 '+r.queued+' 个源','ok'); renderJobs($('#main')); }catch(e){ toast('失败：'+e,'err'); } };
+
+/* ============ 账号 ============ */
+async function renderLogin(m){
+  m.innerHTML=`
+  <div class="pagehead"><h1>账号</h1><span class="desc">B 站扫码登录（保存在本机）</span></div>
+  <div class="sect">
+    <div class="inline" style="align-items:flex-start">
+      <img id="qrimg" alt="二维码" style="width:200px;height:200px;image-rendering:pixelated;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
+      <div style="flex:1;max-width:340px">
+        <p id="qrstate" class="st" style="margin-bottom:10px;font-size:13px;color:var(--txt)">获取中…</p>
+        <p class="meta-note">登录后可用：1080P 高码率 / 4K（大会员）、UP主投稿列表、评论消失检测（未登录时 B 站只返回部分评论，无法对账）。</p>
+      </div>
+    </div>
+  </div>`;
+  try{
+    const r=await api('/login/qr');
+    $('#qrimg').src='data:image/png;base64,'+r.png_base64;
+    $('#qrstate').textContent='等待扫码…';
+    const poll=async()=>{
+      const p=await api('/login/qr/poll?key='+encodeURIComponent(r.key));
+      if(p.code===0){ $('#qrstate').textContent='✓ 登录成功，cookie 已保存'; return; }
+      if(p.code===86090){ $('#qrstate').textContent='已扫码，请在手机确认…'; }
+      else if(p.code===86038){
+        $('#qrstate').innerHTML='二维码过期 <button class="btn sm" onclick="renderLogin(document.querySelector(\'#main\'))">重新获取</button>';
+        return;
+      }
+      setTimeout(poll,2000);
+    };
+    poll();
+  }catch(e){ $('#qrstate').textContent='获取二维码失败：'+e; }
+}
+
+/* ============ 插件 ============ */
+async function renderPlugins(m){
+  const ps=await api('/plugins');
+  m.innerHTML=`
+  <div class="pagehead"><h1>插件</h1><span class="desc">事件驱动扩展，只能写入派生数据</span>
+    <span class="spacer"></span><button class="btn" onclick="reloadPlugins()">重新扫描</button></div>
+  <div class="sect">
+    ${(ps&&ps.length)?`<table><thead><tr><th>ID</th><th>版本</th><th>事件</th><th>状态</th><th></th></tr></thead><tbody>`+
+    ps.map(p=>{
+      let evs=[]; try{evs=JSON.parse(p.manifest_json).events||[];}catch(e){}
+      return `<tr><td><b style="font-weight:500">${esc(p.id)}</b></td><td class="st">${esc(p.version)}</td>
+      <td class="st">${evs.map(esc).join(', ')}</td>
+      <td class="st">${p.enabled?'<span class="dot ok"></span>启用':'<span class="dot off"></span>停用'}</td>
+      <td><button class="btn sm" onclick="togglePlugin('${esc(p.id)}',${!p.enabled})">${p.enabled?'停用':'启用'}</button></td></tr>`;}).join('')+'</tbody></table>'
+    :'<div class="empty">未发现插件 — 放入 data/plugins/&lt;目录&gt;/manifest.yaml</div>'}
+  </div>`;
+}
+window.reloadPlugins = async () => { const r=await api('/plugins/reload',{method:'POST'}); alert('已加载 '+r.loaded+' 个插件'); renderPlugins($('#main')); };
+window.togglePlugin = async (id,en) => { try{ await api(`/plugins/${id}/enabled`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:en})}); toast('插件 '+id+(en?' 已启用':' 已停用'),'ok'); renderPlugins($('#main')); }catch(e){ toast('失败：'+e,'err'); } };
+
+/* ============ 设置 ============ */
+async function renderSettings(m){
+  m.innerHTML = '<div class="empty">加载中…</div>';
+  let c;
+  try{ c = await api('/config'); }
+  catch(e){ m.innerHTML = '<div class="banner warn">配置加载失败：'+esc(e)+'</div>'; return; }
+  const sel = (v,cur) => v===cur?' selected':'';
+  m.innerHTML = `
+  <div class="pagehead"><h1>设置</h1><span class="desc">运行参数 · 保存后立即生效（<span class="origin">†</span> 需重启完全生效）</span>
+    <span class="spacer"></span><button class="btn primary" id="stSave">保存全部设置</button></div>
+  <div id="setOut"></div>
+  <div class="sect"><h2>采集与补档</h2>
+    <div class="inline">
+      <div class="field"><label>监控源默认同步间隔（分钟）</label><input type="number" id="stSyncMin" min="0" value="${c.sync_default_minutes}"><span class="hint">源未单独设置间隔时使用</span></div>
+      <div class="field"><label>全库统计周期（小时，0=禁用）</label><input type="number" id="stStatsH" min="0" value="${c.stats_resync_hours??0}"></div>
+    </div>
+    <label class="check"><input type="checkbox" id="stAdaptive" ${c.adaptive_sync?'checked':''}> 自适应补档频率 <span class="meta-note">新发 24h 内加速、按评论/播放活跃度冷却沉寂视频</span></label>
+    <div class="inline">
+      <div class="field"><label>单视频评论抓取上限（0=不限）</label><input type="number" id="stCmtMax" min="0" value="${c.comments_max}"></div>
+      <div class="field"><label>楼中楼抓取上限（0=不限）</label><input type="number" id="stSubMax" min="0" value="${c.sub_replies_max}"></div>
+    </div>
+    <label class="check"><input type="checkbox" id="stFullCmt" ${c.full_resync_comments?'checked':''}> 重同步时全量翻页评论 <span class="meta-note">关闭可加速但会漏检消失评论</span></label>
+    <div class="inline">
+      <div class="field"><label>热门提示：播放量阈值（0=禁用）</label><input type="number" id="stHotV" min="0" value="${c.hot_video_views}"></div>
+      <div class="field"><label>热门提示：评论数阈值（0=禁用）</label><input type="number" id="stHotR" min="0" value="${c.hot_video_replies}"></div>
+    </div>
+  </div>
+  <div class="sect"><h2>下载</h2>
+    <label class="check"><input type="checkbox" id="stAutoDl" ${c.auto_download?'checked':''}> 归档后自动下载视频文件</label>
+    <label class="check"><input type="checkbox" id="stDlDm" ${c.download_danmaku?'checked':''}> 下载弹幕文件</label>
+    <div class="field"><label>清晰度白名单（留空 = 全部画质 = 最高可用）</label>
+      <input type="text" id="stQuals" value="${esc((c.qualities||[]).join(', '))}" placeholder="4k, 1080p60, 1080p">
+      <span class="hint">可选档：4k / 1080p60 / 1080p-high / 1080p / 720p60 / 720p / 480p / 360p，逗号分隔；指定档全部不可用时自动回落更低档</span></div>
+    <div class="field"><label>音频质量偏好（留空 = 标准最高）</label>
+      <input type="text" id="stAudioQ" value="${esc((c.audio_qualities||[]).join(', '))}" placeholder="hires, dolby, 192k">
+      <span class="hint">可选：hires / dolby / 192k / 132k / 64k，逗号分隔</span></div>
+    <div class="inline">
+      <div class="field"><label>同时下载任务数</label><input type="number" id="stConc" min="1" value="${c.concurrency}"></div>
+      <div class="field"><label>单流分段连接数</label><input type="number" id="stSeg" min="1" value="${c.segments}"></div>
+    </div>
+    <label class="check"><input type="checkbox" id="stAv1" ${c.allow_av1?'checked':''}> 允许 AV1 编码</label>
+    <label class="check"><input type="checkbox" id="st4k" ${c.allow_4k?'checked':''}> 允许 4K（仍受白名单限制）</label>
+    <div class="field" style="max-width:280px"><label>请求最小间隔（毫秒）<span class="origin">†</span></label><input type="number" id="stMinReq" min="0" value="${c.min_req_ms??350}"><span class="hint">B 站接口全局限流，调小有风控风险</span></div>
+  </div>
+  <div class="sect"><h2>媒体库与站点</h2>
+    <label class="check"><input type="checkbox" id="stMedEn" ${c.media_enabled?'checked':''}> 启用媒体库输出（归档后自动刷新软链接）</label>
+    <div class="inline">
+      <div class="field"><label>媒体库布局</label><select id="stMedLayout">
+        <option value="movie"${sel('movie',c.media_layout)}>电影（每视频一部）</option>
+        <option value="show"${sel('show',c.media_layout)}>剧集（UP主=剧集）</option>
+        <option value="collection"${sel('collection',c.media_layout)}>合集</option></select></div>
+      <div class="field"><label>链接方式</label><select id="stMedLink">
+        <option value="auto"${sel('auto',c.media_link_mode)}>自动（symlink→hardlink→copy）</option>
+        <option value="symlink"${sel('symlink',c.media_link_mode)}>符号链接</option>
+        <option value="hardlink"${sel('hardlink',c.media_link_mode)}>硬链接</option>
+        <option value="copy"${sel('copy',c.media_link_mode)}>复制</option></select></div>
+    </div>
+    <label class="check"><input type="checkbox" id="stTeriEn" ${c.teriteri_enabled?'checked':''}> 启用 teriteri 站点托管 <span class="origin">†</span></label>
+    <div class="field"><label>teriteri 前端地址（总览页展示的观看入口，留空显示提示）</label>
+      <input type="text" id="stFrontUrl" value="${esc(c.frontend_url||'')}" placeholder="http://192.168.1.114:8081"></div>
+  </div>
+  <div class="sect"><h2>只读信息</h2>
+    <dl class="kv">
+      <dt>数据目录</dt><dd><span class="path">${esc(c.data_dir)}</span></dd>
+      <dt>监听地址</dt><dd><span class="path">${esc(c.listen)}</span></dd>
+      <dt>媒体库根</dt><dd><span class="path">${esc(c.media_root)}</span></dd>
+      <dt>插件目录</dt><dd><span class="path">${esc(c.plugins_dir)}</span></dd>
+      <dt>B 站登录</dt><dd>${c.login?'<span class="dot ok"></span>已登录':'<span class="dot warn"></span>未登录（账号页扫码）'}</dd>
+    </dl>
+    <p></p><span class="meta-note">修改以上路径/监听地址请直接编辑 config.yaml 后重启；设置页只暴露可安全修改的项。保存时会自动备份原配置为 config.yaml.bak。</span>
+  </div>`;
+  $('#stSave').onclick = saveSettings;
+}
+window.saveSettings = async () => {
+  const body = {
+    sync_default_minutes: Math.max(0, +$('#stSyncMin').value||0),
+    stats_resync_hours: Math.max(0, +$('#stStatsH').value||0),
+    adaptive_sync: $('#stAdaptive').checked,
+    comments_max: Math.max(0, +$('#stCmtMax').value||0),
+    sub_replies_max: Math.max(0, +$('#stSubMax').value||0),
+    full_resync_comments: $('#stFullCmt').checked,
+    hot_video_views: Math.max(0, +$('#stHotV').value||0),
+    hot_video_replies: Math.max(0, +$('#stHotR').value||0),
+    auto_download: $('#stAutoDl').checked,
+    download_danmaku: $('#stDlDm').checked,
+    qualities: $('#stQuals').value.split(',').map(x=>x.trim()).filter(Boolean),
+    audio_qualities: $('#stAudioQ').value.split(',').map(x=>x.trim()).filter(Boolean),
+    concurrency: Math.max(1, +$('#stConc').value||1),
+    segments: Math.max(1, +$('#stSeg').value||1),
+    allow_av1: $('#stAv1').checked,
+    allow_4k: $('#st4k').checked,
+    min_req_ms: Math.max(0, +$('#stMinReq').value||0),
+    media_enabled: $('#stMedEn').checked,
+    media_layout: $('#stMedLayout').value,
+    media_link_mode: $('#stMedLink').value,
+    teriteri_enabled: $('#stTeriEn').checked,
+    frontend_url: $('#stFrontUrl').value.trim(),
+  };
+  try{
+    await api('/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    toast('设置已保存并生效','ok');
+  }catch(e){ toast('保存失败：'+e,'err'); }
+};
+
+render();
+
+async function loadTeriteri(){
+  const box = document.getElementById('teriBox'); if(!box) return;
+  let s; try{ s = await api('/teriteri/status'); }catch(e){ box.innerHTML='<span class="meta-note">不可用</span>'; return; }
+  if(!s.available){ box.innerHTML='<span class="meta-note">未启用</span>'; return; }
+  const inst = s.install||{};
+  const serving = s.serving||{};
+  const rows = [
+    {name:'用户端 · 播放站', ready:s.client_ready, url:s.client_url, serve:serving['teriteri-client']},
+    {name:'管理员端 · 审核台', ready:s.admin_ready, url:s.admin_url, serve:serving['teriteri-admin']},
+  ];
+  box.innerHTML = `
+    ${rows.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:4px 0;flex-wrap:wrap">
+      <span class="dot ${r.ready?'ok':'warn'}"></span><b style="min-width:150px">${r.name}</b>
+      ${r.ready?`<a href="${esc(r.url)}" target="_blank">${esc(r.url)}</a> <span class="meta-note">${r.serve?'已托管':'待重启核心后托管'}</span>`:`<span class="meta-note">未安装</span>`}
+    </div>`).join('')}
+    ${inst.running?`<div class="pbar" style="margin-top:10px"><i style="width:${Math.max(2,Math.round((inst.progress||0)*100))}%"></i></div>
+      <div class="meta-note" style="margin-top:4px">${esc(inst.step||'')} · ${Math.round((inst.progress||0)*100)}%</div>
+      <pre style="margin-top:6px;max-height:150px;overflow:auto;background:#f6f7f8;padding:8px;border-radius:8px;font-size:12px;white-space:pre-wrap">${esc((inst.logs||[]).join(String.fromCharCode(10)))}</pre>`
+    : inst.error?`<div class="meta-note" style="color:#c0392b;margin-top:6px">上次安装失败：${esc(inst.error)}</div>`:''}
+    <div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="btn" ${inst.running?'disabled':''} onclick="teriteriInstall()">${inst.running?'安装中…':(s.client_ready||s.admin_ready?'重新构建多端':'一键安装（克隆 + npm 构建）')}</button>
+      <span class="meta-note">需系统 git 与 Node.js；完成后由核心自动托管，API/媒体/弹幕 WS 进程内直通</span>
+    </div>`;
+  if(window.__teriTimer) clearInterval(window.__teriTimer);
+  if(inst.running){ window.__teriTimer = setInterval(()=>{ if(page!=='dash') clearInterval(window.__teriTimer); else loadTeriteri(); }, 2000); }
+}
+async function teriteriInstall(){
+  try{
+    const r = await fetch('/api/v1/teriteri/install', {method:'POST'});
+    if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.error || ('HTTP '+r.status)); }
+  }catch(e){ alert('启动安装失败: '+e.message); }
+  loadTeriteri();
+}
+</script>
+</body>
+</html>

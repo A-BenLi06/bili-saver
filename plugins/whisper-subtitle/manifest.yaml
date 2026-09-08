@@ -1,0 +1,14 @@
+id: whisper-subtitle
+version: 0.1.0
+description: >
+  对没有 CC 字幕的视频自动转录生成字幕（origin=plugin:whisper-subtitle）。
+  支持后端：faster-whisper（whisper-ctranslate2 命令）、whisper.cpp、MacWhisper（macOS）。
+  三个后端按配置探测，命中即用；都不可用时安静跳过。
+type: process
+entry: [python3, transcribe.py]
+events: [subtitle.missing]
+timeout_sec: 3600
+config:
+  backend: auto            # auto | faster-whisper | whisper.cpp | macwhisper
+  model: small             # 模型名（tiny/base/small/medium/large-v3）
+  language: zh

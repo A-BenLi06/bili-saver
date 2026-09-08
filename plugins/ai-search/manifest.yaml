@@ -1,0 +1,14 @@
+id: ai-search
+version: 0.1.0
+description: >
+  为归档视频生成语义向量（OpenAI 兼容 /v1/embeddings，Ollama 同样适用），
+  写入 embeddings 表。管理端 /api/v1/search 与 teriteri 搜索会结合 FTS 关键词结果；
+  向量召回的“联想搜索”接口为 GET /api/v1/search/vector?q=（由核心用余弦相似度计算）。
+type: process
+entry: [python3, embed.py]
+events: [video.downloaded]
+timeout_sec: 300
+config:
+  api_base: http://127.0.0.1:11434/v1
+  api_key: ""
+  model: bge-m3            # 任意 embeddings 模型，Ollama: ollama pull bge-m3

@@ -1,0 +1,13 @@
+data/
+*.exe
+*.exe~
+*.test
+*.out
+*.log
+node_modules/
+dist/
+__pycache__/
+config.yaml
+astrbot_plugin_bilibili_analysis/
+/tmp/
+/*.png

@@ -1,0 +1,14 @@
+id: ai-summary
+version: 0.1.0
+description: >
+  用本地（Ollama）或在线（OpenAI 兼容）大模型，根据字幕/简介生成内容总结。
+  产物写 derived 层（origin=plugin:ai-summary），与 B 站官方 AI 小结显式分离。
+type: process
+entry: [python3, summarize.py]
+events: [video.downloaded]
+timeout_sec: 600
+config:
+  api_base: http://127.0.0.1:11434/v1   # OpenAI 兼容地址；Ollama 默认即可
+  api_key: ""
+  model: qwen2.5:7b
+  max_chars: 6000

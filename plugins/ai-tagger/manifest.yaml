@@ -1,0 +1,13 @@
+id: ai-tagger
+version: 0.1.0
+description: >
+  用本地/在线大模型为视频生成补充标签。写入 video_tags 的派生分组
+  （origin=plugin:ai-tagger），管理界面与 teriteri 适配层都会与 B 站原生标签分区展示。
+type: process
+entry: [python3, tagger.py]
+events: [video.downloaded]
+timeout_sec: 300
+config:
+  api_base: http://127.0.0.1:11434/v1
+  api_key: ""
+  model: qwen2.5:7b
