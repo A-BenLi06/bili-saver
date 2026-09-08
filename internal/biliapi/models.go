@@ -8,16 +8,26 @@ import (
 
 // B 站接口响应结构（只声明会消费的字段）。
 
+// Dimension 视频分辨率元数据（dimension），width<height 即竖屏。
+type Dimension struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	Rotate int `json:"rotate"` // 90/270 时宽高语义互换
+}
+
 type VideoView struct {
-	Bvid       string `json:"bvid"`
-	Aid        int64  `json:"aid"`
-	Videos     int    `json:"videos"`
-	TName      string `json:"tname"`
-	Pic        string `json:"pic"`
-	Title      string `json:"title"`
-	Pubdate    int64  `json:"pubdate"`
-	Desc       string `json:"desc"`
-	Duration   int    `json:"duration"`
+	Bvid       string    `json:"bvid"`
+	Aid        int64     `json:"aid"`
+	Videos     int       `json:"videos"`
+	TID        int       `json:"tid"`
+	TName      string    `json:"tname"`
+	TNameV2    string    `json:"tname_v2"` // 个别视频 tname 为空串时的兜底
+	Dimension  Dimension `json:"dimension"`
+	Pic        string    `json:"pic"`
+	Title      string    `json:"title"`
+	Pubdate    int64     `json:"pubdate"`
+	Desc       string    `json:"desc"`
+	Duration   int       `json:"duration"`
 	OwnerOwner struct {
 		Mid  int64  `json:"mid"`
 		Name string `json:"name"`

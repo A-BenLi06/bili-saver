@@ -13,6 +13,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// MediaServer 第三方媒体库服务器（总览页在线状态探测）。
+type MediaServer struct {
+	Name string `yaml:"name" json:"name"`
+	Type string `yaml:"type" json:"type"` // teriteri|emby|jellyfin|plex|kodi
+	URL  string `yaml:"url" json:"url"`   // 服务根地址
+}
+
 type Config struct {
 	DataDir string `yaml:"data_dir"`
 	Listen  string `yaml:"listen"`
@@ -70,6 +77,9 @@ type Config struct {
 		Layout    string `yaml:"layout"`     // movie | show | collection
 		LinkMode  string `yaml:"link_mode"`  // auto | symlink | hardlink | copy | strm
 		PublicURL string `yaml:"public_url"` // strm 模式的核心访问地址，默认 http://127.0.0.1<listen>
+		// Servers 第三方媒体库服务器（总览页在线状态探测）：
+		// type ∈ teriteri|emby|jellyfin|plex|kodi，url 为服务根地址。
+		Servers []MediaServer `yaml:"servers"`
 	} `yaml:"media"`
 
 	Teriteri struct {

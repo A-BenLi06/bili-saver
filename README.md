@@ -54,7 +54,16 @@ docker compose up -d          # core :8080（管理+API+播放）  web :8081（t
 ./bili-saver export-nfo       # 或在管理页点“重建媒体库软链接”
 ```
 
-然后把 `data/library/` 作为媒体库目录添加即可（`movie` 布局=每视频一部电影；`show` 布局=UP主当作剧集）。
+然后把 `data/library/` 作为媒体库目录添加即可（`movie` 布局=每视频一部电影；`show` 布局=UP主当作剧集；同 UP主 ≥3 个视频自动按剧集输出）。
+
+**让 B 站数据完整显示的关键设置**（否则会被在线元数据覆盖）：
+
+- **Emby**：库 → 元数据下载器 → 只勾选“NFO”；图片获取器 → 只勾选“本地”；关闭“TheMovieDb”等在线源。
+- **Jellyfin**：库 → 元数据下载器 → 只留“NFO”；图片获取器 → 只留“本地图片”。
+- **Kodi**：设置 → 媒体 → 关闭“从互联网获取信息”。
+- 标题/简介/官方AI小结/统计（播放弹幕点赞投币收藏）/标签(genre+tag)/UP主(studio+actor)/点赞率评分/合集(收藏夹来源)/封面海报横幅全自动就位；B站CC字幕自动转 srt 外挂挂载。
+- **STRM 模式**（`media.link_mode: strm` + `media.public_url`）：不落视频实体，写 `.strm` 指向核心 HTTP 流——Emby/Jellyfin 可部署在另一台机器上直接播放，主程序作为纯数据源。
+- 多P投稿：已下载的 P2+ 自动进入条目的“附加内容(extras)”区。
 
 ### 对接 teriteri 多端（推荐：管理页一键安装）
 

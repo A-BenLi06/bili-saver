@@ -46,6 +46,9 @@ type Video struct {
 	LastDanmakuAt   int64  `json:"last_danmaku_at"`
 	LastSubsAt      int64  `json:"last_subtitles_at"`
 	SourceID        int64  `json:"source_id"`
+	Tid             int64  `json:"tid"`         // B站分区 ID（v9；官方 tid，权威）
+	Tname           string `json:"tname"`       // 分区名（tname 空时采集端回退 tname_v2）
+	Orientation     string `json:"orientation"` // horizontal | vertical | 空（dimension 派生，v9）
 }
 
 type Page struct {

@@ -15,7 +15,8 @@ func scanVideo(row interface{ Scan(...any) error }) (*Video, error) {
 		&v.OwnerMid, &v.OwnerName, &v.OwnerFace, &v.OwnerLevel, &v.Pubdate, &v.Duration,
 		&v.PagesCount, &v.Status, &v.FirstArchivedAt, &v.LastSyncAt,
 		&downloaded, &v.LocalPath,
-		&v.LastStatsAt, &v.LastCommentsAt, &v.LastDanmakuAt, &v.LastSubsAt, &v.SourceID)
+		&v.LastStatsAt, &v.LastCommentsAt, &v.LastDanmakuAt, &v.LastSubsAt, &v.SourceID,
+		&v.Tid, &v.Tname, &v.Orientation)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -28,7 +29,8 @@ func scanVideo(row interface{ Scan(...any) error }) (*Video, error) {
 
 const videoCols = `bvid, aid, title, description, pic, owner_mid, owner_name, owner_face, owner_level,
 pubdate, duration, pages_count, status, first_archived_at, last_sync_at, downloaded, local_path,
-last_stats_at, last_comments_at, last_danmaku_at, last_subtitles_at, source_id`
+last_stats_at, last_comments_at, last_danmaku_at, last_subtitles_at, source_id,
+tid, tname, orientation`
 
 // UpsertVideo 保存/更新视频主记录。first_archived_at 保持首次值。
 func (s *Store) UpsertVideo(v *Video) error {
@@ -39,7 +41,7 @@ func (s *Store) UpsertVideo(v *Video) error {
 		// 保留首次关联的源（换源同步时避免覆盖）
 		_ = v.SourceID
 	}
-	_, err := s.DB.Exec(`INSERT INTO videos(`+videoCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.DB.Exec(`INSERT INTO videos(`+videoCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(bvid) DO UPDATE SET
 		  aid=excluded.aid, title=excluded.title, description=excluded.description, pic=excluded.pic,
 		  owner_mid=excluded.owner_mid, owner_name=excluded.owner_name, owner_face=excluded.owner_face,
@@ -47,12 +49,14 @@ func (s *Store) UpsertVideo(v *Video) error {
 		  status=excluded.status, last_sync_at=excluded.last_sync_at,
 		  last_stats_at=excluded.last_stats_at, last_comments_at=excluded.last_comments_at,
 		  last_danmaku_at=excluded.last_danmaku_at, last_subtitles_at=excluded.last_subtitles_at,
+		  tid=excluded.tid, tname=excluded.tname, orientation=excluded.orientation,
 		  source_id=CASE WHEN videos.source_id=0 THEN excluded.source_id ELSE videos.source_id END`,
 		v.Bvid, v.Aid, v.Title, v.Description, v.Pic,
 		v.OwnerMid, v.OwnerName, v.OwnerFace, v.OwnerLevel, v.Pubdate, v.Duration,
 		v.PagesCount, v.Status, v.FirstArchivedAt, v.LastSyncAt,
 		boolInt(v.Downloaded), v.LocalPath,
-		v.LastStatsAt, v.LastCommentsAt, v.LastDanmakuAt, v.LastSubsAt, v.SourceID)
+		v.LastStatsAt, v.LastCommentsAt, v.LastDanmakuAt, v.LastSubsAt, v.SourceID,
+		v.Tid, v.Tname, v.Orientation)
 	return err
 }
 
@@ -336,6 +340,7 @@ func scanVideoWithCounts(row interface{ Scan(...any) error }) (*VideoWithCounts,
 		&vc.PagesCount, &vc.Status, &vc.FirstArchivedAt, &vc.LastSyncAt,
 		&downloaded, &vc.LocalPath,
 		&vc.LastStatsAt, &vc.LastCommentsAt, &vc.LastDanmakuAt, &vc.LastSubsAt, &vc.SourceID,
+		&vc.Tid, &vc.Tname, &vc.Orientation,
 		&vc.DanmakuCount, &vc.CommentsVisible, &vc.CommentsDeleted, &vc.SubtitleCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound

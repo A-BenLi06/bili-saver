@@ -1,7 +1,11 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-09T02:10:00Z（已整理到的最新 raw 时间戳，UTC）
+> 水位：2026-09-08T19:00:16Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻）
+> 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
+> - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已于上上轮归纳；
+> - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，本轮已归纳；
+> - ui-agent-20260908.md「跟踪列表 UI/UX 优化」自报 2026-09-08T19:15:00Z，实写约 2026-09-08T18:42Z，本轮已归纳。
 
 ## 按主题
 
@@ -79,6 +83,31 @@
 - 需求（人类交办）：热门视频补档前先警告反馈，需要再次确认。
 - 实现：config 新增 `collector.hot_video_views`（默认 100万）/ `hot_video_replies`（默认 1万），0=禁用；/add（实时 view 接口判定）与 /videos/{bvid}/archive（库内最新 stats 判定，重同步重拉评论同样耗时）未确认时返回 200+`{need_confirm,reason,view,reply}` 不入队——特意用 200 而非 4xx（前端 api() 助手错误路径只透传 error 字符串、会丢结构体标记）；前端采集页与归档项目页"重同步"按钮确认后带 confirm_hot 重提；自动化路径（触发器/调度/触摸统计）不打扰。
 - 验证：16 包全绿（hotReason 边界/禁用用例；inline JS node --check 过）；线上三路径实测——LPL 热门视频（175.9万播放/1.1万评论）重同步未确认→need_confirm✓、普通视频 confirm_hot→直接入队✓、/add 阴阳师CG（219万播放）未确认→need_confirm 不入队✓。
+
+### 协调巡检体系与经验库 — coord-agent（2026-09-08T18:08Z → 18:24Z，生效）
+- 首轮巡检（人类交办协调角色）：建 `docs/coordination/PITFALLS.md` 坑台账 8 条，含时钟漂移实证——ui/session 交接时间比文件 mtime 快约 1h、疑共同 TZ 来源（本轮 core 条目再现同症，且出现本地时间误标 UTC 的"未来时间戳"）；修 ARCHITECTURE.md 陈旧数字 ×3（schema v5→v8、17→20 包）、AGENTS.md 同步；COORDINATION §4 加时间戳实测条款、§5 加按包验证条款。
+- 职责升级（人类明确分工：walkthrough 管流水记录、coord 管经验提炼与运用）：建 `docs/coordination/PLAYBOOK.md` 经验库——四层知识结构（raw 流水→PITFALLS 证据→COORDINATION 条款→PLAYBOOK 方法论），经验 E1-E10 各含原理/做法/证据/迁移注意；巡检流程加"经验提炼"步骤（模式重复出现第二次才提炼）；巡检窗口收窄为仅夜间（UTC+8 23:00–9:00）每 15min。
+- 门禁现状：19/20 包绿，唯一 FAIL＝session-agent 设置页 WIP 的 TestPatchConfig（nil Client panic），已 @all 预警勿代改；两次共享文件并行写入均按 §3 重读后重做，零冲突。
+
+### git 管理体系搭建 — walkthrough-agent（2026-09-08T18:22:46Z → 18:35:00Z，done）
+- 人类交办"除 walkthrough 外增加 git 管理"。建仓（分支 main）+ 基线提交 `7a94910`（130 文件：源码/文档/walkthrough 记录；不含 data/ 6.8GB、exe、日志、本机 config.yaml、astrbot 独立仓库）；补 .gitignore（`*.exe~`——原规则漏掉的 37M 备份二进制、`*.log`、`tmp/`、根目录截图）+ 新建 .gitattributes（仓库统一 LF）。
+- 协作规则（CLAIMS @all 广播）：全仓 git 操作统一走 walkthrough-agent，其他 agent 只管写文件、不碰 .git；仓库无 remote，push 属 L3 不执行。
+- 踩坑：定时任务会话内不能 CronCreate 新自动化 → 快照提交经 CronUpdate 并入现有 walkthrough 自动化（两段式提示词，与汇总同轮执行）。
+
+### 跟踪列表 UI/UX 优化 — ui-agent（自报 2026-09-08T19:15:00Z，约实写 18:42Z，done-review）
+- store 新增 TrackStateCounts + ListTracksPage（state 过滤、q 对标题/UP主/bvid 的 LIKE 模糊匹配带转义、limit≤100·offset 分页、返回过滤后总数；联 sources 补 source_title；Track 结构体 additive 加 SourceTitle；旧 ListTracks 被 core 测试引用原样保留）；handleTracks 响应由裸数组升级 `{total,counts,items}`（唯一消费方为管理端，L2）。
+- 前端 renderTracks 重写：状态 Tab（全部/已下载/排队中/失败，圆点+计数徽标）、搜索框、分页条（单页隐藏）、来源列显示源名替代 #id、失败原因灰字、空态文案、「清除筛选」动态显隐——首版只在整页渲染时算可见性，自检发现搜索后不出现，改为 loadTk 内按状态切换。
+- 验证：20 包全绿（期间被并行设置页 WIP 短暂卡编译，等待收敛后复绿）；临时 24 行数据断言（分页无重叠/状态过滤/三种搜索/LIKE 转义防注入/counts 一致，建后即清）；DOM 断言交互 + 截图（后续截图通道故障，以 DOM 断言补位）。
+
+### 总览页第三方媒体库在线状态 — core-agent（自报 2026-09-09T02:55:00Z，约实写 2026-09-08T18:49Z，done）
+- config 增 `media.servers` 列表（name/type/url）+ MediaServer 类型；新端点 `GET /api/v1/media-servers/status` 并发探测（3s 超时）：emby/jellyfin→/System/Info/Public、plex→/identity、kodi/teriteri→根路径，收到任意 HTTP 响应（含 401/403 鉴权）即判在线，note 带状态码；teriteri 未配置但适配启用时自动显示"内置适配（随核心进程运行）"；总览页新增"第三方媒体库在线"区块。
+- 踩坑（多 agent 竞争写 config.yaml）：写入的 servers 条目被并行 agent 的"设置页保存 config"整文件重写覆盖（yaml Marshal 回写丢注释与条目）——config.yaml 与 cookies.json 同属多实例互相覆盖风险，已在留言区提醒；重加条目后验证通过。teriteri 前端已由 teriteriweb 核心自托管方案接管（client_addr :8081）。
+- 验证：17 包全绿（类型健康路径/401 在线判定/离线与空地址用例）；实测 teriteri 前端 HTTP 200 / 57ms 在线。
+
+### 管理端「设置」页 + PATCH /api/v1/config — session-agent（自报 2026-09-08T18:55:00Z，done-review）
+- 交付：index.html「设置」页（采集与补档/下载/媒体库与站点/只读信息 四分组，† 标注重启生效项）；`PATCH /api/v1/config`（指针字段全可选、先校验后提交、Normalize+Validate、写回 config.yaml 自动 .bak 备份 0600）；config.SaveConfigFile；GET config 补齐 full_resync_comments/stats_resync_hours/download_danmaku/min_req_ms；Scheduler 由拷贝字段改为持 *config.Config 活读取（设置改动下一 tick 生效）；Deps.ConfigPath + App.CfgPath 由 main 注入。
+- 踩坑：PATCH 响应复用 GET payload 时 CachedLogin 对 nil API panic → 拆出 login 字段仅 GET 附加；期间两次被并行 agent 半成品阻塞（store 缺 import、media vet），等自愈后重跑全量门；strm 功能由协作 agent 并入设置页（link_mode strm + media_public_url 全链路）。
+- 验证：全量门 20 包绿；服务实测 GET/PATCH/非法 400/.bak；UI 渲染+保存 toast 实测过。done-review（API 形状新增，待人类抽查）。
 
 ## 待补时间戳
 

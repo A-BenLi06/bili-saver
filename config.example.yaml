@@ -46,6 +46,16 @@ media:
   # root: ./data/library       # 媒体库输出根（Emby/Plex/Jellyfin/Kodi 指向这里）
   layout: movie              # movie | show | collection
   link_mode: auto            # auto(=symlink→hardlink→copy) | symlink | hardlink | copy
+  # 第三方媒体库服务器：总览页显示在线状态（探测各自健康端点，3s 超时）
+  # type 可选: teriteri / emby / jellyfin / plex / kodi
+  servers: []
+  # servers:
+  #   - name: 家庭Emby
+  #     type: emby
+  #     url: http://192.168.1.10:8096
+  #   - name: Jellyfin
+  #     type: jellyfin
+  #     url: http://192.168.1.10:8096
 
 teriteri:
   enabled: true              # teriteri-client 适配层

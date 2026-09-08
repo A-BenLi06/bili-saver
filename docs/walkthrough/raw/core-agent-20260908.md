@@ -44,3 +44,8 @@
 - 做了什么：人类交办"热门视频补档前段先警告反馈一下，需要再次确认"。config 增 collector.hot_video_views（默认 100万）与 hot_video_replies（默认 1万），0=禁用；/add（视频类型，实时 view 接口判定）与 /videos/{bvid}/archive（库内最新 stats 判定，重同步重拉评论同样耗时）未确认时返回 200+{need_confirm,reason,view,reply} 不入队（用 200 而非 4xx：前端 api() 助手错误路径只透传 error 字符串会丢结构体标记）；前端采集页与归档项目页"重同步"按钮确认后带 confirm_hot 重提。自动化路径（触发器/调度/触摸统计）不打扰。
 - 涉及：internal/config/config.go、config.example.yaml、internal/server/{admin.go,hot_test.go}、internal/server/static/index.html、ARCHITECTURE §7。
 - 结果：done。全量 16 包绿（新增 hotReason 边界/禁用用例，inline JS node --check 过）；线上实测三条路径——LPL 热门视频(175.9万播放/1.1万评论)重同步未确认→need_confirm✓；普通视频 confirm_hot→直接入队✓；/add 阴阳师CG(219万播放)未确认→need_confirm 不入队✓。
+
+## 2026-09-09T02:55:00Z core-agent — 总览页第三方媒体库在线状态完成
+- 做了什么：人类交办"主panel增加第三方媒体库在线情况显示（teriteri/emby/jellyfin/plex/kodi）"。config 增 media.servers 列表（name/type/url）+ MediaServer 类型；新端点 GET /api/v1/media-servers/status 并发探测（3s 超时）——emby/jellyfin→/System/Info/Public、plex→/identity、kodi/teriteri→根路径，**收到任意 HTTP 响应（含 401/403 鉴权）即在线**，note 带状态码；teriteri 未配置但适配启用时自动显示"内置适配（随核心进程运行）"；总览页新增"第三方媒体库在线"区块（在线点/延迟/链接/note）。用户 config.yaml 已配 teriteri 前端(8081)。
+- 涉及：internal/config/config.go、config.example.yaml、config.yaml、internal/server/{mediaservers.go,mediaservers_test.go,admin.go}、internal/server/static/index.html、ARCHITECTURE §7。
+- 结果：done。全量 17 包绿（类型健康路径/401 在线判定/离线与空地址用例；inline JS 过）；实测 teriteri 前端 HTTP 200 / 57ms 在线。**踩坑（多 agent 竞争）**：我写入 config.yaml 的 servers 条目被并行 agent 的"设置页保存 config"功能整文件重写覆盖（yaml Marshal 回写丢失注释与我的条目）——config 文件与 cookies.json 一样存在多实例互相覆盖风险，已在留言区提醒；重加条目后验证通过。当前 8081 的 teriteri 前端已由 teriteriweb agent 的核心自托管方案接管（client_addr :8081）。

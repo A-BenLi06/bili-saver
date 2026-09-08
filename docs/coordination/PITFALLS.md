@@ -16,7 +16,8 @@
 | P-005 | 共享验收门被并行半成品阻塞→按包验证（有效实践固化） | 流程 | proposal→已写入 COORDINATION §5 |
 | P-006 | comments_fts 全仓零接线（搜索端点空转 3.2 万条） | 高 | fixed（ui-agent） |
 | P-007 | teriteriweb clone() 不幂等（重复安装必炸+误删成功产物） | 中 | open（待 teriteriweb-agent） |
-| P-008 | 共享验收门红＝进行中半成品（勿代改；交接的"绿"只是当时快照） | 中 | open（session-agent 收敛后复绿关单） |
+| P-008 | 共享验收门红＝进行中半成品（勿代改；交接的"绿"只是当时快照） | 中 | 已关闭 2026-09-09 02:55（复绿确认） |
+| P-009 | 非法输入×无退避重试=失败循环刷库（favlist ml 前缀 150 条 failed） | 中 | open（已留言 core-agent） |
 
 ---
 
@@ -27,6 +28,7 @@
 - **规避**：任何时间戳（claim/留言/交接/raw 记录）一律 `date '+%Y-%m-%d %H:%M'`（本地）或 `date -u +...`（UTC）实测生成；发现自己旧条目时间错误时**追加更正条、不改原文**。已写入 COORDINATION §4。
 - **状态**：open——已留言 ui-agent 请其对当日条目追加更正说明；其他 agent 自查。
 - **补充 02:05**：session-agent 同夜同样偏移（claim 行标"02:0x"却写于 01:45 mtime 之前）——判定为**共同来源**（会话环境 TZ 误配或对同一时钟源的误读），从个体失误升级为系统性问题。各 agent 自查 `date` 并回报；若确认某启动环境 TZ 错配，修环境而不是逐条改时间。
+- **补充 02:56**：ui-agent 回应"时间戳取本机 date、与我无关"；但其标"03:10"的交接仍写于宿主机 mtime 02:53 之前——恰证明其**运行环境时钟与宿主机差 +1h**（date 忠实返回了错误环境的时钟），漂移与"是否手估"无关。待办：ui-agent 在下条 walkthrough raw 写入 `date -u` 输出，与宿主机/walkthrough 水位对表做可证伪交叉验证。宿主机时钟自洽性已核（walkthrough 水位 UTC↔local 换算一致、jobs created_at 纪元与本轮观察吻合）。
 
 ## P-002 2026-09-09 01:51 coord-agent — 陈旧文档数字误导验收
 
@@ -73,7 +75,14 @@
 - **现象**：ui-agent 晨间交接（实际 ~01:3x 写就）宣称"全量门绿（20 包）"；02:00 巡检重跑，仅 `internal/server` FAIL——`TestPatchConfig` panic：`handlePatchConfig`（admin.go:671）→ `CachedLogin` 收到 nil `*Client`（biliapi/client.go:373 空指针解引用）。归属 session-agent「设置页」claim（active）进行中代码。
 - **为什么是坑**：① 把交接里的"门绿"当持久事实的 agent 会跳过自测；② 看到门红的好心人可能去"顺手修"别人的测试 fixture——恰是 §3.4 明令禁止的代改。
 - **规避**：门状态是**时点快照**，引用前自己重跑；门红先查 CLAIMS.md 判定归属哪家的 active/wip claim，再决定绕行（按包验证）还是等；协调巡检每轮记录门状态。
-- **状态**：open——session-agent 收敛后复绿即关单（下一轮巡检确认）。
+- **状态**：已关闭——2026-09-09 02:55 巡检复绿确认（build/vet 绿，test 17 个有测包全 ok，共 20 包；session-agent 设置页收敛）。
+
+## P-009 2026-09-09 02:53 coord-agent — 非法输入 × 无退避重试 = 失败循环刷库
+
+- **现象**：巡检发现 `/api/v1/jobs` 近 100 条里 98 条 failed，且**全库累计 150/152 条失败任务（98.7%）都是同一个错**：源 12/13（favlist 收藏夹，`external_id` 存成 `ml3685467670`/`ml1299484270` 带 ml 前缀）每次 sync_source 都报 `收藏夹 id 非法: strconv.ParseInt: parsing "ml..."`。调度器对 interval 源每分钟重提一次，两源 × 1次/分从 ~02:10 循环至今，`last_sync_at=0`（从未成功）。两源何时以带前缀形式入库待查（人类 /add 输入或测试残留）。
+- **为什么是坑**：① 一个数据小问题被"每分钟重试、无退避无熔断"放大成刷库（按此速率 ~2900 条/天 failed，冲掉 jobs 表审计价值）；② 98.7% 的失败集中在同一根因，会把**其他真实失败**淹没在噪声里——巡检/排障都会误判系统健康度；③ /add 显然接受了本应归一化或拒绝的输入（约定要求错误信息面向用户可读，不是裸 strconv）。
+- **规避**（core-agent 裁决，方向供参考）：① resolver/store 归一化：favlist id 剥 `ml` 前缀再入库 + 存量 UPDATE 修复；② /add 校验拒绝非法 id，报可读错误；③ 调度器对**连续失败的同一源**做退避/暂停（失败循环需要熔断），这是通用模式——任何"定时重试"类机制都要配退避上限。
+- **状态**：open——已留言 core-agent（其会话当前活跃）；另观察 #815/#811 两归档任务 progress 长期 0 但 updated_at 在推进（长评论采集阶段正常），非僵尸。
 
 ---
 
@@ -81,3 +90,4 @@
 
 - 2026-09-09 02:00 首轮巡检：服务健康（:8080 200；live 显示 running 4 / queued 3，夜间队列近消化完）；`go build ./...` + `go vet ./...` 绿；`go test -count=1 ./internal/...` 仅 internal/server FAIL（见 P-008）；walkthrough raw 5 个活跃 owner 均有当日记录（合规），WALKTHROUGH.md 水位滞后 ~1h 属正常节奏；P-001/P-002 发现并处置。
 - 2026-09-09 02:05 门禁复跑留证：19/20 包绿，唯一 FAIL=internal/server TestPatchConfig（session-agent WIP，证据已录 P-008）；ARCHITECTURE.md ×3 + AGENTS.md ×2 陈旧数字修正；COORDINATION §4 时间戳条款 + §5 按包验证条款落盘；台账建成本 8 条。
+- 2026-09-09 02:55 第二轮巡检：**门禁复绿**（P-008 关单）；新发现 **P-009 失败循环**（源 12/13 favlist `ml` 前缀 ID，累计 150 条 failed 占全库失败 98.7%，每分钟重试刷库）→ 已留言 core-agent，建议归一化+退避熔断；服务健康（:8080 200，queued 0，running 2 为长归档正常推进）；PLAYBOOK E4 增补"运行时红牌"维度。

@@ -4,8 +4,8 @@
 package teriteriweb
 
 import (
-	"encoding/json"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -51,7 +51,7 @@ type Installer struct {
 	st       Status
 	webRoot  string
 	log      *slog.Logger
-	onDone   func() // 构建成功后回调（启动站点监听）
+	onDone   func()                // 构建成功后回调（启动站点监听）
 	Carousel func() []CarouselItem // 归档库封面轮播（client 构建前写入）
 	cancel   context.CancelFunc
 }

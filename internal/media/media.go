@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -223,6 +224,34 @@ func truncateRunes(s string, n int) string {
 	return string(r[:n]) + "…"
 }
 
+// publicURL STRM 模式写入的核心访问地址。
+func (b *Bridge) publicURL() string {
+	if u := strings.TrimSpace(b.Cfg.Media.PublicURL); u != "" {
+		return strings.TrimRight(u, "/")
+	}
+	return "http://127.0.0.1" + b.Cfg.Listen
+}
+
+// emitVideo 按库链接方式落视频：strm 模式写 <base>.strm（内容为核心 HTTP 流地址，
+// Emby/Jellyfin/Kodi 跨机直接播放），其余走 symlink→hardlink→copy 降级链。
+func (b *Bridge) emitVideo(dst, src string, v *store.Video, lib *store.MediaLibrary) error {
+	if lib.LinkMode == "strm" {
+		url := b.publicURL() + "/media/" + mediaURLEscape(v.LocalPath)
+		return os.WriteFile(strings.TrimSuffix(dst, filepath.Ext(dst))+".strm", []byte(url), 0o644)
+	}
+	return linkFile(src, dst, lib.LinkMode)
+}
+
+// mediaURLEscape /media/ 相对路径的 URL 化（保留 /，转义空格与中文等）。
+func mediaURLEscape(rel string) string {
+	rel = filepath.ToSlash(rel)
+	segs := strings.Split(rel, "/")
+	for i, sg := range segs {
+		segs[i] = url.PathEscape(sg)
+	}
+	return strings.Join(segs, "/")
+}
+
 // buildMovieEntry Movies/{标题} ({年})/{标题}.mp4 + 元数据 + 图片组 + 外挂字幕
 func (b *Bridge) buildMovieEntry(v *store.Video, lib *store.MediaLibrary, res *Result) error {
 	if !v.Downloaded || v.LocalPath == "" {
@@ -245,15 +274,51 @@ func (b *Bridge) buildMovieEntry(v *store.Video, lib *store.MediaLibrary, res *R
 	}
 	base := fmt.Sprintf("%s (%d)", title, year)
 	dst := filepath.Join(dir, base+".mp4")
-	if err := linkFile(src, dst, lib.LinkMode); err != nil {
+	if err := b.emitVideo(dst, src, v, lib); err != nil {
 		return err
 	}
 	m := b.gatherMeta(v)
 	b.writeMeta(dir, "movie.nfo", m, 0, "")
 	b.artwork(dir, v, "poster.jpg", "fanart.jpg", "banner.jpg")
 	b.linkSubtitles(dir, base, v, lib.LinkMode)
+	b.linkMultiPExtras(dir, v, lib)
 	res.Created++
 	return nil
+}
+
+// linkMultiPExtras 多P投稿：已下载的 P2+ 作为 extras/ 特花收录
+// （Emby/Jellyfin 条目页“附加内容”区展示），文件名带分P标题。
+func (b *Bridge) linkMultiPExtras(dir string, v *store.Video, lib *store.MediaLibrary) {
+	if v.PagesCount <= 1 {
+		return
+	}
+	pages, err := b.St.ListPages(v.Bvid)
+	if err != nil {
+		return
+	}
+	var extrasDir string
+	for _, p := range pages {
+		if p.Page <= 1 {
+			continue
+		}
+		rel := fmt.Sprintf("media/%s/p%d/%s-p%d.mp4", v.Bvid, p.Page, v.Bvid, p.Page)
+		src := filepath.Join(b.Cfg.DataDir, filepath.FromSlash(rel))
+		if _, err := os.Stat(src); err != nil {
+			continue
+		}
+		if extrasDir == "" {
+			extrasDir = filepath.Join(dir, "extras")
+			if err := os.MkdirAll(extrasDir, 0o755); err != nil {
+				return
+			}
+		}
+		name := sanitizeFS(p.Part)
+		if name == "" {
+			name = fmt.Sprintf("P%d", p.Page)
+		}
+		dst := filepath.Join(extrasDir, fmt.Sprintf("P%d %s.mp4", p.Page, name))
+		_ = b.emitVideo(dst, src, v, lib)
+	}
 }
 
 // writeMeta 按库配置输出元数据：kodi NFO / JSON sidecar / 无。
@@ -272,7 +337,7 @@ func (b *Bridge) writeMeta(dir, nfoName string, m *vmeta, ep int, showBase strin
 		meta := map[string]any{
 			"bvid": v.Bvid, "aid": v.Aid, "title": v.Title, "description": v.Description,
 			"pubdate": v.Pubdate, "duration": v.Duration,
-			"owner": map[string]any{"mid": v.OwnerMid, "name": v.OwnerName, "face": v.OwnerFace},
+			"owner":         map[string]any{"mid": v.OwnerMid, "name": v.OwnerName, "face": v.OwnerFace},
 			"tags_bilibili": m.biliTags, "archived_at": v.FirstArchivedAt,
 			"origin": "bilibili",
 		}
@@ -280,7 +345,7 @@ func (b *Bridge) writeMeta(dir, nfoName string, m *vmeta, ep int, showBase strin
 			meta["stats"] = map[string]int{
 				"view": m.stats.View, "danmaku": m.stats.Danmaku, "reply": m.stats.Reply,
 				"favorite": m.stats.Favorite, "coin": m.stats.Coin, "share": m.stats.Share,
-				"like":     m.stats.Like,
+				"like": m.stats.Like,
 			}
 			meta["stats_ts"] = m.stats.Ts
 		}
@@ -366,10 +431,10 @@ func bccToSRTFile(path string) (string, error) {
 	}
 	var doc struct {
 		Body []struct {
-			From    float64      `json:"from"`
-			To      float64      `json:"to"`
-			Content string       `json:"content"`
-			Contents []string    `json:"contents"` // 部分版本为行数组
+			From     float64  `json:"from"`
+			To       float64  `json:"to"`
+			Content  string   `json:"content"`
+			Contents []string `json:"contents"` // 部分版本为行数组
 		} `json:"body"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
@@ -434,7 +499,7 @@ func (b *Bridge) buildShowEntry(v *store.Video, siblings []*store.Video, lib *st
 	}
 	base := fmt.Sprintf("%s - S01E%02d - %s [%s]", show, ep, sanitizeFS(v.Title), v.Bvid)
 	dst := filepath.Join(seasonDir, base+".mp4")
-	if err := linkFile(src, dst, lib.LinkMode); err != nil {
+	if err := b.emitVideo(dst, src, v, lib); err != nil {
 		return err
 	}
 	// 剧集级元数据与图片（聚合全部兄弟视频，幂等）
@@ -645,6 +710,7 @@ func movieNFO(m *vmeta) string {
   <fanart>
     <thumb>%s</thumb>
   </fanart>
+  <country>中国大陆</country>
   <source>bilibili</source>
 </movie>
 `,
@@ -765,6 +831,7 @@ func episodeNFO(m *vmeta, ep int) string {
   <credits>%s</credits>
 %s
   <thumb aspect="preview" preview="%s">%s</thumb>
+  <country>中国大陆</country>
   <source>bilibili</source>
 </episodedetails>
 `,

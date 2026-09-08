@@ -106,6 +106,18 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// v9 增量：分区与横竖屏（媒体库 match_rules.categories 路由生效）。
+	// orientation 由 dimension 派生：horizontal/vertical，未知为空；原始宽高在 raw 快照保真。
+	if err := s.ensureColumn("videos", "tid", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("videos", "tname", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("videos", "orientation", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+
 	// v4 增量：媒体库独立配置表。
 	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS media_libraries (
 	  id INTEGER PRIMARY KEY AUTOINCREMENT,

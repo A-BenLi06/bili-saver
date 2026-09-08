@@ -8,6 +8,7 @@ node_modules/
 dist/
 __pycache__/
 config.yaml
+config.yaml.bak
 astrbot_plugin_bilibili_analysis/
 /tmp/
 /*.png

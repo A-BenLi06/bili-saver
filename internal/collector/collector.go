@@ -184,6 +184,9 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		Status:          "ok",
 		FirstArchivedAt: now,
 		LastSyncAt:      syncStart,
+		Tid:             int64(view.TID),
+		Tname:           pickTname(view),
+		Orientation:     orientationOf(view.Dimension),
 	}
 	if prev != nil {
 		v.FirstArchivedAt = prev.FirstArchivedAt
@@ -410,11 +413,45 @@ func (c *Collector) SyncVideoStats(ctx context.Context, bvid string) error {
 	if prev.Status != "ok" {
 		prev.Status = "ok"
 	}
+	// 顺带自愈老数据的分区/横竖屏（仅在新值可信时覆盖，避免空值抹掉旧值）。
+	if view.TID != 0 {
+		prev.Tid = int64(view.TID)
+	}
+	if t := pickTname(view); t != "" {
+		prev.Tname = t
+	}
+	if o := orientationOf(view.Dimension); o != "" {
+		prev.Orientation = o
+	}
 	if err := c.St.UpsertVideo(prev); err != nil {
 		return err
 	}
 	// 统计时间戳必须反映本次轻量刷新，否则统计类冷却判断（adaptive）失真。
 	return c.St.UpdateVideoSyncTimes(view.Bvid, true, false, false, false, now)
+}
+
+// pickTname 分区名：tname 优先，个别视频官方返回空串时回退 tname_v2。
+func pickTname(view *biliapi.VideoView) string {
+	if view.TName != "" {
+		return view.TName
+	}
+	return view.TNameV2
+}
+
+// orientationOf 由 dimension 派生横竖屏；rotate 90/270 时宽高语义互换；
+// 尺寸未知（0）返回空串，不猜测。
+func orientationOf(d biliapi.Dimension) string {
+	w, h := d.Width, d.Height
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+	if d.Rotate == 90 || d.Rotate == 270 {
+		w, h = h, w
+	}
+	if h > w {
+		return "vertical"
+	}
+	return "horizontal"
 }
 
 func (c *Collector) apiViewByAid(ctx context.Context, aid int64) (*biliapi.VideoView, error) {

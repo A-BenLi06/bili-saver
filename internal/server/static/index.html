@@ -228,6 +228,7 @@ async function renderDash(m){
     </dl>
   </div>
   <div class="sect"><h2>源健康</h2><div id="srcHealth"><span class="meta-note">加载中…</span></div></div>
+  <div class="sect"><h2>第三方媒体库在线</h2><div id="msBox"><span class="meta-note">探测中…</span></div></div>
   <div class="sect"><h2>TeriTeri 多端（播放站 / 审核台）</h2><div id="teriBox"><span class="meta-note">加载中…</span></div></div>
   <div class="sect"><h2>观看渠道</h2>
     <dl class="kv">
@@ -239,8 +240,30 @@ async function renderDash(m){
   renderSrcHealth();
   updateLive();
   loadTeriteri();
+  loadMediaServers();
   if(window.__dashTimer) clearInterval(window.__dashTimer);
   window.__dashTimer = setInterval(()=>{ if(page==='dash') updateLive(); }, 2000);
+}
+
+async function loadMediaServers(){
+  const box = document.getElementById('msBox'); if(!box) return;
+  const list = await fetch('/api/v1/media-servers/status').then(r=>r.json()).catch(()=>null);
+  if(!box) return;
+  if(!list || !list.length){
+    box.innerHTML = '<span class="meta-note">未配置——在 config.yaml 的 media.servers 里添加 teriteri / emby / jellyfin / plex / kodi 实例后，这里显示在线状态</span>';
+    return;
+  }
+  box.innerHTML = list.map(s=>{
+    const dot = s.online ? '<span class="dot ok"></span>在线' : '<span class="dot err"></span>离线';
+    const lat = s.online ? ` · ${s.latency_ms}ms` : '';
+    const link = s.url ? `<a href="${esc(s.url)}" target="_blank">${esc(s.url)}</a>` : '<span class="meta-note">未配置地址</span>';
+    return `<div style="display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)">
+      <span style="min-width:170px"><b style="font-weight:500">${esc(s.name)}</b> <span class="meta-note">${esc(s.type)}</span></span>
+      <span class="st" style="min-width:90px">${dot}${lat}</span>
+      <span class="st" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${link}</span>
+      <span class="meta-note">${esc(s.note||'')}</span>
+    </div>`;
+  }).join('');
 }
 
 async function updateLive(){
@@ -475,6 +498,7 @@ window.openArchive = async b => {
       <dt>发布</dt><dd>${fmtT(v.pubdate)}</dd>
       <dt>状态</dt><dd>${v.status==='ok'?'<span class="dot ok"></span>正常':'<span class="dot err"></span>'+esc(v.status)} · 首次归档 ${fmtT(v.first_archived_at)}</dd>
       <dt>完整度</dt><dd>视频 ${v.downloaded?'✓':'未下载'} · 评论 ${d.comments.visible} 现存${d.comments.deleted?` + ${d.comments.deleted} 已消失（保留）`:''} · 分P ×${v.pages_count}</dd>
+      <dt>分区 / 类型</dt><dd>${v.tid?esc(v.tname||('tid '+v.tid)):'—'}${v.orientation?` · ${v.orientation==='vertical'?'竖屏':'横屏'}`:''}</dd>
       <dt>B站标签</dt><dd class="tagtext">${esc(tagsBili)||'—'}</dd>
       ${tagsAI?`<dt>AI标签</dt><dd class="tagtext">${tagsAI}</dd>`:''}
       <dt>简介</dt><dd style="white-space:pre-wrap">${esc(v.description)||'—'}</dd>
@@ -727,7 +751,7 @@ async function renderTracks(m){
     <div class="actions" style="margin-bottom:12px">
       <input type="text" id="tkq" placeholder="搜索标题 / UP主 / BV号…" value="${esc(tkQ)}" style="max-width:260px;padding:7px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13.5px">
       <button class="btn" id="tkgo">搜索</button>
-      ${(tkState||tkQ)?'<button class="btn" id="tkreset">清除筛选</button>':''}
+      <button class="btn" id="tkreset" style="display:${(tkState||tkQ)?'':'none'}">清除筛选</button>
     </div>
     <div id="tklist" class="empty">加载中…</div>
     <div class="pgn" id="tkpgn"></div>
@@ -755,6 +779,8 @@ async function loadTk(){
     const r = await api('/tracks?'+qp);
     const c=r.counts||{};
     tkSetN('tkN', r.total||0); tkSetN('tkNdone', c.done||0); tkSetN('tkNqueued', c.queued||0); tkSetN('tkNfailed', c.failed||0);
+    const rb=document.getElementById('tkreset');
+    if(rb) rb.style.display=(tkState||tkQ)?'':'none';
     const items=r.items||[];
     const pg=document.getElementById('tkpgn');
     if(!items.length){
@@ -801,8 +827,11 @@ async function renderLibraries(m){
     libs.map(l=>{
       let rule='所有视频';
       try{ const rr=JSON.parse(l.match_rules||'{}');
-        if(rr.tags&&rr.tags.length) rule='标签: '+rr.tags.join(', ');
-        else if(rr.owner_mids&&rr.owner_mids.length) rule='UP主: '+rr.owner_mids.join(', '); }catch(e){}
+        const parts=[];
+        if(rr.tags&&rr.tags.length) parts.push('标签: '+rr.tags.join(', '));
+        if(rr.categories&&rr.categories.length) parts.push('分区: '+rr.categories.join(', '));
+        if(rr.owner_mids&&rr.owner_mids.length) parts.push('UP主: '+rr.owner_mids.join(', '));
+        if(parts.length) rule=parts.join(' · ');}catch(e){}
       return `<tr>
       <td><b style="font-weight:500">${esc(l.name)}</b>${l.enabled?'':' <span class="meta-note">(停用)</span>'}</td>
       <td><span class="path">${esc(l.root_path)}</span></td>
@@ -824,12 +853,15 @@ async function renderLibraries(m){
           <option value="movie">电影（每视频一部）</option><option value="show">剧集（UP主=剧集）</option></select></div>
         <div class="field"><label>链接方式</label><select id="leLink">
           <option value="auto">自动（symlink→hardlink→copy）</option><option value="symlink">符号链接</option>
-          <option value="hardlink">硬链接</option><option value="copy">复制</option></select></div>
+          <option value="hardlink">硬链接</option><option value="copy">复制</option>
+          <option value="strm">STRM（指向核心 HTTP 流）</option></select></div>
         <div class="field"><label>元数据格式</label><select id="leMeta">
           <option value="nfo">Kodi NFO（Emby/Jellyfin/Kodi）</option><option value="json">JSON sidecar</option><option value="none">无</option></select></div>
       </div>
-      <div class="field"><label>路由 — 标签（逗号分隔，留空 = 所有视频）</label>
-        <input type="text" id="leTags" placeholder="美食, 教程"><span class="hint">命中任一 B 站标签的视频进入此库；分区/UP主维度后续开放</span></div>
+      <div class="field"><label>路由 — 标签（逗号分隔，留空 = 不按标签）</label>
+        <input type="text" id="leTags" placeholder="美食, 教程"><span class="hint">命中任一 B 站标签的视频进入此库</span></div>
+      <div class="field"><label>路由 — 分区（逗号分隔，留空 = 不按分区）</label>
+        <input type="text" id="leCats" placeholder="美食, 动画, 音乐"><span class="hint">命中任一 B 站分区的视频进入此库（按归档时官方 tname 精确匹配）</span></div>
       <label class="check"><input type="checkbox" id="leEnabled" checked> 启用</label>
       <div class="actions"><button class="btn primary" onclick="saveLib()">保存</button></div>
     </form>
@@ -858,16 +890,23 @@ window.editLib = id => api('/libraries').then(libs=>{
   $('#leTitle').textContent='编辑 '+l.name; $('#libEdit').dataset.id=id;
   $('#leName').value=l.name; $('#leRoot').value=l.root_path; $('#leLayout').value=l.layout;
   $('#leLink').value=l.link_mode; $('#leMeta').value=l.metadata_format;
-  try{ $('#leTags').value=(JSON.parse(l.match_rules||'{}').tags||[]).join(', ');}catch(e){}
+  try{ const rr=JSON.parse(l.match_rules||'{}');
+    $('#leTags').value=(rr.tags||[]).join(', ');
+    $('#leCats').value=(rr.categories||[]).join(', ');
+  }catch(e){}
   $('#leEnabled').checked=l.enabled;
   $('#libEdit').style.display='block'; $('#libEdit').scrollIntoView({behavior:'smooth'});
 });
 window.saveLib = async () => {
   const id=$('#libEdit').dataset.id;
   const tags=$('#leTags').value.split(',').map(x=>x.trim()).filter(Boolean);
+  const cats=$('#leCats').value.split(',').map(x=>x.trim()).filter(Boolean);
+  const rules={};
+  if(tags.length) rules.tags=tags;
+  if(cats.length) rules.categories=cats;
   const body={name:$('#leName').value.trim(), root_path:$('#leRoot').value.trim(),
     layout:$('#leLayout').value, link_mode:$('#leLink').value, metadata_format:$('#leMeta').value,
-    match_rules:JSON.stringify(tags.length?{tags:tags}:{}), enabled:$('#leEnabled').checked};
+    match_rules:JSON.stringify(rules), enabled:$('#leEnabled').checked};
   if(!body.name||!body.root_path){ alert('名称与路径必填'); return; }
   try{
     if(id){ await api('/libraries/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
@@ -1011,7 +1050,10 @@ async function renderSettings(m){
         <option value="auto"${sel('auto',c.media_link_mode)}>自动（symlink→hardlink→copy）</option>
         <option value="symlink"${sel('symlink',c.media_link_mode)}>符号链接</option>
         <option value="hardlink"${sel('hardlink',c.media_link_mode)}>硬链接</option>
-        <option value="copy"${sel('copy',c.media_link_mode)}>复制</option></select></div>
+        <option value="copy"${sel('copy',c.media_link_mode)}>复制</option>
+        <option value="strm"${sel('strm',c.media_link_mode)}>STRM（指向核心 HTTP 流，Emby 可跨机播放）</option></select></div>
+      <div class="field"><label>核心公网地址（STRM 模式使用，如 http://192.168.1.114:8080）</label>
+        <input type="text" id="stPubUrl" value="${esc(c.media_public_url||'')}" placeholder="http://192.168.1.114:8080"></div>
     </div>
     <label class="check"><input type="checkbox" id="stTeriEn" ${c.teriteri_enabled?'checked':''}> 启用 teriteri 站点托管 <span class="origin">†</span></label>
     <div class="field"><label>teriteri 前端地址（总览页展示的观看入口，留空显示提示）</label>
@@ -1051,6 +1093,7 @@ window.saveSettings = async () => {
     media_enabled: $('#stMedEn').checked,
     media_layout: $('#stMedLayout').value,
     media_link_mode: $('#stMedLink').value,
+    media_public_url: $('#stPubUrl').value,
     teriteri_enabled: $('#stTeriEn').checked,
     frontend_url: $('#stFrontUrl').value.trim(),
   };

@@ -57,7 +57,11 @@ func (m *MediaLibrary) Matches(v *Video, tags []string) bool {
 			return true
 		}
 	}
-	// categories 预留：videos 表尚无分区字段，视为不匹配（待采集端补 tname 后生效）
+	for _, want := range r.Categories {
+		if want != "" && v.Tname == want {
+			return true
+		}
+	}
 	return false
 }
 

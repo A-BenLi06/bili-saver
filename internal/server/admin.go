@@ -92,6 +92,7 @@ func (s *Server) registerAdmin() {
 	m.HandleFunc("POST /api/v1/images/backfill", s.handleImagesBackfill)
 	m.HandleFunc("POST /api/v1/levels/backfill", s.handleLevelsBackfill)
 	m.HandleFunc("GET /api/v1/tracks", s.handleTracks)
+	m.HandleFunc("GET /api/v1/media-servers/status", s.handleMediaServersStatus)
 	m.HandleFunc("GET /api/v1/libraries", s.handleListLibraries)
 	m.HandleFunc("POST /api/v1/libraries", s.handleCreateLibrary)
 	m.HandleFunc("PATCH /api/v1/libraries/{id}", s.handlePatchLibrary)
@@ -497,6 +498,7 @@ func configPayload(c *config.Config) map[string]any {
 		"adaptive_sync": c.Collector.AdaptiveSync,
 		"min_req_ms":    c.Bilibili.MinReqMs,
 		"media_enabled": c.Media.Enabled, "media_layout": c.Media.Layout, "media_root": c.Media.Root,
+		"media_servers":   c.Media.Servers,
 		"media_link_mode": c.Media.LinkMode, "media_public_url": c.Media.PublicURL,
 		"teriteri_enabled": c.Teriteri.Enabled,
 		"frontend_url":     c.Teriteri.FrontendURL,
@@ -806,6 +808,11 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]any{"total": total, "counts": counts, "items": items})
+}
+
+// handleMediaServersStatus 第三方媒体库在线状态（并发探测，3s 超时）。
+func (s *Server) handleMediaServersStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.mediaServerStatuses(r.Context()))
 }
 
 // handleLevelsBackfill 入队等级补档（评论快照回填+UP主等级，幂等）。
