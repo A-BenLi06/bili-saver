@@ -184,4 +184,4 @@ axios `baseURL:/api`，包装 `{code,message,data}`，JWT（`localStorage.teri_t
 - ~~card 预览卡片功能收尾~~（✅ 2026-09-08 完成，见 §4/§7）
 - 播放站（teriteri.html）与管理端组件级统一
 
-**验证基线**：`go vet ./... && go test ./internal/...`（internal 20 包全绿）。
+**验证基线**：`go vet ./... && go test ./internal/...`（全部 internal 包绿；包数随功能增长，以 `go list ./internal/...` 实时为准）。

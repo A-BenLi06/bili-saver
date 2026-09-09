@@ -11,7 +11,7 @@ export GOPROXY="https://goproxy.cn,direct"   # proxy.golang.org 不可达，必�
 
 go build ./...          # 编译
 go vet ./...            # 静态检查
-go test -count=1 ./internal/...   # 全量测试（20 包，改动后必须全绿；被并行半成品阻塞时按 COORDINATION §5 按包验证）
+go test -count=1 ./internal/...   # 全量测试（改动后必须全绿；被并行半成品阻塞时按 COORDINATION §5 按包验证）
 gofmt -w internal cmd   # 提交前格式化
 
 # 本地运行（Windows/Git Bash，服务占 8080）
