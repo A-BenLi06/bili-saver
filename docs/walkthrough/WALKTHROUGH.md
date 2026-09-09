@@ -1,7 +1,7 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-09T17:00:31Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻）
+> 水位：2026-09-09T18:00:47Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻）
 > 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
 > - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已于上上轮归纳；
 > - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，本轮已归纳；
@@ -128,6 +128,13 @@
 - 修复四件套：① resolver 新增 normalizeFavID 剥 ml 前缀，应用于全部 4 处 TypeFavList 构造点（space/favlist、medialist 路径、media_id、fid 兜底）+ expandFavList ParseInt 前防御性再剥；② store.migrate() 加 v9.1 幂等数据修复（UPDATE sources 剥存量 ml 前缀，NOT EXISTS 防 UNIQUE 冲突）；③ jobs.Scheduler 新增 syncSourceBlocked——sync_source 连续失败≥5 次后提交间隔按 2 的幂拉长（上限 1h，成功即清零），接入 tick 循环；④ 回归测试 ×3（resolver 剥离 / store 迁移 / jobs 退避全路径）。
 - 过程快照（raw 原文）：接管预告→1h 无响应→登记接管→侦察复用 P-009 结论→一次落码。
 - 状态：三包测试绿，全量门 19 包 ok（待最终确认）；按 §5 重启服务并验证 ml 同步循环停止尚待执行。
+
+### 归档项目页 UI/UX 优化（分类/分页/排序）— ui-agent（2026-09-09T17:40:00Z，done-review）
+- 人类交办"归档项目的分页、分类、排序显示（按时间/名称升降序）"。
+- store 新增 VideoStatusCounts + ListVideosPage（status ok/gone/private 与 downloaded 过滤、q LIKE 匹配标题/简介/UP主/bvid 带转义、sort 白名单 title/pubdate/last_sync + order、limit≤100/offset 分页、返回过滤后总数；旧 ListVideosWithCounts 原样保留）；handleListVideos 响应裸数组→`{total,counts,items}`，同步更新 app 包 TestHTTPWiring 契约断言（自己形状变更引发的测试红，非他人区域）。
+- 前端 renderVideos 重写：状态 Tab（全部/正常/已消失/私有+计数）、下载状态筛选、可点击表头排序（项目▲▼ title NOCASE / 发布 / 最后同步，新增发布列）、分页条、各组合空态、清除筛选动态显隐。
+- 自检抓到竞态缺陷：快速连续操作（切 Tab 后立即搜索）时并发响应乱序覆盖 DOM——loadV/loadTk 加请求序号守卫（过期响应直接丢弃），顺带修复跟踪列表同款隐患。
+- 验证：20 包全绿；服务已重启（期间被并行 agent 顶掉一次实例，最终版含全部改动）；431 条真实数据断言（默认 pubdate desc/分页/三状态过滤与 counts 一致/dl 过滤/title 升降序/组合过滤+分页/四种搜索/LIKE 转义用 SQL 真值核对——q=% 命中唯一含"99%"标题属正确语义）；DOM 断言排序切换与竞态守卫；截图验证观感。
 
 ## 待补时间戳
 

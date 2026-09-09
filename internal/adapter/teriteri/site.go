@@ -244,7 +244,7 @@ func (a *Adapter) cardMap(v *store.Video) map[string]any {
 	}
 	return map[string]any{
 		"video": map[string]any{
-			"vid": v.Bvid, "title": v.Title, "coverUrl": v.Pic,
+			"vid": v.Bvid, "title": v.Title, "coverUrl": a.coverURL(v),
 			"duration": v.Duration, "uploadDate": isoDate(v.Pubdate),
 		},
 		"user":  map[string]any{"uid": v.OwnerMid, "nickname": v.OwnerName, "avatar_url": v.OwnerFace},

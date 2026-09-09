@@ -61,12 +61,16 @@ func TestHTTPWiring(t *testing.T) {
 		t.Fatal("stats 无数据")
 	}
 
-	// videos 列表
+	// videos 列表（分页富结果：{total,counts,items}）
 	resp2, _ := http.Get(srv.URL + "/api/v1/videos")
-	var videos []*store.Video
-	_ = json.NewDecoder(resp2.Body).Decode(&videos)
-	if len(videos) != 1 || videos[0].Bvid != "BV1Test00001" {
-		t.Fatalf("videos 列表错误: %+v", videos)
+	var vl struct {
+		Total  int64            `json:"total"`
+		Counts map[string]int64 `json:"counts"`
+		Items  []*store.Video   `json:"items"`
+	}
+	_ = json.NewDecoder(resp2.Body).Decode(&vl)
+	if vl.Total != 1 || len(vl.Items) != 1 || vl.Items[0].Bvid != "BV1Test00001" {
+		t.Fatalf("videos 列表错误: %+v", vl)
 	}
 
 	// teriteri 适配层共存于同一 mux

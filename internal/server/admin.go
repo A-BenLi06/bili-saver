@@ -285,35 +285,29 @@ func (s *Server) handleSyncSource(w http.ResponseWriter, r *http.Request) {
 
 // ---- 视频库 ----
 
+// handleListVideos 归档项目列表：{total 过滤后总数, counts 分状态计数, items 页内记录}。
+// status=ok|gone|private；dl=1|0；q 模糊匹配 标题/简介/UP主/bvid（管理端语义；
+// teriteri 站内搜索走 adapter 自己的 FTS 不受影响）；sort=title|pubdate|last_sync（默认 pubdate）
+// + order=asc|desc；limit（≤100，默认 20）/offset 分页。
 func (s *Server) handleListVideos(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	owner, _ := strconv.ParseInt(q.Get("owner"), 10, 64)
-	limit, _ := strconv.Atoi(orDefaultStr(q.Get("limit"), "50"))
-	offset, _ := strconv.Atoi(q.Get("offset"))
-	var out []*store.VideoWithCounts
-	var err error
-	if kw := strings.TrimSpace(q.Get("q")); kw != "" {
-		var bvids []string
-		bvids, err = s.Deps.St.SearchVideosFTS(kw, limit)
-		if err == nil {
-			out = []*store.VideoWithCounts{}
-			for _, b := range bvids {
-				if v, e := s.Deps.St.GetVideoWithCounts(b); e == nil {
-					out = append(out, v)
-				}
-			}
-		}
-	} else {
-		out, err = s.Deps.St.ListVideosWithCounts(owner, q.Get("status"), limit, offset)
-	}
+	qp := r.URL.Query()
+	limit, _ := strconv.Atoi(qp.Get("limit"))
+	offset, _ := strconv.Atoi(qp.Get("offset"))
+	items, total, err := s.Deps.St.ListVideosPage(qp.Get("status"), qp.Get("dl"), qp.Get("q"),
+		qp.Get("sort"), qp.Get("order"), limit, offset)
 	if err != nil {
 		errJSON(w, 500, err)
 		return
 	}
-	if out == nil {
-		out = []*store.VideoWithCounts{}
+	if items == nil {
+		items = []*store.VideoWithCounts{}
 	}
-	writeJSON(w, 200, out)
+	counts, err := s.Deps.St.VideoStatusCounts()
+	if err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"total": total, "counts": counts, "items": items})
 }
 
 func (s *Server) handleVideoDetail(w http.ResponseWriter, r *http.Request) {

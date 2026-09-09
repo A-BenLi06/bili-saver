@@ -101,6 +101,9 @@ mark { background:var(--accent-soft); color:var(--txt); padding:0 1px; border-ra
 .tabs button.active { color:var(--txt); font-weight:600; border-bottom-color:var(--accent); }
 .tabs .n { font-size:11px; color:var(--faint); margin-left:4px; font-weight:400; }
 .pgn { display:flex; align-items:center; gap:12px; padding:10px 0 0; font-size:12.5px; color:var(--sub); }
+.th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
+.th-sort:hover { color:var(--txt); }
+.th-sort .arr { font-size:10px; color:var(--accent); }
 .backlink { display:inline-block; margin-bottom:14px; font-size:13px; }
 .empty { padding:36px 0; text-align:center; color:var(--faint); font-size:13px; }
 #toasts { position:fixed; right:20px; top:16px; z-index:100; display:flex; flex-direction:column; gap:8px; }
@@ -436,35 +439,108 @@ async function recognizeInput(seq){
 }
 
 /* ============ 归档项目 ============ */
+let vState='', vDl='', vQ='', vSort='pubdate', vOrder='desc', vOffset=0;
+const V_PAGE=20;
 async function renderVideos(m){
   m.innerHTML = `
   <div class="pagehead"><h1>归档项目</h1><span class="desc">状态与完整度 · 观看请使用 teriteri 或媒体库</span></div>
   <div class="sect">
+    <div class="tabs" id="vTabs">
+      <button data-st="">全部<span class="n" id="vN"></span></button>
+      <button data-st="ok"><span class="dot ok"></span>正常<span class="n" id="vNok"></span></button>
+      <button data-st="gone"><span class="dot err"></span>已消失<span class="n" id="vNgone"></span></button>
+      <button data-st="private"><span class="dot warn"></span>私有<span class="n" id="vNprivate"></span></button>
+    </div>
     <div class="actions" style="margin-bottom:12px">
-      <input type="text" id="q" placeholder="搜索标题/简介…" style="max-width:280px;padding:7px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13.5px">
+      <input type="text" id="q" placeholder="搜索标题 / 简介 / UP主 / BV号…" value="${esc(vQ)}" style="max-width:260px;padding:7px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13.5px">
+      <select id="vdl" style="width:auto">
+        <option value="">下载：全部</option>
+        <option value="1">已下载</option>
+        <option value="0">未下载</option>
+      </select>
       <button class="btn" id="s">搜索</button>
+      <button class="btn" id="vreset" style="display:${(vState||vDl||vQ)?'':'none'}">清除筛选</button>
     </div>
     <div id="list" class="empty">加载中…</div>
+    <div class="pgn" id="vpgn"></div>
   </div>`;
-  const load = async () => {
-    const q=encodeURIComponent($('#q').value.trim());
-    const vs=await api('/videos?limit=100'+(q?`&q=${q}`:''));
-    $('#list').innerHTML = (vs.length?`<table><thead><tr><th></th><th>项目</th><th>完整度</th><th>状态</th><th>最后同步</th><th></th></tr></thead><tbody>`+
-      vs.map(v=>`<tr>
+  document.querySelectorAll('#vTabs button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.st===vState);
+    b.onclick=()=>{ vState=b.dataset.st; vOffset=0; loadV(); };
+  });
+  $('#vdl').value=vDl;
+  $('#vdl').onchange=()=>{ vDl=$('#vdl').value; vOffset=0; loadV(); };
+  const run=()=>{ vQ=$('#q').value.trim(); vOffset=0; loadV(); };
+  $('#s').onclick=run; $('#q').onkeydown=e=>{if(e.key==='Enter')run();};
+  const reset=$('#vreset');
+  if(reset) reset.onclick=()=>{ vState=''; vDl=''; vQ=''; vOffset=0; renderVideos($('#main')); };
+  $('#list').addEventListener('click', e=>{
+    const th=e.target.closest('th.th-sort'); if(!th) return;
+    const col=th.dataset.sort;
+    if(vSort===col){ vOrder = vOrder==='asc'?'desc':'asc'; }
+    else { vSort=col; vOrder = col==='title'?'asc':'desc'; }
+    vOffset=0; loadV();
+  });
+  await loadV();
+}
+const vSetN=(id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=fmtN(v); };
+let vSeq=0;
+async function loadV(){
+  const list=document.getElementById('list'); if(!list) return;
+  const seq=++vSeq;
+  list.innerHTML='<div class="empty">加载中…</div>';
+  try{
+    const qp=new URLSearchParams();
+    if(vState) qp.set('status',vState);
+    if(vDl) qp.set('dl',vDl);
+    if(vQ) qp.set('q',vQ);
+    qp.set('sort',vSort); qp.set('order',vOrder);
+    qp.set('limit',V_PAGE); qp.set('offset',vOffset);
+    const r=await api('/videos?'+qp);
+    if(seq!==vSeq) return; // 已有更新的查询在途，丢弃过期响应
+    const c=r.counts||{};
+    vSetN('vN',r.total||0); vSetN('vNok',c.ok||0); vSetN('vNgone',c.gone||0); vSetN('vNprivate',c.private||0);
+    const rb=document.getElementById('vreset'); if(rb) rb.style.display=(vState||vDl||vQ)?'':'none';
+    const items=r.items||[];
+    const pg=document.getElementById('vpgn');
+    if(!items.length){
+      list.innerHTML=`<div class="empty">${vQ?'没有匹配的归档项目':(vState==='gone'?'没有已消失的归档项目':(vState==='private'?'没有私有状态的归档项目':(vState==='ok'?'没有正常状态的归档项目':'还没有归档项目，去「采集」页添加')))}</div>`;
+      pg.style.display='none'; return;
+    }
+    const stTxt=s=>s==='ok'?'<span class="dot ok"></span>正常':(s==='gone'?'<span class="dot err"></span>已消失':'<span class="dot warn"></span>私有');
+    const arr=col=> vSort===col ? (vOrder==='asc'?' <span class="arr">▲</span>':' <span class="arr">▼</span>') : '';
+    list.innerHTML=`<table><thead><tr><th></th>
+      <th class="th-sort" data-sort="title">项目${arr('title')}</th>
+      <th class="th-sort" data-sort="pubdate">发布${arr('pubdate')}</th>
+      <th>完整度</th><th>状态</th>
+      <th class="th-sort" data-sort="last_sync">最后同步${arr('last_sync')}</th>
+      <th></th></tr></thead><tbody>`+
+      items.map(v=>`<tr>
         <td class="thumb"><img src="${esc(v.pic)}" loading="lazy" onerror="this.style.visibility='hidden'"></td>
         <td><a href="#" onclick="openArchive('${v.bvid}');return false">${esc(v.title)}</a>
             <div class="cell-sub">${esc(v.owner_name)} · ${esc(v.bvid)}</div></td>
+        <td class="st">${fmtT(v.pubdate)}</td>
         <td class="tagtext">视频 <b>${v.downloaded?'✓':'—'}</b> · 评论 <b>${v.comments_visible}</b>${v.comments_deleted?` <span style="color:var(--faint)">(+${v.comments_deleted} 消失)</span>`:''} · 弹幕 <b>${v.danmaku_count}</b> · 字幕 <b>${v.subtitle_count}</b></td>
-        <td class="st">${v.status==='ok'?'<span class="dot ok"></span>正常':'<span class="dot err"></span>'+esc(v.status)}</td>
+        <td class="st">${stTxt(v.status)}</td>
         <td class="st">${fmtT(v.last_sync_at)}</td>
         <td><div class="actions">
           <button class="btn sm" onclick="syncOne('${v.bvid}', this)">重同步</button>
           ${v.downloaded?'':`<button class="btn sm" onclick="dlVideo('${v.bvid}', this)">下载</button>`}
           <button class="btn sm" onclick="window.open('/api/v1/videos/${v.bvid}/card','_blank')">卡片</button>
-        </div></td></tr>`).join('')+'</tbody></table>':'<div class="empty">没有归档项目</div>');
-  };
-  $('#s').onclick=load; $('#q').onkeydown=e=>{if(e.key==='Enter')load();};
-  await load();
+        </div></td></tr>`).join('')+'</tbody></table>';
+    const pages=Math.max(1,Math.ceil((r.total||0)/V_PAGE));
+    const page=Math.floor(vOffset/V_PAGE)+1;
+    if(pages<=1){ pg.style.display='none'; return; }
+    pg.style.display='flex';
+    pg.innerHTML=`<button class="btn sm" id="vprev" ${page<=1?'disabled':''}>上一页</button>
+      <span>第 ${page} / ${pages} 页 · 共 ${fmtN(r.total)} 条</span>
+      <button class="btn sm" id="vnext" ${page>=pages?'disabled':''}>下一页</button>`;
+    const prev=document.getElementById('vprev'), next=document.getElementById('vnext');
+    if(prev) prev.onclick=()=>{ vOffset=(page-2)*V_PAGE; loadV(); };
+    if(next) next.onclick=()=>{ vOffset=page*V_PAGE; loadV(); };
+  }catch(e){
+    list.innerHTML=`<div class="banner warn">加载失败：${esc(String(e))}</div>`;
+  }
 }
 window.syncOne = async (b, el) => {
   const submit = confirmHot => api(`/videos/${b}/archive`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({download:false, confirm_hot:confirmHot})});
@@ -768,8 +844,10 @@ async function renderTracks(m){
   await loadTk();
 }
 const tkSetN = (id, v) => { const el=document.getElementById(id); if(el) el.textContent=fmtN(v); };
+let tkSeq=0;
 async function loadTk(){
   const list=document.getElementById('tklist'); if(!list) return;
+  const seq=++tkSeq;
   list.innerHTML='<div class="empty">加载中…</div>';
   try{
     const qp=new URLSearchParams();
@@ -777,6 +855,7 @@ async function loadTk(){
     if(tkQ) qp.set('q',tkQ);
     qp.set('limit',TK_PAGE); qp.set('offset',tkOffset);
     const r = await api('/tracks?'+qp);
+    if(seq!==tkSeq) return; // 已有更新的查询在途，丢弃过期响应
     const c=r.counts||{};
     tkSetN('tkN', r.total||0); tkSetN('tkNdone', c.done||0); tkSetN('tkNqueued', c.queued||0); tkSetN('tkNfailed', c.failed||0);
     const rb=document.getElementById('tkreset');

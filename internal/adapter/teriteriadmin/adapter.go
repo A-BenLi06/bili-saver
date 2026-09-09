@@ -143,7 +143,7 @@ func (a *Adapter) card(v *store.Video) map[string]any {
 	}
 	return map[string]any{
 		"video": map[string]any{
-			"vid": v.Bvid, "title": v.Title, "coverUrl": v.Pic,
+			"vid": v.Bvid, "title": v.Title, "coverUrl": a.coverURL(v),
 			"duration": v.Duration, "uploadDate": isoDate(v.Pubdate),
 			"status": reviewStatus(v),
 		},
@@ -231,7 +231,7 @@ func (a *Adapter) videoGetone(w http.ResponseWriter, r *http.Request, _ int64) {
 	a.ok(w, map[string]any{
 		"video": map[string]any{
 			"vid": vid, "title": v.Title, "descr": descr,
-			"videoUrl": a.mediaURL(v), "coverUrl": v.Pic,
+			"videoUrl": a.mediaURL(v), "coverUrl": a.coverURL(v),
 			"duration": v.Duration, "uploadDate": isoDate(v.Pubdate),
 			"tags": strings.Join(tags["bilibili"], "\r\n"),
 			"type": 1, "auth": 1, "top": false,
@@ -240,6 +240,15 @@ func (a *Adapter) videoGetone(w http.ResponseWriter, r *http.Request, _ int64) {
 		"user":     map[string]any{"uid": v.OwnerMid, "nickname": v.OwnerName, "avatar_url": v.OwnerFace},
 		"category": map[string]any{"mcId": 0, "mcName": "补档", "scId": 0, "scName": "归档"},
 	})
+}
+
+// coverURL 封面优先本地化（同源必达，规避 B 站 CDN 防盗链）。
+func (a *Adapter) coverURL(v *store.Video) string {
+	local := "media/" + v.Bvid + "/cover.jpg"
+	if _, err := os.Stat(filepath.Join(a.DataDir, filepath.FromSlash(local))); err == nil {
+		return "/media/" + local
+	}
+	return v.Pic
 }
 
 // mediaURL 本地媒体播放地址（local_path 以 media/ 开头）。
