@@ -22,7 +22,18 @@ func TestMatchRulesCategories(t *testing.T) {
 		t.Error("分区电影不应匹配")
 	}
 	if lib.Matches(&Video{Tid: 211}, nil) {
-		t.Error("仅有 tid 无 tname 不应按分区匹配（categories 按名称）")
+		t.Error("未知 tid 211 不应匹配")
+	}
+
+	// 一级分区名候选：tid=76（美食制作）凭映射表命中一级名"美食"，无需 tname 落库
+	foodLib := &MediaLibrary{MatchRules: `{"categories":["美食"]}`}
+	if !foodLib.Matches(&Video{Tid: 76}, nil) {
+		t.Error("tid=76 应凭映射表命中一级分区名「美食」")
+	}
+	// 二级名候选：落库 tname 为空也直接命中
+	secLib := &MediaLibrary{MatchRules: `{"categories":["美食制作"]}`}
+	if !secLib.Matches(&Video{Tid: 76}, nil) {
+		t.Error("tid=76 应凭映射表命中二级分区名「美食制作」")
 	}
 
 	// 空规则 = 默认库全匹配

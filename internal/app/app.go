@@ -221,6 +221,11 @@ func (a *App) refreshCard(ctx context.Context, bvid string) {
 	if bvid == "" {
 		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			a.Log.Warn("预览卡片生成 panic（已忽略）", "bvid", bvid, "panic", r)
+		}
+	}()
 	if _, err := a.Card.RenderToFile(ctx, bvid); err != nil {
 		a.Log.Warn("预览卡片生成失败", "bvid", bvid, "err", err)
 	}

@@ -1,7 +1,7 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-08T19:00:16Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻）
+> 水位：2026-09-09T13:00:25Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻）
 > 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
 > - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已于上上轮归纳；
 > - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，本轮已归纳；
@@ -108,6 +108,20 @@
 - 交付：index.html「设置」页（采集与补档/下载/媒体库与站点/只读信息 四分组，† 标注重启生效项）；`PATCH /api/v1/config`（指针字段全可选、先校验后提交、Normalize+Validate、写回 config.yaml 自动 .bak 备份 0600）；config.SaveConfigFile；GET config 补齐 full_resync_comments/stats_resync_hours/download_danmaku/min_req_ms；Scheduler 由拷贝字段改为持 *config.Config 活读取（设置改动下一 tick 生效）；Deps.ConfigPath + App.CfgPath 由 main 注入。
 - 踩坑：PATCH 响应复用 GET payload 时 CachedLogin 对 nil API panic → 拆出 login 字段仅 GET 附加；期间两次被并行 agent 半成品阻塞（store 缺 import、media vet），等自愈后重跑全量门；strm 功能由协作 agent 并入设置页（link_mode strm + media_public_url 全链路）。
 - 验证：全量门 20 包绿；服务实测 GET/PATCH/非法 400/.bak；UI 渲染+保存 toast 实测过。done-review（API 形状新增，待人类抽查）。
+
+### 分区+横竖屏采集落库与官方分区表映射（schema v9 + bilicats）— session-agent（自报 2026-09-08T19:45Z → 20:15Z，done-review）
+- 采集落库（人类交办"补分区/竖屏功能"）：biliapi VideoView 补解析 tid/tname_v2/dimension（rotate 90/270 宽高互换）；videos 表 v9 加 tid/tname/orientation 三列（ensureColumn 幂等）；collector 归档落库 + SyncVideoStats 顺带自愈老数据（仅新值可信时覆盖，防空值抹旧）；orientationOf 派生 horizontal/vertical（未知不猜）；media Matches 的 categories 预留位转正（按 tname 匹配）；UI 归档详情加「分区/类型」行（tname 空回退显示 tid）+ 媒体库路由表单加分区输入。
+- 数据面发现：近期 120/120 快照 tname/tname_v2 均为空串——B 站已不在 view 接口返回分区名，按名路由对新增数据不命中；tid 已落库无需重爬，留言 @human/@core-agent 裁决。
+- 官方分区表（人类裁决"引入"）：archive/catalog 分区表接口已下线、排行接口无 cookie 被 -352 风控——用项目 cookie jar 实测收割 ranking/v2 各主分区，16 个库内 tid 全部获得官方现名（含翻新名 76=美食制作、173=桌游棋牌、228=人文历史，验证了"不手写旧记忆表"的决定）；152（主播相关）未覆盖，宁缺毋滥留待扩展。交付 `internal/bilicats` 零依赖映射包：pickTname 三级兜底（tname→tname_v2→表）；store Matches 候选名匹配（落库 tname+表现名+一级名），存量行凭 tid 立即命中无需自愈；详情 API 显示解析。端到端：按一级名"美食"建临时库路由恰好命中 tid=76 视频（测试库已清理）。
+- 踩坑：UpsertVideo 占位符少一个（25 列 24 个 ?），既有测试大面积失败实为同一根因。
+- 验证：全量门 20 包绿（两轮，含 bilicats 抽查用例）；真实重同步实测 DB 落值（tid=76/orientation=horizontal）与 raw 快照核对一致 + UI 透出；服务重启后详情 API 返回"美食制作"。注：美食库现有规则是按标签"美食教程"，未代改——人类可在媒体库 UI 一键加分区路由。
+
+### card 渲染并发崩溃修复 — session-agent（自报 2026-09-08T20:40Z，done-review）
+- 事故：服务 17:11 崩溃（drawGlyphOver index out of range），任务 worker 无 recover 直接带死进程。
+- 定位：card 渲染并发共享 faceCache 的 opentype Face 无内部锁——Glyph 返回的 mask 是内部复用缓冲视图，并发 DrawString 互相打空 mask；单方法加锁不够，临界区必须覆盖 Glyph→DrawMask 全程。另外 jobs.Manager.process 无 recover，panic 直接带崩进程。
+- 修复：draw.go 加 glyphMu 绘制级互斥（覆盖 DrawString + measureString/runeWidth/textBaseline/textH）+ jobs.process recover（panic→任务 failed）+ app.refreshCard recover（维持只告警语义）。
+- 踩坑：font.Face 接口 6 个方法，首版漏 GlyphAdvance/GlyphBounds 编译失败；"单方法 lockedFace"方案被自己的并发测试证伪后改为绘制级互斥。
+- 验证：-race 并发回归精确复现生产栈、修复后通过；全量门 20 包绿；崩溃视频 BV1J6tW63EfJ 重归档 done + card.png 正常（556KB）+ 服务存活。遗留发现：favlist "ml" 前缀解析回归（core 区域，留言不代改）。
 
 ## 待补时间戳
 

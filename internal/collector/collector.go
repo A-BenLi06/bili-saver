@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"bili-saver/internal/biliapi"
+	"bili-saver/internal/bilicats"
 	"bili-saver/internal/config"
 	"bili-saver/internal/store"
 )
@@ -430,12 +431,16 @@ func (c *Collector) SyncVideoStats(ctx context.Context, bvid string) error {
 	return c.St.UpdateVideoSyncTimes(view.Bvid, true, false, false, false, now)
 }
 
-// pickTname 分区名：tname 优先，个别视频官方返回空串时回退 tname_v2。
+// pickTname 分区名：官方 tname 优先，空串时回退 tname_v2，再回退本地分区表
+// （bilicats，实测收割的官方映射；view 接口当前普遍不返回分区名，见 CLAIMS 2026-09-09）。
 func pickTname(view *biliapi.VideoView) string {
 	if view.TName != "" {
 		return view.TName
 	}
-	return view.TNameV2
+	if view.TNameV2 != "" {
+		return view.TNameV2
+	}
+	return bilicats.Name(view.TID)
 }
 
 // orientationOf 由 dimension 派生横竖屏；rotate 90/270 时宽高语义互换；

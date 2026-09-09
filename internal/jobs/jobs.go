@@ -6,7 +6,9 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -151,6 +153,13 @@ func (m *Manager) process(ctx context.Context, id int64) {
 		return
 	}
 	_ = m.St.UpdateJobState(id, "running", "", "", j.Progress)
+	// 处理器 panic 视为任务失败，绝不允许带崩整个服务（worker 是共享长驻 goroutine）。
+	defer func() {
+		if r := recover(); r != nil {
+			m.Log.Error("任务处理器 panic", "job", id, "type", j.Type, "panic", r, "stack", string(debug.Stack()))
+			_ = m.St.UpdateJobState(id, "failed", "", fmt.Sprintf("处理器 panic: %v", r), j.Progress)
+		}
+	}()
 
 	var lastUp time.Time
 	progress := func(f float64, detail string) {

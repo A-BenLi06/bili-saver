@@ -70,10 +70,11 @@ internal/
   biliapi/   B站客户端：WBI 签名、buvid 注入(EnsureBuvid)、扫码登录+cookie 持久化(保留
             Domain 属性)、CachedLogin(5min 真实校验)、全局限流、弹幕 seg.so→list.so 回退
             (deflate XML 解析)、FlexInt 兼容字符串数字
+  bilicats/  B站官方分区映射表（tid→分区现名/一级分区名；排行接口实测收割，宁缺毋滥）
   resolver/  输入→源：URL/BV/av/UP主/收藏夹/合集/系列；b23 短链展开；Expand 展开视频清单
             （space 需登录，未登录返回明确引导错误）
   collector/ 归档编排：元数据/标签/官方AI小结/统计序列/评论(主楼+楼中楼全量翻页)/弹幕/
-            CC字幕；CollectOptions 按范围采集；cid 变化检测（换源强制补采）；消失检测入口
+            CC字幕；CollectOptions 按范围采集；cid 变化检测（换源强制补采）；消失检测入口；分区 tid/tname 与 dimension→orientation 采集落库（v9）
   downloader/ DASH 选流（清晰度白名单：空=全部=最高可用，指定档全缺时回落更低档；
             音频偏好链 hires/dolby/192k/132k/64k，空=标准最高；allow_4k/allow_av1 编码门）
             →分片下载(Range 断点+备用CDN)→ffmpeg 合并；
@@ -81,7 +82,7 @@ internal/
   store/    SQLite：schema.sql(v1 基线 IF NOT EXISTS) + migrate() 增量补列(v2-v8) + DAO
   jobs/     持久化任务队列（崩溃恢复：running→queued 重放）+ 调度器（按源独立间隔；
             statsDue 按类型查最近 job 避免误触发；freshSweep 新发 24h 内 45min 轻量统计加速）
-  media/    多媒体库桥：遍历 media_libraries，按 MatchRules(tags；分区/UP主预留)路由视频，
+  media/    多媒体库桥：遍历 media_libraries，按 MatchRules(tags/categories=分区名；UP主预留)路由视频，
             movie/show 布局，NFO(仅 origin 数据)/JSON sidecar/none 三种元数据格式，
             symlink(绝对路径)→hardlink→copy 降级链
   plugin/   事件总线 + 进程插件 runtime + op 协议（见 §9）
@@ -123,7 +124,7 @@ deploy/     Dockerfile(含 ffmpeg) / Dockerfile.teriteri(前端+nginx) / compose
 | `plugins`/`plugin_runs` | 插件注册与执行审计 |
 | `media_libraries`(v4) | 每库独立 root/layout/link_mode/metadata_format(nfo\|json\|none)/match_rules/enabled |
 
-**迁移历史**：v1 基线 → v2 同步策略列 → v3 消失防御列 → v4 media_libraries → v5 videos.source_id → v6 B站用户等级（comments.member_level / videos.owner_level）→ v7 新视频触发器（sources.auto_download 三态 + video_tracks 跟踪列表）→ v8 自适应补档冷却（videos.pubdate 索引，基线 IF NOT EXISTS 自升级）。全部 `ensureColumn`/`IF NOT EXISTS` 幂等，老库启动自动升级。
+**迁移历史**：v1 基线 → v2 同步策略列 → v3 消失防御列 → v4 media_libraries → v5 videos.source_id → v6 B站用户等级（comments.member_level / videos.owner_level）→ v7 新视频触发器（sources.auto_download 三态 + video_tracks 跟踪列表）→ v8 自适应补档冷却（videos.pubdate 索引，基线 IF NOT EXISTS 自升级）→ v9 分区与横竖屏（videos.tid/tname/orientation；tname 空时由 bilicats 分区表按 tid 兜底，路由匹配候选名=落库名+现名+一级名）。全部 `ensureColumn`/`IF NOT EXISTS` 幂等，老库启动自动升级。
 
 ## 6. 关键流程
 

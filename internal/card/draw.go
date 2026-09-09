@@ -8,6 +8,7 @@ import (
 	"image/color"
 	"image/draw"
 	"math"
+	"sync"
 
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
@@ -313,16 +314,27 @@ func (c *Canvas) face(w weight, size float64) font.Face { return c.faces.face(w,
 
 // textBaseline 垂直中心 cy 对应的文字基线。
 func textBaseline(f font.Face, cy int) int {
+	glyphMu.Lock()
 	m := f.Metrics()
+	glyphMu.Unlock()
 	return cy + int(math.Round(float64(m.Ascent-m.Descent)/(2*65536)))
 }
+
+// glyphMu 串行化所有 glyph 光栅化+绘制。opentype.Face 非并发安全，且 Glyph
+// 返回的 mask 是 face 内部复用缓冲的视图——下一个 Glyph 调用会覆盖它，所以
+// 单方法加锁不够，必须把「Glyph → DrawMask」整个临界区锁住（即 DrawString 全程）。
+// 并发渲染（多归档任务并行 + 管理端刷新）曾因无此锁触发 image/draw 越界 panic
+// 带崩服务（2026-09-09）。绘制是纯内存操作，串行化开销可忽略。
+var glyphMu sync.Mutex
 
 // drawText 在 (x, baselineY) 画文字，返回宽度。
 func (c *Canvas) drawText(s string, x, baselineY int, w weight, size float64, col color.Color) int {
 	f := c.face(w, size)
 	d := &font.Drawer{Dst: c.RGBA, Src: image.NewUniform(col), Face: f}
 	d.Dot = fixed.P(x, baselineY)
+	glyphMu.Lock()
 	d.DrawString(s)
+	glyphMu.Unlock()
 	return textW(f, s)
 }
 
@@ -340,7 +352,10 @@ func (c *Canvas) drawTextCenter(s string, cx, cy int, w weight, size float64, co
 }
 
 // measureString 测量字符串宽度（26.6 定点）。
+// Kern/GlyphAdvance 共享 face 内部 buf（无内部锁），同 glyphMu 串行化。
 func measureString(f font.Face, s string) fixed.Int26_6 {
+	glyphMu.Lock()
+	defer glyphMu.Unlock()
 	var total fixed.Int26_6
 	prevR := rune(-1)
 	for _, r := range s {
@@ -359,6 +374,8 @@ func measureString(f font.Face, s string) fixed.Int26_6 {
 
 // runeWidth 单字符宽度。
 func runeWidth(f font.Face, r rune) fixed.Int26_6 {
+	glyphMu.Lock()
+	defer glyphMu.Unlock()
 	a, _ := f.GlyphAdvance(r)
 	return a
 }
@@ -371,7 +388,9 @@ func textW(f font.Face, s string) int { return int(measureString(f, s).Ceil()) }
 
 // textH 文字高度（ascent+descent，像素）。
 func textH(f font.Face) int {
+	glyphMu.Lock()
 	m := f.Metrics()
+	glyphMu.Unlock()
 	return int((m.Ascent + m.Descent) >> 6)
 }
 

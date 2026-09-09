@@ -41,7 +41,7 @@ func (s *Store) UpsertVideo(v *Video) error {
 		// 保留首次关联的源（换源同步时避免覆盖）
 		_ = v.SourceID
 	}
-	_, err := s.DB.Exec(`INSERT INTO videos(`+videoCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	_, err := s.DB.Exec(`INSERT INTO videos(`+videoCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(bvid) DO UPDATE SET
 		  aid=excluded.aid, title=excluded.title, description=excluded.description, pic=excluded.pic,
 		  owner_mid=excluded.owner_mid, owner_name=excluded.owner_name, owner_face=excluded.owner_face,

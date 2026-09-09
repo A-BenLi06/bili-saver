@@ -36,7 +36,11 @@ func TestPickTname(t *testing.T) {
 	if got := pickTname(&biliapi.VideoView{TName: "", TNameV2: "野生动物"}); got != "野生动物" {
 		t.Errorf("tname 空应回退 tname_v2: %q", got)
 	}
+	// 双双为空时回退本地分区表（76=美食制作，2026-09 排行接口实测）
+	if got := pickTname(&biliapi.VideoView{TID: 76}); got != "美食制作" {
+		t.Errorf("tname/tname_v2 空应回退本地分区表: %q", got)
+	}
 	if got := pickTname(&biliapi.VideoView{}); got != "" {
-		t.Errorf("全空应为空串: %q", got)
+		t.Errorf("全空且未知 tid 应为空串: %q", got)
 	}
 }

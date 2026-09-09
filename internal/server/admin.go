@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"bili-saver/internal/bilicats"
 	"bili-saver/internal/resolver"
 	"bili-saver/internal/store"
 )
@@ -328,6 +329,12 @@ func (s *Server) handleVideoDetail(w http.ResponseWriter, r *http.Request) {
 	tags, _ := s.Deps.St.VideoTags(bvid)
 	summaries, _ := s.Deps.St.ListSummaries(bvid)
 	vis, del, _ := s.Deps.St.CountCommentsByStatus(bvid)
+	// 分区名显示兜底：tname 尚未随同步自愈时，用本地分区表按 tid 解析（仅展示，不回写）。
+	if v.Tname == "" && v.Tid != 0 {
+		if name := bilicats.Name(int(v.Tid)); name != "" {
+			v.Tname = name
+		}
+	}
 	model, summary, outline, conclErr := s.Deps.St.GetAIConclusion(bvid)
 	// 观看渠道定位（本体只管状态；播放交给 teriteri / 媒体库）
 	mediaRel := ""

@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"bili-saver/internal/bilicats"
 )
 
 // MatchRules 媒体库路由规则；全空 = 匹配所有视频（默认库语义）。
@@ -57,12 +59,32 @@ func (m *MediaLibrary) Matches(v *Video, tags []string) bool {
 			return true
 		}
 	}
+	// categories：分区名匹配。候选名 = 落库 tname + 本地分区表（bilicats）按 tid
+	// 解析的现名与一级分区名——存量行 tname 为空也能凭 tid 立即命中；
+	// 规则里填二级名（美食制作）或一级名（美食）均可。
 	for _, want := range r.Categories {
-		if want != "" && v.Tname == want {
-			return true
+		if want == "" {
+			continue
+		}
+		for _, have := range catNames(v) {
+			if have == want {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// catNames 该视频的全部候选分区名（去空）。
+func catNames(v *Video) []string {
+	var out []string
+	if v.Tname != "" {
+		out = append(out, v.Tname)
+	}
+	if v.Tid != 0 {
+		out = append(out, bilicats.Names(int(v.Tid))...)
+	}
+	return out
 }
 
 const libCols = `id, name, root_path, layout, link_mode, metadata_format, match_rules, enabled, created_at`
