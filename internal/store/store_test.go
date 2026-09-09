@@ -396,3 +396,23 @@ func TestTrackLifecycle(t *testing.T) {
 		t.Fatalf("联表字段错误: %+v", tracks[0])
 	}
 }
+
+func TestMigrateStripsFavlistMLPrefix(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.DB.Exec(`INSERT INTO sources (type, ext_id, title, created_at) VALUES ('favlist', 'ml3685467670', '坏行', 1700000000)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.DB.Exec(`INSERT INTO sources (type, ext_id, title, created_at) VALUES ('favlist', '123456', '正常行不动', 1700000000)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.migrate(); err != nil {
+		t.Fatalf("重跑迁移失败: %v", err)
+	}
+	var got string
+	if err := s.DB.QueryRow(`SELECT ext_id FROM sources WHERE title='坏行'`).Scan(&got); err != nil || got != "3685467670" {
+		t.Fatalf("存量 ml 前缀未修复: %q %v", got, err)
+	}
+	if err := s.DB.QueryRow(`SELECT ext_id FROM sources WHERE title='正常行不动'`).Scan(&got); err != nil || got != "123456" {
+		t.Fatalf("正常行被误改: %q %v", got, err)
+	}
+}

@@ -118,6 +118,15 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// v9.1 数据修复：新版收藏夹 URL 的 fid 带 "ml"（media-list）前缀曾被原样入库，
+	// sync_source 每次调度都 ParseInt 失败刷库（PITFALLS P-009）。幂等：仅仍带前缀
+	// 的行受影响；NOT EXISTS 防 UNIQUE(type,ext_id) 冲突。
+	if _, err := s.DB.Exec(`UPDATE sources SET ext_id = substr(ext_id, 3)
+		WHERE type = 'favlist' AND ext_id LIKE 'ml%'
+		AND NOT EXISTS (SELECT 1 FROM sources s2 WHERE s2.type = 'favlist' AND s2.ext_id = substr(sources.ext_id, 3))`); err != nil {
+		return err
+	}
+
 	// v4 增量：媒体库独立配置表。
 	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS media_libraries (
 	  id INTEGER PRIMARY KEY AUTOINCREMENT,

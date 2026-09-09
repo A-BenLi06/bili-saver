@@ -198,6 +198,55 @@ type Scheduler struct {
 	Every time.Duration  // 检查频率
 }
 
+// sync_source 防刷库退避：某源连续失败达 backoffMinFails 次后，提交间隔按 2 的幂
+// 拉长（上限 backoffMaxSeconds）。连续失败数取最近 20 条同类任务里该源的前导
+// failed 计数，成功任务即清零自然解除（PITFALLS P-009：坏源曾以 ~1 条/分钟
+// 失败刷库，淹没其他真实失败）。
+const (
+	backoffMinFails   = 5
+	backoffMaxSeconds = 3600
+)
+
+func (s *Scheduler) syncSourceBlocked(srcID int64, now int64) bool {
+	rows, err := s.St.DB.Query(`SELECT state, payload_json, created_at FROM jobs WHERE type='sync_source' ORDER BY id DESC LIMIT 20`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+	fails, lastSeen := 0, int64(0)
+	for rows.Next() {
+		var state, payload string
+		var createdAt int64
+		if err := rows.Scan(&state, &payload, &createdAt); err != nil {
+			continue
+		}
+		var p struct {
+			SourceID int64 `json:"source_id"`
+		}
+		if err := json.Unmarshal([]byte(payload), &p); err != nil || p.SourceID != srcID {
+			continue
+		}
+		if lastSeen == 0 {
+			lastSeen = createdAt
+		}
+		if state != "failed" {
+			break
+		}
+		fails++
+	}
+	if fails < backoffMinFails || lastSeen == 0 {
+		return false
+	}
+	gap := int64(s.Every / time.Second)
+	for i := backoffMinFails; i < fails && gap < backoffMaxSeconds; i++ {
+		gap *= 2
+	}
+	if gap > backoffMaxSeconds {
+		gap = backoffMaxSeconds
+	}
+	return now-lastSeen < gap
+}
+
 // 新发加速窗口与节奏（adaptive 开启时生效）：发布 24h 内的视频按 45min
 // 节奏轻量刷统计（touch_stats），不等源级同步周期——发布初期数据变化最快。
 const (
@@ -233,6 +282,10 @@ func (s *Scheduler) tick(ctx context.Context) {
 		return
 	}
 	for _, src := range due {
+		if s.syncSourceBlocked(src.ID, store.Now()) {
+			s.Log.Info("源 sync_source 连续失败，退避跳过本轮", "source", src.Title, "type", src.Type)
+			continue
+		}
 		if _, err := s.Mgr.Submit("sync_source", map[string]any{"source_id": src.ID}); err == nil && src.ID != 0 {
 			s.Log.Info("调度源同步", "source", src.Title, "type", src.Type)
 		}

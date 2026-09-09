@@ -78,3 +78,14 @@ func TestParseInvalid(t *testing.T) {
 		}
 	}
 }
+
+func TestParseFavListStripsMLPrefix(t *testing.T) {
+	got, err := Parse("https://space.bilibili.com/946974/favlist?fid=ml3685467670")
+	if err != nil || got.Type != TypeFavList || got.ExtID != "3685467670" {
+		t.Fatalf("favlist fid 的 ml 前缀未剥离: %+v %v", got, err)
+	}
+	got, err = Parse("https://www.bilibili.com/medialist/detail/ml12345")
+	if err != nil || got.Type != TypeFavList || got.ExtID != "12345" {
+		t.Fatalf("medialist 路径的 ml 前缀未剥离: %+v %v", got, err)
+	}
+}

@@ -109,7 +109,7 @@ func Parse(raw string) (*Input, error) {
 		}
 		switch {
 		case strings.HasPrefix(path, "favlist"):
-			fid := q.Get("fid")
+			fid := normalizeFavID(q.Get("fid"))
 			if fid == "" {
 				return nil, fmt.Errorf("收藏夹链接缺少 fid: %q", raw)
 			}
@@ -136,10 +136,10 @@ func Parse(raw string) (*Input, error) {
 			return parseLists(strings.TrimPrefix(path, "lists/"), q)
 		}
 		if m := reMedial.FindStringSubmatch(path); m != nil {
-			return &Input{Type: TypeFavList, ExtID: m[1]}, nil
+			return &Input{Type: TypeFavList, ExtID: normalizeFavID(m[1])}, nil
 		}
 		if mid := q.Get("media_id"); mid != "" {
-			return &Input{Type: TypeFavList, ExtID: mid}, nil
+			return &Input{Type: TypeFavList, ExtID: normalizeFavID(mid)}, nil
 		}
 		if m := reBVIn.FindString(path); m != "" && strings.HasPrefix(path, "video") {
 			return &Input{Type: TypeVideo, ExtID: m}, nil
@@ -151,7 +151,7 @@ func Parse(raw string) (*Input, error) {
 			return &Input{Type: TypeVideo, ExtID: "av" + m[1]}, nil
 		}
 		if fid := q.Get("fid"); fid != "" {
-			return &Input{Type: TypeFavList, ExtID: fid}, nil
+			return &Input{Type: TypeFavList, ExtID: normalizeFavID(fid)}, nil
 		}
 		return nil, fmt.Errorf("无法识别的 B 站链接: %q", raw)
 	}
@@ -260,8 +260,14 @@ func expandSpace(ctx context.Context, api *biliapi.Client, in *Input) (*Expanded
 	return out, nil
 }
 
+// normalizeFavID 剥离新版收藏夹 fid 的 "ml"（media-list）前缀。带前缀的 ext_id
+// 入库后 ParseInt 必败，sync_source 每次调度都失败刷库（PITFALLS P-009）。
+func normalizeFavID(fid string) string {
+	return strings.TrimPrefix(fid, "ml")
+}
+
 func expandFavList(ctx context.Context, api *biliapi.Client, in *Input) (*Expanded, error) {
-	mediaID, err := strconv.ParseInt(in.ExtID, 10, 64)
+	mediaID, err := strconv.ParseInt(normalizeFavID(in.ExtID), 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("收藏夹 id 非法: %w", err)
 	}

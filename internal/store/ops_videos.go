@@ -390,3 +390,89 @@ func (s *Store) GetVideoWithCounts(bvid string) (*VideoWithCounts, error) {
 	q := `SELECT ` + qualifiedVideoCols() + countExpr + ` FROM videos v WHERE v.bvid=?`
 	return scanVideoWithCounts(s.DB.QueryRow(q, bvid))
 }
+
+// VideoStatusCounts 各状态视频数（管理端分类 Tab 徽标用）。
+func (s *Store) VideoStatusCounts() (map[string]int64, error) {
+	rows, err := s.DB.Query(`SELECT status, COUNT(*) FROM videos GROUP BY status`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var st string
+		var n int64
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, err
+		}
+		out[st] = n
+	}
+	return out, rows.Err()
+}
+
+// ListVideosPage 归档项目分页版：status（ok|gone|private）与 dl（downloaded=1|0）过滤，
+// q 模糊匹配 标题/简介/UP主/bvid；sort ∈ {title,pubdate,last_sync} 白名单，order=asc|desc
+// （title 默认升序，时间列默认降序）；返回 (页内记录, 过滤后总数)。
+func (s *Store) ListVideosPage(status, dl, q, sort, order string, limit, offset int) ([]*VideoWithCounts, int64, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	where, args := []string{"1=1"}, []any{}
+	switch status {
+	case "ok", "gone", "private":
+		where = append(where, "v.status=?")
+		args = append(args, status)
+	}
+	if dl == "1" || dl == "0" {
+		where = append(where, "v.downloaded=?")
+		args = append(args, dl)
+	}
+	if qs := strings.TrimSpace(q); qs != "" {
+		pat := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(qs) + "%"
+		where = append(where, `(v.title LIKE ? ESCAPE '\' OR v.description LIKE ? ESCAPE '\'
+			OR v.owner_name LIKE ? ESCAPE '\' OR v.bvid LIKE ? ESCAPE '\')`)
+		args = append(args, pat, pat, pat, pat)
+	}
+	whereSQL := strings.Join(where, " AND ")
+	var total int64
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM videos v WHERE `+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	sortCol := map[string]string{"title": "v.title", "pubdate": "v.pubdate", "last_sync": "v.last_sync_at"}[sort]
+	if sortCol == "" {
+		sortCol = "v.pubdate"
+	}
+	dir := "DESC"
+	if sort == "title" {
+		dir = "ASC"
+	}
+	if order == "asc" {
+		dir = "ASC"
+	} else if order == "desc" {
+		dir = "DESC"
+	}
+	collate := ""
+	if sortCol == "v.title" {
+		collate = " COLLATE NOCASE"
+	}
+	q2 := `SELECT ` + qualifiedVideoCols() + countExpr + ` FROM videos v WHERE ` + whereSQL +
+		` ORDER BY ` + sortCol + collate + ` ` + dir + `, v.pubdate DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+	rows, err := s.DB.Query(q2, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []*VideoWithCounts
+	for rows.Next() {
+		vc, err := scanVideoWithCounts(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, vc)
+	}
+	return out, total, rows.Err()
+}

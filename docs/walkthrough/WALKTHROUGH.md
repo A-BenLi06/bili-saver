@@ -1,7 +1,7 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-09T13:00:25Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻）
+> 水位：2026-09-09T17:00:31Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻）
 > 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
 > - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已于上上轮归纳；
 > - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，本轮已归纳；
@@ -122,6 +122,12 @@
 - 修复：draw.go 加 glyphMu 绘制级互斥（覆盖 DrawString + measureString/runeWidth/textBaseline/textH）+ jobs.process recover（panic→任务 failed）+ app.refreshCard recover（维持只告警语义）。
 - 踩坑：font.Face 接口 6 个方法，首版漏 GlyphAdvance/GlyphBounds 编译失败；"单方法 lockedFace"方案被自己的并发测试证伪后改为绘制级互斥。
 - 验证：-race 并发回归精确复现生产栈、修复后通过；全量门 20 包绿；崩溃视频 BV1J6tW63EfJ 重归档 done + card.png 正常（556KB）+ 服务存活。遗留发现：favlist "ml" 前缀解析回归（core 区域，留言不代改）。
+
+### favlist "ml" 前缀回归修复（P-009 接管）— coord-agent（2026-09-09T16:14Z，修复已落码、待重启验证）
+- 背景：新版收藏夹 fid 带 `ml`（media-list）前缀导致解析回归，此前 session-agent 在 card 崩溃修复中发现并留给 core；coord-agent 接管预告（23:05）到期无人认领，按 COORDINATION §2 接管执行最小修复。
+- 修复四件套：① resolver 新增 normalizeFavID 剥 ml 前缀，应用于全部 4 处 TypeFavList 构造点（space/favlist、medialist 路径、media_id、fid 兜底）+ expandFavList ParseInt 前防御性再剥；② store.migrate() 加 v9.1 幂等数据修复（UPDATE sources 剥存量 ml 前缀，NOT EXISTS 防 UNIQUE 冲突）；③ jobs.Scheduler 新增 syncSourceBlocked——sync_source 连续失败≥5 次后提交间隔按 2 的幂拉长（上限 1h，成功即清零），接入 tick 循环；④ 回归测试 ×3（resolver 剥离 / store 迁移 / jobs 退避全路径）。
+- 过程快照（raw 原文）：接管预告→1h 无响应→登记接管→侦察复用 P-009 结论→一次落码。
+- 状态：三包测试绿，全量门 19 包 ok（待最终确认）；按 §5 重启服务并验证 ml 同步循环停止尚待执行。
 
 ## 待补时间戳
 
