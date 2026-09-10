@@ -176,6 +176,7 @@ nav button.active .navbadge { background:var(--accent); }
     <button data-p="libraries">媒体库</button>
     <div class="sec">系统</div>
     <button data-p="jobs">任务</button>
+    <button data-p="logs">日志</button>
     <button data-p="login">账号</button>
     <button data-p="plugins">插件</button>
     <button data-p="settings">设置</button>
@@ -233,7 +234,7 @@ async function render(){
   const m = $('#main');
   ({dash:renderDash, add:renderAdd, videos:renderVideos, search:renderSearch, sources:renderSources,
     tracks:renderTracks, libraries:renderLibraries, jobs:renderJobs, login:renderLogin, plugins:renderPlugins,
-    settings:renderSettings})[page](m);
+    settings:renderSettings, logs:renderLogs})[page](m);
 }
 
 /* ============ 总览 ============ */
@@ -1107,22 +1108,35 @@ window.saveLib = async () => {
 window.delLib = async id => { if(confirm('删除该媒体库配置？（不删除已输出的文件）')){ await api(`/libraries/${id}`,{method:'DELETE'}); renderLibraries($('#main')); } };
 
 /* ============ 任务 ============ */
+const JOB_TYPE_CN={sync_source:'源同步',archive:'归档',download:'视频下载',touch_stats:'统计刷新',sync_stats_all:'全库统计',fetch_images:'图片补档',fetch_levels:'等级补档'};
+const JOB_STATE_CN={queued:'排队中',running:'执行中',done:'已完成',failed:'失败'};
+let jobFilter='';
 async function renderJobs(m){
-  const js=await api('/jobs?limit=60');
+  const js=await api('/jobs?limit=100');
+  const shown=(js||[]).filter(j=>!jobFilter||j.state===jobFilter);
+  const tabs=[['','全部'],['running','执行中'],['queued','排队中'],['done','已完成'],['failed','失败']];
   m.innerHTML=`
   <div class="pagehead"><h1>任务</h1><span class="desc">队列与执行状态</span>
     <span class="spacer"></span><button class="btn" onclick="syncNow()">全部同步</button></div>
   <div class="sect">
-    ${(js&&js.length)?`<table><thead><tr><th class="num">#</th><th>类型</th><th>载荷</th><th>状态</th><th>进度</th><th>详情</th><th>时间</th></tr></thead><tbody>`+
-    js.map(j=>{
-      let p=''; try{p=Object.values(JSON.parse(j.payload_json)).join(' ');}catch(e){}
+    <div class="tabs" style="margin-bottom:12px" id="jobTabs">
+      ${tabs.map(([v,t])=>`<button data-st="${v}" class="${jobFilter===v?'active':''}">${t}</button>`).join('')}
+    </div>
+    ${shown.length?`<table><thead><tr><th class="num">#</th><th>类型</th><th>任务来源</th><th>状态</th><th style="min-width:110px">进度</th><th>详情</th><th>时间</th><th></th></tr></thead><tbody>`+
+    shown.map(j=>{
       const dot={done:'ok',failed:'err',running:'run',queued:'queued'}[j.state]||'off';
-      return `<tr><td class="num">${j.id}</td><td class="st">${esc(j.type)}</td><td class="st">${esc(p)}</td>
-      <td class="st"><span class="dot ${dot}"></span>${j.state}</td>
-      <td style="min-width:110px"><div class="pbar ${j.state==='done'?'done':''}"><i style="width:${Math.max(2,Math.round(j.progress*100))}%"></i></div><span class="meta-note">${Math.round(j.progress*100)}%</span></td>
-      <td class="st">${esc(j.detail||j.error).slice(0,60)}</td><td class="st">${fmtT(j.created_at)}</td>
-      <td>${j.state==='failed'?`<button class="btn sm" onclick="retryJob(${j.id})">重试</button>`:''}</td></tr>`;}).join('')+'</tbody></table>':'<div class="empty">暂无任务</div>'}
+      const ts=(j.state==='running'||j.state==='queued')&&j.updated_at?j.updated_at:j.created_at;
+      const src=j.source||'系统任务';
+      return `<tr><td class="num">${j.id}</td>
+      <td class="st">${JOB_TYPE_CN[j.type]||esc(j.type)}</td>
+      <td class="st" style="max-width:260px" title="${esc(src)}">${esc(src)}</td>
+      <td class="st"><span class="dot ${dot}"></span>${JOB_STATE_CN[j.state]||j.state}</td>
+      <td><div class="pbar ${j.state==='done'?'done':''}"><i style="width:${Math.max(2,Math.round(j.progress*100))}%"></i></div><span class="meta-note">${Math.round(j.progress*100)}%</span></td>
+      <td class="st" style="max-width:200px">${esc(j.detail||j.error).slice(0,60)}</td>
+      <td class="st">${fmtT(ts)}</td>
+      <td>${j.state==='failed'?`<button class="btn sm" onclick="retryJob(${j.id})">重试</button>`:''}</td></tr>`;}).join('')+'</tbody></table>':'<div class="empty">该状态暂无任务</div>'}
   </div>`;
+  document.querySelectorAll('#jobTabs button').forEach(b=>b.onclick=()=>{jobFilter=b.dataset.st; renderJobs(m);});
   clearInterval(timer);
   const hasActive = (js||[]).some(j=>j.state==='running'||j.state==='queued');
   if(hasActive){ // 仅存在活动任务时轮询；保持滚动位置避免闪烁
@@ -1133,6 +1147,71 @@ async function renderJobs(m){
 }
 window.retryJob = async id => { try{ await api(`/jobs/${id}/retry`,{method:'POST'}); toast('任务 #'+id+' 已重新入队','ok'); renderJobs($('#main')); }catch(e){ toast('重试失败：'+e,'err'); } };
 window.syncNow = async () => { try{ const r=await api('/sync-now',{method:'POST'}); toast('已排队 '+r.queued+' 个源','ok'); renderJobs($('#main')); }catch(e){ toast('失败：'+e,'err'); } };
+
+/* ============ 日志 ============ */
+let logLastSeq=0, logLevel='', logTimer=null;
+async function renderLogs(m){
+  m.innerHTML=`
+  <div class="pagehead"><h1>日志</h1><span class="desc">服务运行日志（内存保留最近约 4000 行；按日全量落盘 data/logs/，可导出）</span>
+    <span class="spacer"></span><label class="check"><input type="checkbox" id="logFollow" checked> 实时刷新</label></div>
+  <div class="sect">
+    <div class="actions" style="margin-bottom:10px;align-items:center">
+      <div class="tabs" id="logTabs">
+        <button data-lv="" class="active">全部</button>
+        <button data-lv="INFO">信息</button>
+        <button data-lv="WARN">警告</button>
+        <button data-lv="ERROR">错误</button>
+      </div>
+      <span class="meta-note">导出范围</span>
+      <input type="date" id="logFrom" style="padding:5px 8px;border:1px solid var(--line-strong);border-radius:6px">
+      <span class="meta-note">至</span>
+      <input type="date" id="logTo" style="padding:5px 8px;border:1px solid var(--line-strong);border-radius:6px">
+      <button class="btn sm" onclick="exportLogs()">导出日志</button>
+    </div>
+    <div id="logBox" style="background:#111827;color:#d1d5db;font-family:var(--mono);font-size:12px;line-height:1.55;border-radius:8px;padding:10px 12px;height:560px;overflow:auto;white-space:pre-wrap;word-break:break-all"><div class="empty" style="color:#64748b">加载中…</div></div>
+  </div>`;
+  logLastSeq=0; logLevel='';
+  document.querySelectorAll('#logTabs button').forEach(b=>b.onclick=()=>{
+    document.querySelectorAll('#logTabs button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); logLevel=b.dataset.lv;
+    logLastSeq=0; document.getElementById('logBox').innerHTML='<div class="empty" style="color:#64748b">加载中…</div>';
+    pollLogs();
+  });
+  document.getElementById('logFollow').onchange=e=>{ if(e.target.checked) pollLogs(); };
+  clearInterval(logTimer);
+  logTimer=setInterval(async()=>{ if(page!=='logs'){clearInterval(logTimer);return;}
+    if(document.getElementById('logFollow')?.checked) pollLogs(); },2000);
+  await pollLogs();
+}
+async function pollLogs(){
+  const box=document.getElementById('logBox'); if(!box) return;
+  try{
+    const d=await api('/logs?after='+logLastSeq+'&level='+(logLevel||''));
+    if(box.querySelector('.empty')) box.innerHTML='';
+    if(d.lines&&d.lines.length){
+      const frag=document.createDocumentFragment();
+      for(const l of d.lines){
+        const div=document.createElement('div');
+        const lv=(l.text.match(/level=(\w+)/)||[])[1]||'INFO';
+        const col={WARN:'#fbbf24',ERROR:'#f87171',DEBUG:'#94a3b8'}[lv]||'#93c5fd';
+        const msg=l.text.replace(/^time=[^ ]+ /,'').replace(/ level=\w+ /,' ');
+        div.innerHTML='<span style="color:#64748b">'+esc(l.ts)+'</span> <span style="color:'+col+';font-weight:600">['+lv+']</span> '+esc(msg);
+        frag.appendChild(div);
+      }
+      box.appendChild(frag);
+      while(box.childNodes.length>1200) box.removeChild(box.firstChild);
+      if(document.getElementById('logFollow')?.checked) box.scrollTop=box.scrollHeight;
+    }else if(logLastSeq===0){
+      box.innerHTML='<div class="empty" style="color:#64748b">暂无日志</div>';
+    }
+    logLastSeq=d.latest||logLastSeq;
+  }catch(e){}
+}
+function exportLogs(){
+  const f=document.getElementById('logFrom')?.value||'';
+  const t=document.getElementById('logTo')?.value||'';
+  window.open('/api/v1/logs/export?from='+encodeURIComponent(f)+'&to='+encodeURIComponent(t)+'&level='+encodeURIComponent(logLevel||''));
+}
 
 /* ============ 账号 ============ */
 async function renderLogin(m){

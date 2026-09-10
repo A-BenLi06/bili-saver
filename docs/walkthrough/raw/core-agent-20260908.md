@@ -59,3 +59,8 @@
 - 做了什么：人类交办"账号页显示现在的帐号状态，uid，账号名，头像，等级，是否为大会员等"。biliapi 增 NavAccount（nav 解析 isLogin/mid/uname/face/level_info.current_level+current_exp/vipStatus/vipType/money，getJSONLenient 容忍未登录）；admin 增 GET /api/v1/login/status（nav 失败按未登录呈现不炸页面）与 GET /api/v1/login/avatar（头像服务端代理——B站图床对第三方 Referer 403，必须转发）；账号页新增"当前账号"信息卡（头像/昵称+大会员徽章/UID/等级+经验/大会员状态/硬币/刷新按钮），扫码区下移为"重新扫码覆盖登录态"。
 - 涉及：internal/biliapi/{login.go,account_test.go}、internal/server/admin.go、internal/server/static/index.html、ARCHITECTURE §7。
 - 结果：done。全量 18 包绿（NavAccount 解析用例）；线上实测——logged_in=true BenLi06 / mid=397703470 / Lv.6 / exp 30511 / 非大会员 / 硬币1105，头像代理 200 image/jpeg 202KB。附带确认：当前登录态有效（此前 space 软风控期间的登录态问题已不复存在），fetch_levels #2908 已入队等待 worker 空闲后补齐全库 UP主等级（现 124 个 distinct UP主）。另：等待期间 teriteri 适配层被并行 agent 短暂置于编译失败态（sort import 残留），约 10 分钟后对方自行修复，未代改。
+
+## 2026-09-11T04:00:00Z core-agent — B站登出+切换账号完成
+- 做了什么：人类交办"增加登出功能，切换账号功能"。biliapi 增 Logout（带 bili_jct csrf 通知 /x/log/web/logout，不可达兜底 /login/exit/v2，均尽力而为）+ ClearCookies（cookiejar 无删除接口，用"过期条目写回"清空，避免替换 jar 实例的并发竞态）+ 登出后 ResetLoginCache；admin 增 POST /api/v1/login/logout（登出后立刻 SaveCookies 覆盖本机 cookie 文件，重启不再带回旧登录态）；账号页信息卡增"退出登录/切换账号"按钮（均二次确认，切换=登出+账号页自动重出二维码）。
+- 涉及：internal/biliapi/{login.go,logout_test.go}、internal/server/admin.go、internal/server/static/index.html、ARCHITECTURE §7。
+- 结果：done。全量 19 包绿（Logout 端点路径/csrf 携带/cookie 清空/登录态失效断言）；线上验证——POST 路由已注册（GET 打它返回 405，**刻意不真实执行登出**以免毁掉用户当前会话），登录态 BenLi06 Lv.6 保持完好，页面含"切换账号"按钮。

@@ -56,7 +56,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	log, err := logging.Setup(cfg.Log.Level, cfg.Log.File)
+	log, err := logging.Setup(cfg.Log.Level, cfg.Log.File, cfg.DataDir)
 	if err != nil {
 		fatal(err)
 	}

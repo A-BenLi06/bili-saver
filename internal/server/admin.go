@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
 
 	"bili-saver/internal/metrics"
 
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"bili-saver/internal/bilicats"
+	"bili-saver/internal/logging"
 	"bili-saver/internal/resolver"
 	"bili-saver/internal/store"
 )
@@ -70,6 +72,8 @@ func (s *Server) registerAdmin() {
 	m.HandleFunc("POST /api/v1/add", s.handleAdd)
 	m.HandleFunc("GET /api/v1/resolve", s.handleResolve)
 	m.HandleFunc("GET /api/v1/sources", s.handleListSources)
+	m.HandleFunc("GET /api/v1/logs", s.handleLogs)
+	m.HandleFunc("GET /api/v1/logs/export", s.handleLogsExport)
 	m.HandleFunc("GET /api/v1/sources/{id}/posts", s.handleSourcePosts)
 	m.HandleFunc("DELETE /api/v1/sources/{id}", s.handleDeleteSource)
 	m.HandleFunc("POST /api/v1/sources/{id}/sync", s.handleSyncSource)
@@ -233,7 +237,7 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 	if in.Type == resolver.TypeSpace && req.SpaceScope != "" {
 		norm, ok := collector.ValidSpaceScope(req.SpaceScope)
 		if !ok {
-			errJSON(w, 400, errStr("space_scope 只能包含 video/dynamic/dynamic_video/article"))
+			errJSON(w, 400, errStr("space_scope 只能包含 video/dynamic/dynamic_video/article/bangumi"))
 			return
 		}
 		src.SpaceScope = norm
@@ -474,7 +478,92 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	if jl == nil {
 		jl = []*store.Job{}
 	}
-	writeJSON(w, 200, jl)
+	// 任务来源读时解析（零 schema 变更）：source_id→源标题、bvid→视频标题，
+	// 同请求内缓存避免重复查询。
+	srcCache := map[int64]*store.Source{}
+	vidCache := map[string]*store.Video{}
+	out := make([]map[string]any, 0, len(jl))
+	for _, j := range jl {
+		raw, merr := json.Marshal(j)
+		var m map[string]any
+		if merr == nil {
+			_ = json.Unmarshal(raw, &m)
+		} else {
+			m = map[string]any{}
+		}
+		m["source"] = s.jobSource(j, srcCache, vidCache)
+		out = append(out, m)
+	}
+	writeJSON(w, 200, out)
+}
+
+// jobSource 任务来源标签：哪个 UP主/收藏夹/合集/系列/单视频/系统。
+func (s *Server) jobSource(j *store.Job, srcCache map[int64]*store.Source, vidCache map[string]*store.Video) string {
+	var p struct {
+		Bvid     string `json:"bvid"`
+		SourceID int64  `json:"source_id"`
+	}
+	_ = json.Unmarshal([]byte(j.PayloadJSON), &p)
+	src := func(id int64) *store.Source {
+		if id <= 0 {
+			return nil
+		}
+		if v, ok := srcCache[id]; ok {
+			return v
+		}
+		v, err := s.Deps.St.GetSource(id)
+		if err != nil {
+			v = nil
+		}
+		srcCache[id] = v
+		return v
+	}
+	switch j.Type {
+	case "sync_source":
+		if p.SourceID == 0 {
+			return "全部监控源"
+		}
+		sr := src(p.SourceID)
+		if sr == nil {
+			return "源 #" + strconv.FormatInt(p.SourceID, 10) + "（已删除）"
+		}
+		name := map[string]string{"space": "UP主", "favlist": "收藏夹", "season": "合集", "series": "系列", "video": "单视频"}[sr.Type]
+		if name == "" {
+			name = sr.Type
+		}
+		return name + "：" + sr.Title
+	case "archive", "download", "touch_stats":
+		label := "系统任务"
+		if p.Bvid != "" {
+			var v *store.Video
+			if vv, ok := vidCache[p.Bvid]; ok {
+				v = vv
+			} else {
+				v, _ = s.Deps.St.GetVideo(p.Bvid)
+				vidCache[p.Bvid] = v
+			}
+			if v != nil && v.Title != "" {
+				r := []rune(v.Title)
+				if len(r) > 24 {
+					r = r[:24]
+				}
+				label = "视频：" + string(r)
+			} else {
+				label = "视频 " + p.Bvid + "（未归档）"
+			}
+			if sr := src(p.SourceID); sr != nil {
+				label += " · 来自 " + sr.Title
+			}
+		}
+		return label
+	case "sync_stats_all":
+		return "全库统计"
+	case "fetch_images":
+		return "全库图片补档"
+	case "fetch_levels":
+		return "全库等级补档"
+	}
+	return "系统任务"
 }
 
 func (s *Server) handleSyncNow(w http.ResponseWriter, _ *http.Request) {
@@ -1144,7 +1233,7 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 	if req.SpaceScope != nil {
 		norm, ok := collector.ValidSpaceScope(*req.SpaceScope)
 		if !ok {
-			errJSON(w, 400, errStr("space_scope 只能包含 video/dynamic/dynamic_video/article 或 none"))
+			errJSON(w, 400, errStr("space_scope 只能包含 video/dynamic/dynamic_video/article/bangumi 或 none"))
 			return
 		}
 		src.SpaceScope = norm
@@ -1276,4 +1365,97 @@ func (s *Server) handleSourcePosts(w http.ResponseWriter, r *http.Request) {
 	}
 	vis, del, _ := s.Deps.St.CountSpacePosts(mid, kind)
 	writeJSON(w, 200, map[string]any{"visible": vis, "deleted": del, "items": items})
+}
+
+// handleLogs 日志页实时尾随：after=上次收到的最大 seq；level 子串过滤 slog 行。
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	after, _ := strconv.ParseUint(q.Get("after"), 10, 64)
+	level := strings.ToUpper(q.Get("level"))
+	lines, latest := logging.RingSnapshot(after, 1000)
+	if level != "" {
+		f := lines[:0]
+		for _, l := range lines {
+			if strings.Contains(l.Text, "level="+level) {
+				f = append(f, l)
+			}
+		}
+		lines = f
+	}
+	if lines == nil {
+		lines = []logging.Line{}
+	}
+	writeJSON(w, 200, map[string]any{"latest": latest, "lines": lines})
+}
+
+// handleLogsExport 导出按日服务日志（可选时间段与级别），文本附件下载。
+// 时间格式：YYYY-MM-DDTHH:MM（datetime-local）或 YYYY-MM-DD；两端均可省略。
+func (s *Server) handleLogsExport(w http.ResponseWriter, r *http.Request) {
+	dir := logging.LogsDir()
+	if dir == "" {
+		errJSON(w, 404, errStr("服务日志未启用"))
+		return
+	}
+	q := r.URL.Query()
+	level := strings.ToUpper(q.Get("level"))
+	var from, to time.Time
+	var haveFrom, haveTo bool
+	if t, err := time.ParseInLocation("2006-01-02T15:04", q.Get("from"), time.Local); err == nil {
+		from, haveFrom = t, true
+	} else if t, err := time.ParseInLocation("2006-01-02", q.Get("from"), time.Local); err == nil {
+		from, haveFrom = t, true
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04", q.Get("to"), time.Local); err == nil {
+		to, haveTo = t.Add(time.Minute), true // 含端点分钟
+	} else if t, err := time.ParseInLocation("2006-01-02", q.Get("to"), time.Local); err == nil {
+		to, haveTo = t.AddDate(0, 0, 1), true
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "service-*.log"))
+	sort.Strings(files)
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="bili-saver-logs.txt"`)
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			if level != "" && !strings.Contains(line, "level="+level) {
+				continue
+			}
+			if haveFrom || haveTo {
+				ts := extractLogTime(line)
+				if ts.IsZero() {
+					continue
+				}
+				if haveFrom && ts.Before(from) {
+					continue
+				}
+				if haveTo && ts.After(to) {
+					continue
+				}
+			}
+			_, _ = io.WriteString(w, line+"\n")
+		}
+	}
+}
+
+// extractLogTime 从 slog 文本行提取秒级时间（time=2026-09-11T01:02:03.…）。
+func extractLogTime(line string) time.Time {
+	i := strings.Index(line, "time=")
+	if i < 0 {
+		return time.Time{}
+	}
+	rest := line[i+len("time="):]
+	if len(rest) < 19 {
+		return time.Time{}
+	}
+	t, err := time.ParseInLocation("2006-01-02T15:04:05", rest[:19], time.Local)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
 }
