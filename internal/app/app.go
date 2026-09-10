@@ -325,24 +325,31 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 	}
 	// UP主源：按源级勾选范围同步动态/图文专栏，并按需归档动态视频（v10）。
 	if src.Type == "space" {
-		if sc := collector.ParseSpaceScope(src.SpaceScope); sc.Dynamic || sc.Article || sc.DynamicVideo {
-			progress(0.9, "同步动态/专栏")
+		if sc := collector.ParseSpaceScope(src.SpaceScope); sc.Dynamic || sc.Article || sc.DynamicVideo || sc.Bangumi {
+			progress(0.9, "同步动态/专栏/追番")
 			if mid, perr := strconv.ParseInt(src.ExtID, 10, 64); perr == nil {
-				if dynBvids, derr := a.Col.SyncSpaceDynamics(ctx, mid); derr != nil {
-					a.Log.Warn("动态/专栏同步失败（不影响视频归档）", "source", src.Title, "err", derr)
-				} else if sc.DynamicVideo {
-					dynNew := 0
-					for _, bvid := range dynBvids {
-						if _, verr := a.St.GetVideo(bvid); verr == nil {
-							continue // 已在库（投稿视频链路覆盖）
-						}
-						if _, err := a.Mgr.Submit("archive", map[string]any{"bvid": bvid, "download": dl, "source_id": src.ID}); err == nil {
-							dynNew++
-							archived++
-						}
+				if sc.Bangumi {
+					if berr := a.Col.SyncSpaceBangumi(ctx, mid); berr != nil {
+						a.Log.Warn("追番列表同步失败（不影响其他归档）", "source", src.Title, "err", berr)
 					}
-					if dynNew > 0 {
-						a.Log.Info("动态视频归档", "source", src.Title, "新增", dynNew)
+				}
+				if sc.Dynamic || sc.Article || sc.DynamicVideo {
+					if dynBvids, derr := a.Col.SyncSpaceDynamics(ctx, mid); derr != nil {
+						a.Log.Warn("动态/专栏同步失败（不影响视频归档）", "source", src.Title, "err", derr)
+					} else if sc.DynamicVideo {
+						dynNew := 0
+						for _, bvid := range dynBvids {
+							if _, verr := a.St.GetVideo(bvid); verr == nil {
+								continue // 已在库（投稿视频链路覆盖）
+							}
+							if _, err := a.Mgr.Submit("archive", map[string]any{"bvid": bvid, "download": dl, "source_id": src.ID}); err == nil {
+								dynNew++
+								archived++
+							}
+						}
+						if dynNew > 0 {
+							a.Log.Info("动态视频归档", "source", src.Title, "新增", dynNew)
+						}
 					}
 				}
 			}

@@ -9,6 +9,7 @@ package collector
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"bili-saver/internal/biliapi"
@@ -25,16 +26,17 @@ type SpaceScope struct {
 	Dynamic      bool // 所有动态（纯文字/图文/转发/专栏文章等）
 	DynamicVideo bool // 动态视频（视频动态里的稿件，发现即归档）
 	Article      bool // 专栏（文章/图文类，kind=article）
+	Bangumi      bool // 追番/追剧列表（follow list，kind=bangumi）
 }
 
 // scopeTokens 归档范围 token 集合；”=未设置（默认全部）、'all'=全部、'none'=全部关闭。
 var scopeTokens = map[string]int{
-	"video": 0, "dynamic": 1, "dynamic_video": 2, "article": 3, "none": 4, "all": 5,
+	"video": 0, "dynamic": 1, "dynamic_video": 2, "article": 3, "bangumi": 4, "none": 5, "all": 6,
 }
 
 // ParseSpaceScope 解析逗号分隔 scope；空串或 'all' = 全部开启；'none' = 全部关闭。
 func ParseSpaceScope(s string) SpaceScope {
-	sc := SpaceScope{Video: true, Dynamic: true, DynamicVideo: true, Article: true}
+	sc := SpaceScope{Video: true, Dynamic: true, DynamicVideo: true, Article: true, Bangumi: true}
 	s = strings.TrimSpace(s)
 	if s == "" || s == "all" {
 		return sc
@@ -44,7 +46,7 @@ func ParseSpaceScope(s string) SpaceScope {
 	}
 	sc = SpaceScope{}
 	for _, tok := range strings.Split(s, ",") {
-		if idx, ok := scopeTokens[strings.TrimSpace(tok)]; ok && idx < 4 {
+		if idx, ok := scopeTokens[strings.TrimSpace(tok)]; ok && idx < 5 {
 			switch idx {
 			case 0:
 				sc.Video = true
@@ -54,6 +56,8 @@ func ParseSpaceScope(s string) SpaceScope {
 				sc.DynamicVideo = true
 			case 3:
 				sc.Article = true
+			case 4:
+				sc.Bangumi = true
 			}
 		}
 	}
@@ -85,7 +89,7 @@ func ValidSpaceScope(s string) (string, bool) {
 	if len(toks) == 0 {
 		return "", true
 	}
-	if len(toks) == 4 {
+	if len(toks) == 5 {
 		return "all", true
 	}
 	return strings.Join(toks, ","), true
@@ -126,7 +130,7 @@ func (c *Collector) SyncSpaceDynamics(ctx context.Context, mid int64) (videoBvid
 		}
 		offset = feed.NextOffset
 	}
-	if gone, skipped := c.St.MarkSpacePostsGone(mid, seen, full); gone > 0 {
+	if gone, skipped := c.St.MarkSpacePostsGone(mid, []string{"dynamic", "article"}, seen, full); gone > 0 {
 		c.Log.Info("动态消失标记", "mid", mid, "消失", gone)
 	} else if skipped {
 		c.Log.Warn("动态消失标记跳过（非全量或触发防御）", "mid", mid)
@@ -211,4 +215,52 @@ func opusText(raw json.RawMessage) string {
 		return ""
 	}
 	return strings.TrimSpace(walk(v))
+}
+
+// SyncSpaceBangumi 全量拉取 UP 主的追番/追剧列表（follow list type=1/2），
+// kind=bangumi 归档（post_id=season_id，dtype 区分追番/追剧，正文=番剧简介，
+// 原始 JSON 保留）。列表接口分页拉到底，支持消失标记（取关/下架）。
+func (c *Collector) SyncSpaceBangumi(ctx context.Context, mid int64) error {
+	now := store.Now()
+	seen := map[string]bool{}
+	const ps = 20
+	for _, typ := range []struct {
+		num   int
+		label string
+	}{{1, "follow_bangumi"}, {2, "follow_cinema"}} {
+		for pn := 1; pn <= 100; pn++ { // 每页 20，100 页硬上限
+			list, err := c.API.SpaceFollowList(ctx, mid, typ.num, pn, ps)
+			if err != nil {
+				return err
+			}
+			if len(list.List) == 0 {
+				break
+			}
+			for _, e := range list.List {
+				p := &store.SpacePost{
+					Mid: mid, PostID: fmt.Sprintf("ss%d", e.SeasonID), Dtype: typ.label,
+					Kind: "bangumi", Title: e.Title, Content: strings.TrimSpace(e.Evaluate),
+					Origin: "bilibili", Raw: e.Raw, Pubdate: 0,
+					FirstSeenAt: now, LastSeenAt: now,
+				}
+				if e.TotalCount > 0 {
+					p.Pics = 0
+					p.Content = strings.TrimSpace(p.Content + fmt.Sprintf("\n[共 %d 集]", e.TotalCount))
+				}
+				if err := c.St.UpsertSpacePost(p); err != nil {
+					return err
+				}
+				seen[p.PostID] = true
+			}
+			if len(list.List) < ps {
+				break
+			}
+		}
+	}
+	if gone, skipped := c.St.MarkSpacePostsGone(mid, []string{"bangumi"}, seen, true); gone > 0 {
+		c.Log.Info("追番列表消失标记", "mid", mid, "消失", gone)
+	} else if skipped {
+		c.Log.Warn("追番列表消失标记跳过（防御触发）", "mid", mid)
+	}
+	return nil
 }

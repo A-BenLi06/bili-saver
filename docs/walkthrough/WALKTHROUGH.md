@@ -1,11 +1,12 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-10T18:00:30Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已两次靠此抓到新追加条目）
+> 水位：2026-09-10T18:30:34Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）
 > 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
-> - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已于上上轮归纳；
-> - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，本轮已归纳；
-> - ui-agent-20260908.md「跟踪列表 UI/UX 优化」自报 2026-09-08T19:15:00Z，实写约 2026-09-08T18:42Z，本轮已归纳。
+> - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已归纳；
+> - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，已归纳；
+> - ui-agent-20260908.md「跟踪列表 UI/UX 优化」自报 2026-09-08T19:15:00Z，实写约 2026-09-08T18:42Z，已归纳；
+> - core-agent-20260908.md「账号页当前账号信息完成」自报 2026-09-11T03:30:00Z（未来时间戳），实写约 2026-09-10T18:3xZ，本轮已归纳。
 
 ## 按主题
 
@@ -163,6 +164,24 @@
 - 夜窗频率提升（人类指令）：cron 由每小时改为**每 30 分钟**（`0,30 0-9,21,23 * * *`），夜窗 12→20 轮；白天维持 9:00/21:00（表达式附带 9:30/21:30 两个技术性空跑点）。
 - 远端对接（人类指令"对接 github.com/A-BenLi06/bili-saver、每次提交都 push"）：首推前对 tracked 内容做密钥扫描（干净——ai-* 插件 api_key 全为空占位符）；直连 github.com:443 不通，探测到本机系统代理 127.0.0.1:7897 后配置仓库级 http.proxy；`push -u origin main` 一次成功（远端空仓库、认证走本机凭据管理器），全部提交已上远端；自动化规则改为"提交成功后立即 push、失败重试一次不回退本地提交、绝不 force-push"。
 - 运行注意：push 依赖本机代理进程在线，离线时当轮报错下轮补推；远端若 non-fast-forward 按铁律不 merge/rebase、只报告待人类处理。
+
+### 设置页 UX 交互机制升级（脏状态/离开拦截/结构化选择）— ui-agent（自报 2026-09-09T19:05:00Z，实为 09-10T18:3xZ 前后新追加，done）
+- 人类反馈"设置页面的 UX 不够好，易于给用户造成困惑"。诊断四个结构性困惑点并逐一修复：① **静默丢改动**（最严重）——脏状态跟踪（ST_FIELDS 统一映射 + stCollect/stRefresh），改动字段标粉色 ●、顶部与保存条显示"未保存修改 N 项 · 离开页面将丢失"、导航点击 confirm 拦截 + beforeunload 兜底；② 新增"放弃更改"（顶部+保存条双入口，恢复到载入快照）；③ 保存按钮无修改时 disabled，保存成功后快照刷新回干净态；④ 画质白名单自由文本改 checkbox 组（8 画质档+5 音频档，未知存量值兼容渲染），语义提示"全不勾选=不限画质"。所有 PATCH 字段与后端契约不变。
+- 验证：JS 检查过；全量门 20 包绿（期间两度被并行 WIP 卡门，等待收敛复绿未代改）；服务重启（.new→mv 缩短空窗）；浏览器 DOM 断言——初始保存禁用/改值出●+计数/放弃还原 360/脏态导航拦截/保存链路 360→362 落盘→还原 360 双向持久化；截图验证。
+
+### UP主源扩展归档：动态/动态视频/图文专栏（schema v10）— session-agent（2026-09-10T17:05:00Z，done-review）
+- 人类交办"up主归档增加所有动态与动态视频、所有专栏，设置里可勾选（默认全部）"。接口实测定型：动态 feed（polymer）免 wbi 可用且 AV/WORD/DRAW/FORWARD/ARTICLE 同源；传统专栏列表接口已死（legacy 空、opus 404）→ 专栏经 feed 的 ARTICLE/图文类归档。
+- 交付：biliapi DynamicFeed（FlexInt 兼容 pub_ts 字符串）+ store v10（space_posts 只增不删 + 消失标记防御 + sources.space_scope）+ collector SyncSpaceDynamics（offset 翻页全量、拉到底才标记消失）+ ParseSpaceScope/ValidSpaceScope + jobSyncSource 接线（动态视频提取 bvid 归档去重）+ admin（/add 与 PATCH space_scope 校验、GET /sources/{id}/posts）+ UI 采集页与监控源编辑四勾选（space 类型才显示、默认全选）。
+- 验证：真实 UP 主端到端 794 条动态落库 + 669 bvid 提取；PATCH 往返/非法 400/UI 勾选实测；全量门 19 包绿。已知限制：纯不发动态的老专栏暂收不到（接口层面无解，已标注）。
+
+### 读路径优化第二轮：teriteri 评论区/卡片 + media 桥 — core-agent（2026-09-10T18:20:00Z，done）
+- 人类"继续处理"评审遗留项。① teriteri commentGet 由"整视频评论含 raw_json 全量加载两遍+内存分页"改主楼 SQL 分页（ListMainCommentsPage/CountMainComments，hot 序=现存优先→赞降→ctime 稳定，与原语义逐项对齐）+ 页内楼中楼一次 IN 查询 + commentReplyMore 直查，合并分页用 segSlice 跨页；② statsOf/card 路径 LatestStats 单条替代全量历史、收藏判断改 CountFavItems 单查询（原遍历全部收藏夹×条目）、searchHot 改 TopTags 单条 GROUP BY（原 N+1）、videosByOwner 去掉重复第二次全量历史；③ media：gatherMeta 用 LatestStats、sortByID 插入排序→sort.SliceStable、tvshow.nfo 写前内容比对（消大合集平方级重写）、RebuildAll 单飞 + 下载后去抖合并；④ 顺带修复 biliapi nav money 浮点解析（Coin int→float64，TestNavAccount 由红转绿）。
+- 验证：本人改动集按包验证全绿（store/adapter/media/app/jobs/biliapi/server）；全量门余两红均为 session-agent space_posts WIP 中间态，按归属纪律未代改、待其收敛复查。约束遵守：schema（site_* 索引）主动避开 session 的 v10 区域留待串行补。
+
+### 账号页当前账号信息 — core-agent（自报 2026-09-11T03:30:00Z 未来戳，实写 09-10T18:3xZ 前后，done）
+- 人类交办"账号页显示现在的帐号状态，uid，账号名，头像，等级，是否为大会员等"。biliapi 增 NavAccount（nav 解析 isLogin/mid/uname/face/level_info+exp/vipStatus/vipType/money，getJSONLenient 容忍未登录）；admin 增 `GET /api/v1/login/status`（nav 失败按未登录呈现不炸页面）与 `GET /api/v1/login/avatar`（头像服务端代理——B站图床对第三方 Referer 403 必须转发）；账号页新增"当前账号"信息卡（头像/昵称+大会员徽章/UID/等级+经验/大会员状态/硬币/刷新），扫码区下移为"重新扫码覆盖登录态"。
+- 验证：全量 18 包绿（NavAccount 解析用例）；线上实测 logged_in=true BenLi06 / mid=397703470 / Lv.6 / exp 30511 / 非大会员 / 硬币 1105，头像代理 200 image/jpeg。附带确认：当前登录态有效（此前 space 软风控期的登录态问题已不存在），fetch_levels #2908 已入队待补齐全库 UP主等级（124 个 distinct）。
+- 过程观察：等待期间 teriteri 适配层被并行 agent 短暂置于编译失败态（sort import 残留），约 10 分钟后对方自行修复，未代改。
 
 ## 待补时间戳
 

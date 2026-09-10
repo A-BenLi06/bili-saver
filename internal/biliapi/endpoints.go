@@ -474,3 +474,54 @@ func (c *Client) DynamicFeed(ctx context.Context, mid int64, offset string) (*Dy
 	}
 	return &d, nil
 }
+
+// SpaceFollowList UP主追番(type=1)/追剧(type=2)列表（2026-09-11 实测免 wbi；
+// 用户关闭列表公开可见时返回空列表）。
+func (c *Client) SpaceFollowList(ctx context.Context, mid int64, typ, pn, ps int) (*SpaceFollowList, error) {
+	if err := c.EnsureBuvid(ctx); err != nil {
+		return nil, err
+	}
+	p := url.Values{
+		"vmid": {strconv.FormatInt(mid, 10)},
+		"type": {strconv.Itoa(typ)},
+		"pn":   {strconv.Itoa(pn)},
+		"ps":   {strconv.Itoa(ps)},
+	}
+	if err := c.lim.wait(ctx); err != nil {
+		return nil, err
+	}
+	u := c.base + "/x/space/bangumi/follow/list?" + p.Encode()
+	body, status, err := c.do(ctx, http.MethodGet, u, nil, map[string]string{
+		"Referer": fmt.Sprintf("https://space.bilibili.com/%d/bangumi", mid),
+	})
+	if err != nil {
+		return nil, err
+	}
+	c.snapshot("/x/space/bangumi/follow/list", p, status, body)
+	var env struct {
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("space follow list: http %d 非 JSON（可能风控）", status)
+	}
+	if env.Code != 0 {
+		return nil, &APIError{Code: env.Code, Message: env.Message}
+	}
+	var d SpaceFollowList
+	if err := json.Unmarshal(env.Data, &d); err != nil {
+		return nil, err
+	}
+	// 保留每条原始 JSON
+	var raw struct {
+		List []json.RawMessage `json:"list"`
+	}
+	_ = json.Unmarshal(env.Data, &raw)
+	for i := range d.List {
+		if i < len(raw.List) {
+			d.List[i].Raw = string(raw.List[i])
+		}
+	}
+	return &d, nil
+}

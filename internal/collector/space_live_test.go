@@ -66,3 +66,40 @@ func trunc(s string, n int) string {
 	}
 	return string(r[:n]) + "…"
 }
+
+func TestLiveSpaceBangumi(t *testing.T) {
+	midStr := os.Getenv("BILI_LIVE_MID")
+	if midStr == "" {
+		t.Skip("未设置 BILI_LIVE_MID，跳过真实接口冒烟")
+	}
+	mid, err := strconv.ParseInt(midStr, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(t.TempDir(), "live.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	api, err := biliapi.New(filepath.Join("..", "..", "data", "cookies.json"), 1,
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36")
+	if err != nil {
+		t.Fatal(err)
+	}
+	col := New(st, api, config.Defaults(), nil, nil)
+	if err := col.SyncSpaceBangumi(t.Context(), mid); err != nil {
+		t.Fatalf("SyncSpaceBangumi: %v", err)
+	}
+	vis, del, _ := st.CountSpacePosts(mid, "bangumi")
+	t.Logf("追番/追剧落库: 现存=%d 已消失=%d", vis, del)
+	if vis == 0 {
+		t.Fatal("真实 UP主追番列表应有落库（若该 UP 关闭了列表公开可见则属正常，跳过断言前先看日志）")
+	}
+	posts, err := st.ListSpacePosts(mid, "bangumi", false, 3, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range posts {
+		t.Logf("  样例: %s dtype=%s title=%q content=%q raw_len=%d", p.PostID, p.Dtype, trunc(p.Title, 20), trunc(p.Content, 30), len(p.Raw))
+	}
+}

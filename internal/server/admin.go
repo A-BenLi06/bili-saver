@@ -88,6 +88,7 @@ func (s *Server) registerAdmin() {
 	m.HandleFunc("GET /api/v1/config", s.handleConfig)
 	m.HandleFunc("PATCH /api/v1/config", s.handlePatchConfig)
 	m.HandleFunc("GET /api/v1/login/status", s.handleLoginStatus)
+	m.HandleFunc("POST /api/v1/login/logout", s.handleLoginLogout)
 	m.HandleFunc("GET /api/v1/login/avatar", s.handleLoginAvatar)
 	m.HandleFunc("GET /api/v1/login/qr", s.handleLoginQR)
 	m.HandleFunc("GET /api/v1/login/qr/poll", s.handleLoginPoll)
@@ -848,6 +849,19 @@ func (s *Server) handleLoginStatus(w http.ResponseWriter, r *http.Request) {
 		"vip": acc.VipStatus == 1, "vip_label": vipLabel,
 		"coin": acc.Coin, "current_exp": acc.CurrentExp,
 	})
+}
+
+// handleLoginLogout 登出：通知 B 站注销 + 清空本机 cookie 文件与内存态。
+func (s *Server) handleLoginLogout(w http.ResponseWriter, r *http.Request) {
+	if err := s.Deps.API.Logout(r.Context()); err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	if err := s.Deps.API.SaveCookies(s.Deps.Cfg.CookiePath()); err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 
 // handleLoginAvatar 登录账号头像代理：B 站图床对第三方 Referer 返回 403，须服务端转发。

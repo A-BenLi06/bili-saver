@@ -370,3 +370,22 @@ type DynFeed struct {
 	HasMore    bool          `json:"has_more"`
 	NextOffset string        `json:"offset"`
 }
+
+// SpaceFollowEntry 追番/追剧列表条目（只声明消费的字段，原始 JSON 单独保留）。
+type SpaceFollowEntry struct {
+	Raw        string  `json:"-"`
+	SeasonID   int64   `json:"season_id"`
+	MediaID    int64   `json:"media_id"`
+	Title      string  `json:"title"`
+	Evaluate   string  `json:"evaluate"`
+	TotalCount int     `json:"total_count"`
+	IsFinish   FlexInt `json:"is_finish"`
+	Badge      string  `json:"badge"`
+	TypeName   string  `json:"type_name"`
+}
+
+// SpaceFollowList 追番/追剧列表分页。
+type SpaceFollowList struct {
+	List  []SpaceFollowEntry `json:"list"`
+	Total int                `json:"total"`
+}

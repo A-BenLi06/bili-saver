@@ -54,3 +54,8 @@
 - 做了什么：人类反馈总览页"各媒体库状态还没看到，要显示如 emby（未检测到）"。重构 mediaServerStatuses：恒定输出 teriteri/emby/jellyfin/plex/kodi 五行（未配置实例的类型输出 Detected=false + Note="未检测到"；已配置多实例聚合"在线 m/n"，单实例透传其 note；teriteri 未配置实例但适配启用时仍显示内置在线项，显式配置则不叠加）；前端按行渲染 在线/离线/未检测到 三态 + 实例子行；server.go 静态页与首页加 Cache-Control: no-cache（页面随二进制内嵌更新，防浏览器停留旧版 UI——"看不到新版"的另一个诱因）。
 - 涉及：internal/server/{mediaservers.go,mediaservers_test.go,server.go,static/index.html}。
 - 结果：done。server/config 包测试绿（新增五行聚合/内置不叠加/未检测到断言），inline JS 过；线上实测五行输出——teriteri 在线(HTTP 200)、其余四类"未检测到"，首页带 no-cache 头。
+
+## 2026-09-11T03:30:00Z core-agent — 账号页当前账号信息完成
+- 做了什么：人类交办"账号页显示现在的帐号状态，uid，账号名，头像，等级，是否为大会员等"。biliapi 增 NavAccount（nav 解析 isLogin/mid/uname/face/level_info.current_level+current_exp/vipStatus/vipType/money，getJSONLenient 容忍未登录）；admin 增 GET /api/v1/login/status（nav 失败按未登录呈现不炸页面）与 GET /api/v1/login/avatar（头像服务端代理——B站图床对第三方 Referer 403，必须转发）；账号页新增"当前账号"信息卡（头像/昵称+大会员徽章/UID/等级+经验/大会员状态/硬币/刷新按钮），扫码区下移为"重新扫码覆盖登录态"。
+- 涉及：internal/biliapi/{login.go,account_test.go}、internal/server/admin.go、internal/server/static/index.html、ARCHITECTURE §7。
+- 结果：done。全量 18 包绿（NavAccount 解析用例）；线上实测——logged_in=true BenLi06 / mid=397703470 / Lv.6 / exp 30511 / 非大会员 / 硬币1105，头像代理 200 image/jpeg 202KB。附带确认：当前登录态有效（此前 space 软风控期间的登录态问题已不复存在），fetch_levels #2908 已入队等待 worker 空闲后补齐全库 UP主等级（现 124 个 distinct UP主）。另：等待期间 teriteri 适配层被并行 agent 短暂置于编译失败态（sort import 残留），约 10 分钟后对方自行修复，未代改。

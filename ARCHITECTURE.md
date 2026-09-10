@@ -74,7 +74,7 @@ internal/
   resolver/  输入→源：URL/BV/av/UP主/收藏夹/合集/系列；b23 短链展开；Expand 展开视频清单
             （space 需登录，未登录返回明确引导错误）
   collector/ 归档编排：元数据/标签/官方AI小结/统计序列/评论(主楼+楼中楼全量翻页)/弹幕/
-            CC字幕；CollectOptions 按范围采集；cid 变化检测（换源强制补采）；消失检测入口；分区 tid/tname 与 dimension→orientation 采集落库（v9）
+            CC字幕；CollectOptions 按范围采集；cid 变化检测（换源强制补采）；消失检测入口；分区 tid/tname 与 dimension→orientation 采集落库（v9）；UP主动态/图文专栏归档（v10，polymer 动态 feed）
   downloader/ DASH 选流（清晰度白名单：空=全部=最高可用，指定档全缺时回落更低档；
             音频偏好链 hires/dolby/192k/132k/64k，空=标准最高；allow_4k/allow_av1 编码门）
             →分片下载(Range 断点+备用CDN)→ffmpeg 合并；
@@ -88,7 +88,8 @@ internal/
             symlink(绝对路径)→hardlink→copy 降级链
   plugin/   事件总线 + 进程插件 runtime + op 协议（见 §9）
   server/   admin REST + /media 流(Range，路径越界校验) + teriteri 适配挂载 + 内嵌 UI
-  adapter/teriteri/ teriteri-client 契约适配（§8）；楼中楼一次查询分组（无 N+1）
+  adapter/teriteri/ teriteri-client 契约适配（§8）；主楼 SQL 分页 + 页内楼中楼一次 IN 查询
+                    （statsOf/卡片走 LatestStats 单条查询，收藏计数 CountFavItems，热搜 TopTags 聚合）
   card/     视频快速预览卡片 PNG（derived 层 data/derived/{bvid}/card.png）：封面统计/
             标题/UP主/简介/标签/视频数据/热评/归档信息/二维码落款；归档与下载后自动刷新
             （app.refreshCard），UP主头像 media/faces 本地优先
@@ -125,7 +126,9 @@ deploy/     Dockerfile(含 ffmpeg) / Dockerfile.teriteri(前端+nginx) / compose
 | `plugins`/`plugin_runs` | 插件注册与执行审计 |
 | `media_libraries`(v4) | 每库独立 root/layout/link_mode/metadata_format(nfo\|json\|none)/match_rules/enabled |
 
-**迁移历史**：v1 基线 → v2 同步策略列 → v3 消失防御列 → v4 media_libraries → v5 videos.source_id → v6 B站用户等级（comments.member_level / videos.owner_level）→ v7 新视频触发器（sources.auto_download 三态 + video_tracks 跟踪列表）→ v8 自适应补档冷却（videos.pubdate 索引，基线 IF NOT EXISTS 自升级）→ v9 分区与横竖屏（videos.tid/tname/orientation；tname 空时由 bilicats 分区表按 tid 兜底，路由匹配候选名=落库名+现名+一级名）。全部 `ensureColumn`/`IF NOT EXISTS` 幂等，老库启动自动升级。
+**迁移历史**：v1 基线 → v2 同步策略列 → v3 消失防御列 → v4 media_libraries → v5 videos.source_id → v6 B站用户等级（comments.member_level / videos.owner_level）→ v7 新视频触发器（sources.auto_download 三态 + video_tracks 跟踪列表）→ v8 自适应补档冷却（videos.pubdate 索引，基线 IF NOT EXISTS 自升级）→ v9 分区与横竖屏（videos.tid/tname/orientation；tname 空时由 bilicats 分区表按 tid 兜底，路由匹配候选名=落库名+现名+一级名） → v10 UP主扩展归档（space_posts 表 + sources.space_scope 范围勾选）。
+
+**space_posts（v10）**：UP主动态/图文（专栏）归档（origin=bilibili）。数据源=polymer 动态 feed（免 wbi；传统专栏列表接口已死，专栏经 feed 的 ARTICLE/图文类归档）。只增不删：动态消失标 deleted_at，feed 拉到底才标记、大面积消失（>50 条且 >30%）跳过（对齐弹幕防御）。每条保留官方原始 JSON（raw 列 + raw/ 快照双份）。动态视频（AV 类动态）提取 bvid 可提交归档。范围勾选 sources.space_scope：video/dynamic/dynamic_video/article 逗号子集，空/`all`=全部、`none`=全关，采集页与监控源编辑均可勾选。查询端点 GET /api/v1/sources/{id}/posts。全部 `ensureColumn`/`IF NOT EXISTS` 幂等，老库启动自动升级。
 
 ## 6. 关键流程
 
@@ -138,7 +141,7 @@ view（Pages 空时用顶层 CID 兜底单 P）→ 全量快照落盘 → videos
 3. **弹幕降级检测**：seg→list 回退时 list.so 有约 1200 条上限，消失数异常时跳过本轮。
 
 ### 6.3 调度（jobSyncSource）
-展开源 → 新视频全量归档（触发补档）；已有视频按 `dueParts`（源间隔 × 分类型 last_*_at）计算到期范围，只刷新到期部分；均未到期仅 touch_stats。once 模式完成首次同步后自动停 watch。下载成功后异步重建媒体库（幂等）。
+展开源 → 新视频全量归档（触发补档）；已有视频按 `dueParts`（源间隔 × 分类型 last_*_at）计算到期范围，只刷新到期部分；均未到期仅 touch_stats。once 模式完成首次同步后自动停 watch。下载成功后异步重建媒体库（幂等；RebuildAllDebounced 并发合并，批量下载 N 次完成只跑一轮+补跑）。
 
 **新视频触发器（v7）**：`sources.auto_download` 三态（1 开 / -1 关 / 0 跟随全局 `download.auto_download`，手动 sync 指定 download 参数时视为手动路径、不入跟踪列表）。触发命中→新视频归档+下载一次（下载幂等保证只下一次）并写入 `video_tracks`；jobArchive 下载成败回写跟踪状态（done/failed）。管理端「跟踪列表」页与 `GET /api/v1/tracks` 展示。语义分工（2026-09-09 UX 审查确立）：**新视频只在同步展开过程中被发现**，触发器决定"发现后是否自动下载文件"；周期同步的存在理由是评论/弹幕/字幕/统计等高频数据刷新；单视频源不涉及触发器（UI 列表显"—"、编辑表单隐藏）。`/add` 的 download 勾选即源级触发器初值（勾=1/不勾=-1），避免跟随全局默认开造成"本次不下载、日后新视频仍被下载"的陷阱。
 
@@ -146,7 +149,7 @@ view（Pages 空时用顶层 CID 兜底单 P）→ 全量快照落盘 → videos
 
 ## 7. API 面（/api/v1）
 
-stats / add / resolve（纯解析，输入框实时识别）/ sources CRUD+sync / **videos 列表（`{total,counts,items}`：status/dl 过滤 + q 模糊匹配标题/简介/UP主/bvid（管理端语义，teriteri 站内搜索走 adapter FTS）+ sort=title|pubdate|last_sync 与 order=asc|desc 排序 + limit/offset 分页；管理端为状态 Tab+下载筛选+表头点击排序+分页 UI）** + 详情（含 source、stats_history）+ **comments / danmaku 明细（消失审计）** + **videos/{bvid}/card（预览卡片 PNG，?refresh=1 重渲 / ?download=1 下载）** + archive / download / similar（向量余弦）/ **comments/search（评论全文检索富结果：q/status/limit → {query,total,hits}，hit 含评论本体+video_title/owner_name 联表；FTS 索引由采集轮末尾 HealCommentsFTS 批量补齐（幂等，评论逐条 upsert 不做索引存在性检查——FTS5 UNINDEXED 列全扫是平方级开销））** / jobs + retry / sync-now / config / login/qr(+poll) / plugins CRUD / media/rebuild（per-lib 统计）/ **libraries CRUD** / **images/backfill（全库封面/头像补档，fetch_images 任务）** / **levels/backfill（等级补档：快照回填+UP主等级，fetch_levels 任务）** / **tracks（跟踪列表：`{total,counts,items}`，state 过滤 + q 模糊匹配标题/UP主/bvid + limit/offset 分页，items 联 videos/sources 含 source_title；管理端为状态 Tab+搜索+分页 UI）**。热门视频手动补档（/add 视频类型与重同步）先返回 `need_confirm`（阈值 `collector.hot_video_views`/`hot_video_replies`，默认 100万播放/1万评论，0=禁用），前端确认后带 `confirm_hot` 重提；触发器/调度等自动化路径不打扰。 / **media-servers/status（第三方媒体库在线探测：config `media.servers` 配 name/type/url，type=teriteri/emby/jellyfin/plex/kodi，按类型探健康端点，任意 HTTP 响应即在线，3s 超时）**。管理 token 可选（`admin.token` → Bearer）。
+stats / add / resolve（纯解析，输入框实时识别）/ sources CRUD+sync / **videos 列表（`{total,counts,items}`：status/dl 过滤 + q 模糊匹配标题/简介/UP主/bvid（管理端语义，teriteri 站内搜索走 adapter FTS）+ sort=title|pubdate|last_sync 与 order=asc|desc 排序 + limit/offset 分页；管理端为状态 Tab+下载筛选+表头点击排序+分页 UI）** + 详情（含 source、stats_history）+ **comments / danmaku 明细（消失审计）** + **videos/{bvid}/card（预览卡片 PNG，?refresh=1 重渲 / ?download=1 下载）** + archive / download / similar（向量余弦）/ **comments/search（评论全文检索富结果：q/status/limit → {query,total,hits}，hit 含评论本体+video_title/owner_name 联表；FTS 索引由采集轮末尾 HealCommentsFTS 批量补齐（幂等，评论逐条 upsert 不做索引存在性检查——FTS5 UNINDEXED 列全扫是平方级开销））** / jobs + retry / sync-now / config / login/qr(+poll) / **login/status（当前 B 站账号：nav 解析 mid/uname/level/大会员）+ login/avatar（头像服务端代理，绕图床防盗链）** / plugins CRUD / media/rebuild（per-lib 统计）/ **libraries CRUD** / **images/backfill（全库封面/头像补档，fetch_images 任务）** / **levels/backfill（等级补档：快照回填+UP主等级，fetch_levels 任务）** / **tracks（跟踪列表：`{total,counts,items}`，state 过滤 + q 模糊匹配标题/UP主/bvid + limit/offset 分页，items 联 videos/sources 含 source_title；管理端为状态 Tab+搜索+分页 UI）**。热门视频手动补档（/add 视频类型与重同步）先返回 `need_confirm`（阈值 `collector.hot_video_views`/`hot_video_replies`，默认 100万播放/1万评论，0=禁用），前端确认后带 `confirm_hot` 重提；触发器/调度等自动化路径不打扰。 / **media-servers/status（第三方媒体库在线探测：config `media.servers` 配 name/type/url，type=teriteri/emby/jellyfin/plex/kodi，按类型探健康端点，任意 HTTP 响应即在线，3s 超时）**。管理 token 可选（`admin.token` → Bearer）。
 
 **config GET/PATCH 与设置页**：`GET /api/v1/config` 返回全部运行参数（含 login 态）；`PATCH /api/v1/config` 接收指针字段子集（采集 8 项/下载 8 项含 qualities 白名单/媒体 enabled+layout+link_mode+public_url/min_req_ms/teriteri_enabled/frontend_url），**先全量校验后提交**（非法值 400 不落内存），Normalize+Validate 后经 `config.SaveConfigFile` 写回 `-config` 指向的 YAML（原文件备份 `.bak`；注释会丢失，已知取舍；0600 权限）。组件均持 `*config.Config` 活读取，多数项保存即生效；`min_req_ms`/`teriteri_enabled`/worker 数等启动捕获项重启完全生效（UI 以 † 标注）。调度器同样活读取 Cfg（间隔/统计周期/adaptive 调整下一 tick 生效）。管理端「设置」页分组表单（采集与补档/下载/媒体库与站点/只读信息），data_dir/listen/media_root/plugins_dir 等路径类只读展示、引导改 YAML。
 

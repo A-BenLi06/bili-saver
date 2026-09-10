@@ -78,13 +78,28 @@ func (s *Store) CountSpacePosts(mid int64, kind string) (visible, deleted int, e
 	return
 }
 
-// MarkSpacePostsGone 本轮 feed 全量拉取后，把未再出现的现存动态标记消失。
+// MarkSpacePostsGone 本轮全量拉取后，把未再出现的现存条目标记消失。
+// kinds 限定标记范围（动态轮=dynamic,article；追番轮=bangumi），不同同步
+// 轮次的 seen 集合互不干扰。
 // 防御（对齐弹幕降级检测）：消失数 >30% 且 >50 条视为接口截断异常，本轮跳过。
 // fullFetch=false（分页未到底/被截断）时直接跳过——数据不完整无法判断消失。
 // 返回 (标记消失数, 已跳过)。
-func (s *Store) MarkSpacePostsGone(mid int64, seen map[string]bool, fullFetch bool) (int, bool) {
+func (s *Store) MarkSpacePostsGone(mid int64, kinds []string, seen map[string]bool, fullFetch bool) (int, bool) {
+	kindWhere := "mid=?"
+	args := []any{mid}
+	if len(kinds) > 0 {
+		kindWhere += " AND kind IN ("
+		for i := range kinds {
+			if i > 0 {
+				kindWhere += ","
+			}
+			kindWhere += "?"
+			args = append(args, kinds[i])
+		}
+		kindWhere += ")"
+	}
 	var existing []string
-	rows, err := s.DB.Query(`SELECT post_id FROM space_posts WHERE mid=? AND deleted_at=0`, mid)
+	rows, err := s.DB.Query(`SELECT post_id FROM space_posts WHERE `+kindWhere+` AND deleted_at=0`, args...)
 	if err != nil {
 		return 0, true
 	}

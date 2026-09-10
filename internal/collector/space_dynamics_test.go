@@ -21,8 +21,11 @@ func TestParseSpaceScope(t *testing.T) {
 		t.Error("none 应全部关闭")
 	}
 	// 子集
-	if sc := ParseSpaceScope("video"); !sc.Video || sc.Dynamic || sc.DynamicVideo || sc.Article {
+	if sc := ParseSpaceScope("video"); !sc.Video || sc.Dynamic || sc.DynamicVideo || sc.Article || sc.Bangumi {
 		t.Errorf("仅 video: %+v", sc)
+	}
+	if sc := ParseSpaceScope("bangumi"); sc.Video || !sc.Bangumi {
+		t.Errorf("仅 bangumi: %+v", sc)
 	}
 	if sc := ParseSpaceScope("dynamic,article"); !sc.Dynamic || !sc.Article || sc.Video || sc.DynamicVideo {
 		t.Errorf("dynamic,article: %+v", sc)
@@ -44,7 +47,8 @@ func TestValidSpaceScope(t *testing.T) {
 		{"none", "none", true},
 		{"video", "video", true},
 		{" dynamic , article ", "dynamic,article", true},
-		{"video,dynamic,dynamic_video,article", "all", true}, // 全选归一化为 all
+		{"video,dynamic,dynamic_video,article,bangumi", "all", true}, // 全选归一化为 all
+		{"video,dynamic,dynamic_video,article", "video,dynamic,dynamic_video,article", true},
 		{"video,bogus", "", false},
 		{"all,video", "", false}, // all 不能与其他混用
 	}

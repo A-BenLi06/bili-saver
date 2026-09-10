@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -129,6 +131,73 @@ type Account struct {
 	CurrentExp int64  `json:"current_exp"`
 }
 
+// Logout 登出：尽力通知 B 站注销服务端会话（需 bili_jct，失败不阻塞），
+// 随后清空本机 cookie（内存 jar + 登录缓存）。文件侧由调用方 SaveCookies 覆盖。
+func (c *Client) Logout(ctx context.Context) error {
+	csrf := c.cookieValue("bili_jct")
+	if csrf != "" {
+		if err := c.lim.wait(ctx); err == nil {
+			form := strings.NewReader(url.Values{"csrf": {csrf}}.Encode())
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+				c.passportBase+"/x/log/web/logout", form)
+			if err == nil {
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.Header.Set("User-Agent", c.userAgent)
+				// 任一登出端点接受即视为已通知；响应体不关心
+				if resp, err := c.hc.Do(req); err == nil {
+					_ = resp.Body.Close()
+				} else {
+					c.legacyLogout(ctx, csrf)
+				}
+			}
+		}
+	}
+	c.ClearCookies()
+	ResetLoginCache()
+	return nil
+}
+
+// legacyLogout 旧版登出端点（/login/exit/v2），新端点不可达时兜底。
+func (c *Client) legacyLogout(ctx context.Context, csrf string) {
+	form := strings.NewReader(url.Values{"csrf": {csrf}}.Encode())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.passportBase+"/login/exit/v2", form)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", c.userAgent)
+	if resp, err := c.hc.Do(req); err == nil {
+		_ = resp.Body.Close()
+	}
+}
+
+// ClearCookies 清空内存 cookie jar：对既有 cookie 写入过期条目（cookiejar 无删除
+// 接口，过期写回即删除），避免替换 jar 实例引入数据竞态。
+func (c *Client) ClearCookies() {
+	past := time.Unix(0, 0)
+	for _, h := range c.cookieHosts {
+		u := &url.URL{Scheme: "https", Host: h}
+		for _, co := range c.jar.Cookies(u) {
+			c.jar.SetCookies(u, []*http.Cookie{{
+				Name: co.Name, Value: "", Domain: co.Domain, Path: co.Path,
+				Expires: past, MaxAge: -1,
+			}})
+		}
+	}
+}
+
+// cookieValue 读取指定 cookie 的值（查不到返回空串）。
+func (c *Client) cookieValue(name string) string {
+	u := &url.URL{Scheme: "https", Host: "api.bilibili.com"}
+	for _, co := range c.jar.Cookies(u) {
+		if co.Name == name {
+			return co.Value
+		}
+	}
+	return ""
+}
+
 // NavAccount 拉取当前登录账号资料（nav 无需 wbi 签名，未登录返回 isLogin=false）。
 func (c *Client) NavAccount(ctx context.Context) (*Account, error) {
 	var nav struct {
@@ -141,7 +210,8 @@ func (c *Client) NavAccount(ctx context.Context) (*Account, error) {
 		} `json:"level_info"`
 		VipStatus int `json:"vipStatus"`
 		VipType   int `json:"vipType"`
-		Coin      int `json:"money"`
+		// money 实测为可带小数的数字（如 50.0），int 会解析失败；取整入库
+		Coin float64 `json:"money"`
 	}
 	if err := c.getJSONLenient(ctx, "/x/web-interface/nav", url.Values{}, &nav); err != nil {
 		return nil, err
@@ -149,7 +219,7 @@ func (c *Client) NavAccount(ctx context.Context) (*Account, error) {
 	return &Account{
 		IsLogin: nav.IsLogin, Mid: nav.Mid, Uname: nav.Uname, Face: nav.Face,
 		Level: nav.LevelInfo.CurrentLevel, VipStatus: nav.VipStatus, VipType: nav.VipType,
-		Coin: nav.Coin, CurrentExp: nav.LevelInfo.CurrentExp,
+		Coin: int(nav.Coin), CurrentExp: nav.LevelInfo.CurrentExp,
 	}, nil
 }
 

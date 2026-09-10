@@ -66,12 +66,12 @@ func TestMarkSpacePostsGone(t *testing.T) {
 		}
 	}
 	// 非全量拉取：不标记
-	if n, skipped := s.MarkSpacePostsGone(7, map[string]bool{"d0": true}, false); n != 0 || !skipped {
+	if n, skipped := s.MarkSpacePostsGone(7, []string{"dynamic"}, map[string]bool{"d0": true}, false); n != 0 || !skipped {
 		t.Errorf("非全量应跳过: n=%d skipped=%v", n, skipped)
 	}
 	// 全量但只见到 3 条（消失 7/10=70%>30% 且 >50 不满足条数 → 仍标记）
 	seen := map[string]bool{"d0": true, "d1": true, "d2": true}
-	n, skipped := s.MarkSpacePostsGone(7, seen, true)
+	n, skipped := s.MarkSpacePostsGone(7, []string{"dynamic"}, seen, true)
 	if skipped || n != 7 {
 		t.Errorf("小规模消失应标记: n=%d skipped=%v", n, skipped)
 	}
@@ -90,7 +90,7 @@ func TestMarkSpacePostsGone(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		seen2[fmt.Sprintf("x%d", i)] = true
 	}
-	n2, skipped2 := s2.MarkSpacePostsGone(8, seen2, true)
+	n2, skipped2 := s2.MarkSpacePostsGone(8, []string{"dynamic"}, seen2, true)
 	if !skipped2 || n2 != 0 {
 		t.Errorf("大面积消失应触发防御跳过: n=%d skipped=%v", n2, skipped2)
 	}
@@ -105,7 +105,7 @@ func TestMarkSpacePostsGone(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		seen3[fmt.Sprintf("y%d", i)] = true
 	}
-	n3, skipped3 := s3.MarkSpacePostsGone(9, seen3, true)
+	n3, skipped3 := s3.MarkSpacePostsGone(9, []string{"dynamic"}, seen3, true)
 	if skipped3 || n3 != 41 {
 		t.Errorf("41/51 消失应照常标记: n=%d skipped=%v", n3, skipped3)
 	}
