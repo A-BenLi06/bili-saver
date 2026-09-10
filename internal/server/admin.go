@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 
 	"bili-saver/internal/metrics"
 
 	"bili-saver/internal/biliapi"
+	"bili-saver/internal/collector"
 	"bili-saver/internal/config"
 	"path/filepath"
 	"sort"
@@ -68,6 +70,7 @@ func (s *Server) registerAdmin() {
 	m.HandleFunc("POST /api/v1/add", s.handleAdd)
 	m.HandleFunc("GET /api/v1/resolve", s.handleResolve)
 	m.HandleFunc("GET /api/v1/sources", s.handleListSources)
+	m.HandleFunc("GET /api/v1/sources/{id}/posts", s.handleSourcePosts)
 	m.HandleFunc("DELETE /api/v1/sources/{id}", s.handleDeleteSource)
 	m.HandleFunc("POST /api/v1/sources/{id}/sync", s.handleSyncSource)
 	m.HandleFunc("PATCH /api/v1/sources/{id}", s.handlePatchSource)
@@ -84,6 +87,8 @@ func (s *Server) registerAdmin() {
 	m.HandleFunc("POST /api/v1/sync-now", s.handleSyncNow)
 	m.HandleFunc("GET /api/v1/config", s.handleConfig)
 	m.HandleFunc("PATCH /api/v1/config", s.handlePatchConfig)
+	m.HandleFunc("GET /api/v1/login/status", s.handleLoginStatus)
+	m.HandleFunc("GET /api/v1/login/avatar", s.handleLoginAvatar)
 	m.HandleFunc("GET /api/v1/login/qr", s.handleLoginQR)
 	m.HandleFunc("GET /api/v1/login/qr/poll", s.handleLoginPoll)
 	m.HandleFunc("GET /api/v1/plugins", s.handlePlugins)
@@ -164,6 +169,7 @@ type addReq struct {
 	IntervalComments int    `json:"interval_comments"` // 0=跟随主间隔，-1=从不
 	IntervalDanmaku  int    `json:"interval_danmaku"`
 	IntervalSubs     int    `json:"interval_subtitles"`
+	SpaceScope       string `json:"space_scope"` // UP主源归档范围（空=全部；none=全部关闭）
 	ConfirmHot       bool   `json:"confirm_hot"` // 热门视频二次确认后的重提交
 }
 
@@ -221,6 +227,15 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		} else {
 			src.AutoDownload = -1
 		}
+	}
+	// UP主源归档范围勾选（v10）：video/dynamic/dynamic_video/article；空=全部。
+	if in.Type == resolver.TypeSpace && req.SpaceScope != "" {
+		norm, ok := collector.ValidSpaceScope(req.SpaceScope)
+		if !ok {
+			errJSON(w, 400, errStr("space_scope 只能包含 video/dynamic/dynamic_video/article"))
+			return
+		}
+		src.SpaceScope = norm
 	}
 	if _, err := s.Deps.St.UpsertSource(src); err != nil {
 		errJSON(w, 500, err)
@@ -811,6 +826,58 @@ func (s *Server) handleTracks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"total": total, "counts": counts, "items": items})
 }
 
+// handleLoginStatus 当前 B 站登录账号资料（nav）。
+func (s *Server) handleLoginStatus(w http.ResponseWriter, r *http.Request) {
+	acc, err := s.Deps.API.NavAccount(r.Context())
+	if err != nil {
+		// nav 失败按未登录呈现，不炸页面
+		writeJSON(w, 200, map[string]any{"logged_in": false, "error": err.Error()})
+		return
+	}
+	vipLabel := ""
+	if acc.VipStatus == 1 {
+		if acc.VipType == 2 {
+			vipLabel = "年度大会员"
+		} else {
+			vipLabel = "月度大会员"
+		}
+	}
+	writeJSON(w, 200, map[string]any{
+		"logged_in": acc.IsLogin, "mid": acc.Mid, "uname": acc.Uname,
+		"face": acc.Face, "level": acc.Level,
+		"vip": acc.VipStatus == 1, "vip_label": vipLabel,
+		"coin": acc.Coin, "current_exp": acc.CurrentExp,
+	})
+}
+
+// handleLoginAvatar 登录账号头像代理：B 站图床对第三方 Referer 返回 403，须服务端转发。
+func (s *Server) handleLoginAvatar(w http.ResponseWriter, r *http.Request) {
+	acc, err := s.Deps.API.NavAccount(r.Context())
+	if err != nil || !acc.IsLogin || acc.Face == "" {
+		http.NotFound(w, r)
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, acc.Face, nil)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	req.Header.Set("User-Agent", s.Deps.API.UserAgent())
+	req.Header.Set("Referer", "https://www.bilibili.com/")
+	resp, err := s.Deps.API.HTTPClient().Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		http.NotFound(w, r)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	_, _ = io.Copy(w, resp.Body)
+}
+
 // handleMediaServersStatus 第三方媒体库在线状态（并发探测，3s 超时）。
 func (s *Server) handleMediaServersStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.mediaServerStatuses(r.Context()))
@@ -1022,6 +1089,7 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 		IntervalDanmakuMin  *int    `json:"interval_danmaku"`
 		IntervalSubsMin     *int    `json:"interval_subtitles"`
 		AutoDownload        *int    `json:"auto_download"` // 1开/-1关/0跟随全局
+		SpaceScope          *string `json:"space_scope"`   // UP主源归档范围
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		errJSON(w, 400, err)
@@ -1058,6 +1126,14 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		src.AutoDownload = *req.AutoDownload
+	}
+	if req.SpaceScope != nil {
+		norm, ok := collector.ValidSpaceScope(*req.SpaceScope)
+		if !ok {
+			errJSON(w, 400, errStr("space_scope 只能包含 video/dynamic/dynamic_video/article 或 none"))
+			return
+		}
+		src.SpaceScope = norm
 	}
 	if _, err := s.Deps.St.UpsertSource(src); err != nil {
 		errJSON(w, 500, err)
@@ -1156,4 +1232,34 @@ func (s *Server) handleLive(w http.ResponseWriter, _ *http.Request) {
 		"download_bps": metrics.Download.BPS(), "upload_bps": metrics.Upload.BPS(),
 		"download_total": metrics.Download.Total(), "upload_total": metrics.Upload.Total(),
 	})
+}
+
+// handleSourcePosts UP主源的动态/图文（专栏）归档列表（v10）。
+func (s *Server) handleSourcePosts(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	src, err := s.Deps.St.GetSource(id)
+	if err != nil {
+		errJSON(w, 404, err)
+		return
+	}
+	if src.Type != "space" {
+		errJSON(w, 400, errStr("仅 UP主源有动态/专栏归档"))
+		return
+	}
+	mid, _ := strconv.ParseInt(src.ExtID, 10, 64)
+	q := r.URL.Query()
+	kind := q.Get("kind") // dynamic | article | 空=全部
+	includeDel := q.Get("deleted") == "1"
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	items, err := s.Deps.St.ListSpacePosts(mid, kind, includeDel, limit, offset)
+	if err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	vis, del, _ := s.Deps.St.CountSpacePosts(mid, kind)
+	writeJSON(w, 200, map[string]any{"visible": vis, "deleted": del, "items": items})
 }

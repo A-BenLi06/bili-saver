@@ -448,8 +448,8 @@ func (c *Client) DynamicFeed(ctx context.Context, mid int64, offset string) (*Dy
 	}
 	c.snapshot("/x/polymer/web-dynamic/v1/feed/space", p, status, body)
 	var env struct {
-		Code    int          `json:"code"`
-		Message string       `json:"message"`
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
 		Data    json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {

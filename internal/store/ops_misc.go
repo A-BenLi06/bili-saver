@@ -582,6 +582,36 @@ func (s *Store) AddPluginRun(r *PluginRun) error {
 	return err
 }
 
+// TagCount 标签与其关联的视频数。
+type TagCount struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// TopTags 某 origin 下被引用视频数最多的前 n 个标签（teriteri 热搜词）。
+// 单条 GROUP BY 替代"全库视频逐个查标签再内存聚合"的 N+1。
+func (s *Store) TopTags(origin string, n int) ([]TagCount, error) {
+	if n <= 0 {
+		n = 10
+	}
+	rows, err := s.DB.Query(`SELECT t.name, COUNT(*) AS c FROM video_tags vt
+		JOIN tags t ON t.id=vt.tag_id WHERE vt.origin=?
+		GROUP BY vt.tag_id ORDER BY c DESC, t.name LIMIT ?`, origin, n)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TagCount
+	for rows.Next() {
+		var tc TagCount
+		if err := rows.Scan(&tc.Name, &tc.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, tc)
+	}
+	return out, rows.Err()
+}
+
 // ---- 全局统计 ----
 
 type ArchiveStats struct {

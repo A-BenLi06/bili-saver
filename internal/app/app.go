@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/card"
@@ -203,13 +204,10 @@ func (a *App) jobArchive(ctx context.Context, j *store.Job, progress jobs.Progre
 		if serr := a.St.TrackSetState(res.Bvid, "done", "", store.Now()); serr != nil {
 			a.Log.Warn("跟踪状态回写失败", "bvid", res.Bvid, "err", serr)
 		}
-		// 新内容落库后异步刷新媒体库软链接（幂等，失败不影响任务）
+		// 新内容落库后异步刷新媒体库软链接（幂等，失败不影响任务）；
+		// 去抖合并：批量下载时 N 次完成只触发实际重建一轮+补跑，不再 N 遍全库遍历
 		if a.Cfg.Media.Enabled {
-			go func() {
-				if _, err := a.Med.RebuildAll(); err != nil {
-					a.Log.Warn("下载后媒体库刷新失败", "bvid", res.Bvid, "err", err)
-				}
-			}()
+			go a.Med.RebuildAllDebounced()
 		}
 	}
 	progress(1, "完成")
@@ -324,6 +322,31 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 			}
 		}
 		progress(float64(i+1)/float64(total), fmt.Sprintf("%d/%d", i+1, total))
+	}
+	// UP主源：按源级勾选范围同步动态/图文专栏，并按需归档动态视频（v10）。
+	if src.Type == "space" {
+		if sc := collector.ParseSpaceScope(src.SpaceScope); sc.Dynamic || sc.Article || sc.DynamicVideo {
+			progress(0.9, "同步动态/专栏")
+			if mid, perr := strconv.ParseInt(src.ExtID, 10, 64); perr == nil {
+				if dynBvids, derr := a.Col.SyncSpaceDynamics(ctx, mid); derr != nil {
+					a.Log.Warn("动态/专栏同步失败（不影响视频归档）", "source", src.Title, "err", derr)
+				} else if sc.DynamicVideo {
+					dynNew := 0
+					for _, bvid := range dynBvids {
+						if _, verr := a.St.GetVideo(bvid); verr == nil {
+							continue // 已在库（投稿视频链路覆盖）
+						}
+						if _, err := a.Mgr.Submit("archive", map[string]any{"bvid": bvid, "download": dl, "source_id": src.ID}); err == nil {
+							dynNew++
+							archived++
+						}
+					}
+					if dynNew > 0 {
+						a.Log.Info("动态视频归档", "source", src.Title, "新增", dynNew)
+					}
+				}
+			}
+		}
 	}
 	_ = a.St.SetSourceSynced(src.ID, store.Now())
 	// 仅一次模式：完成首次同步后自动停止监控

@@ -155,6 +155,12 @@ func (s *Store) RemoveFavItem(fid int64, bvid string) error {
 	return err
 }
 
+// CountFavItems 某 bvid 被收藏的条目数（(fid,bvid) 唯一，即含它的收藏夹数）。
+// 替代"遍历全部收藏夹逐夹加载条目测成员"的 O(全部收藏) 判断。
+func (s *Store) CountFavItems(bvid string) int {
+	return s.countInt(`SELECT COUNT(*) FROM site_favorite_items WHERE bvid=?`, bvid)
+}
+
 // ListFavItemFids 用户把某视频收藏进了哪些夹。
 func (s *Store) ListFavItemFids(uid int64, bvid string) ([]int64, error) {
 	rows, err := s.DB.Query(`SELECT fid FROM site_favorite_items WHERE uid=? AND bvid=?`, uid, bvid)

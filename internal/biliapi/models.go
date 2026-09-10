@@ -326,8 +326,8 @@ type DynFeedItem struct {
 	Type    string `json:"type"` // DYNAMIC_TYPE_AV / WORD / DRAW / FORWARD / ARTICLE ...
 	Modules struct {
 		ModuleAuthor struct {
-			Mid   int64 `json:"mid"`
-			PubTs int64 `json:"pub_ts"`
+			Mid   FlexInt `json:"mid"`
+			PubTs FlexInt `json:"pub_ts"` // B 站该字段数字/字符串不定，用 FlexInt 兼容
 		} `json:"module_author"`
 		ModuleDynamic struct {
 			Content struct {
@@ -353,7 +353,7 @@ type DynFeedItem struct {
 					} `json:"items"`
 				} `json:"draw"`
 				Opus *struct {
-					Title   string `json:"title"`
+					Title   string          `json:"title"`
 					Content json.RawMessage `json:"content"`
 					Images  []struct {
 						Url string `json:"url"`

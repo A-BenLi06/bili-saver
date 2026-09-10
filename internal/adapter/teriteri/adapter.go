@@ -383,10 +383,10 @@ func (a *Adapter) videoGetone(w http.ResponseWriter, r *http.Request, _ int64) {
 	})
 }
 
-// statsOf 返回最新一次统计快照与库内计数。
+// statsOf 返回最新一次统计快照与库内计数（每项都是单条索引查询；
+// 原实现的 ListStats 全量历史与"遍历收藏夹测成员"在每次卡片渲染都全量搬运）。
 func (a *Adapter) statsOf(bvid string) (play, danmu, good, coin, collect, share, comment int) {
-	if hist, err := a.St.ListStats(bvid); err == nil && len(hist) > 0 {
-		last := hist[len(hist)-1]
+	if last, err := a.St.LatestStats(bvid); err == nil {
 		play, danmu, good, coin, collect, share = last.View, last.Danmaku, last.Like, last.Coin, last.Favorite, last.Share
 	}
 	vis, del, err := a.St.CountCommentsByStatus(bvid)
@@ -396,18 +396,7 @@ func (a *Adapter) statsOf(bvid string) (play, danmu, good, coin, collect, share,
 	// 站内互动叠加（site_* 表，社区层）：点赞/投币/收藏 = B站快照 + 站内
 	good += a.St.CountVideoLikes(bvid)
 	coin += a.St.CountVideoCoins(bvid)
-	if folders, err := a.St.ListFavFolders(1); err == nil {
-		for _, f := range folders {
-			if bvids, err := a.St.ListFavBvids(f.Fid); err == nil {
-				for _, b := range bvids {
-					if b == bvid {
-						collect++
-						break
-					}
-				}
-			}
-		}
-	}
+	collect += a.St.CountFavItems(bvid)
 	return
 }
 

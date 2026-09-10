@@ -171,25 +171,27 @@ func (a *Adapter) toTComment(c *store.Comment, subs map[int64][]*store.Comment) 
 	return tc
 }
 
-// groupSubReplies 一次查询全评论并按主楼分组（避免每楼一次全表扫描的 N+1）。
-func (a *Adapter) groupSubReplies(bvid string) (map[int64][]*store.Comment, error) {
-	all, err := a.St.ListComments(bvid, "", 0, 0)
-	if err != nil {
-		return nil, err
+// segSlice 计算全局窗口 [start,stop) 与段 [base,base+segLen) 的交集，
+// 返回段内局部下标区间与是否命中（评论区合并分页用）。
+func segSlice(start, stop, base, segLen int64) (int, int, bool) {
+	lo, hi := start, stop
+	if lo < base {
+		lo = base
 	}
-	groups := map[int64][]*store.Comment{}
-	for _, c := range all {
-		if c.RootRpid != 0 && c.Rpid != c.RootRpid {
-			groups[c.RootRpid] = append(groups[c.RootRpid], c)
-		}
+	if hi > base+segLen {
+		hi = base + segLen
 	}
-	for _, g := range groups {
-		sort.Slice(g, func(i, j int) bool { return g[i].Ctime < g[j].Ctime })
+	if lo >= hi {
+		return 0, 0, false
 	}
-	return groups, nil
+	return int(lo - base), int(hi - base), true
 }
 
 // commentGet 翻页返回主楼评论。teriteri 语义: offset=已加载条数, type=1最热/2最新。
+// 主楼走 SQL 分页、楼中楼只查页内主楼——原实现把整视频评论（含 raw_json）
+// 全量加载两遍再内存排序切片，热门视频每次翻页搬运数万行。
+// 合并序列与原实现一致：type=1 为 [B站主楼(现存优先→赞降→ctime)] ++ [站内主楼(旧→新)]，
+// type=2 站内在前。
 func (a *Adapter) commentGet(w http.ResponseWriter, r *http.Request, _ int64) {
 	vid := r.FormValue("vid")
 	offset, _ := strconv.Atoi(r.FormValue("offset"))
@@ -197,77 +199,97 @@ func (a *Adapter) commentGet(w http.ResponseWriter, r *http.Request, _ int64) {
 	if typ == 0 {
 		typ = 1
 	}
+	if offset < 0 {
+		offset = 0
+	}
 	bvid, _ := splitVid(vid)
-	all, err := a.St.ListComments(bvid, "", 0, 0)
-	if err != nil {
-		a.fail(w, 500, err.Error())
-		return
-	}
-	subs, _ := a.groupSubReplies(bvid)
-	// 仅主楼
-	var mains []*store.Comment
-	for _, c := range all {
-		if c.RootRpid == 0 {
-			mains = append(mains, c)
-		}
-	}
-	if typ == 1 {
-		sort.SliceStable(mains, func(i, j int) bool {
-			if mains[i].Status != mains[j].Status {
-				return mains[i].Status == "visible" // 现存评论优先
-			}
-			return mains[i].LikeCount > mains[j].LikeCount
-		})
-	} else {
-		sort.SliceStable(mains, func(i, j int) bool { return mains[i].Ctime > mains[j].Ctime })
-	}
-	biliTcs := make([]TComment, 0, len(mains))
-	for _, c := range mains {
-		biliTcs = append(biliTcs, a.toTComment(c, subs))
-	}
 
-	// 站内评论合并（site_comments）：楼中楼挂到对应主楼（含 B 站主楼），
-	// 主楼排序——最新(type=2)站内新评论在前；最热(type=1)追加在 B 站评论后
+	// 站内评论（社区层，量小整载）：主楼序列 + 按主楼 id 分组的楼中楼
 	siteByRoot := map[int64][]*store.SiteComment{}
+	var siteMains []*store.SiteComment
 	if scs, err := a.St.ListSiteComments(bvid); err == nil {
-		var siteMains []TComment
 		for _, c := range scs {
 			if c.RootID != 0 {
 				siteByRoot[c.RootID] = append(siteByRoot[c.RootID], c)
 				continue
 			}
-			siteMains = append(siteMains, a.siteCommentToT(c))
-		}
-		for i := range biliTcs {
-			for _, sub := range siteByRoot[biliTcs[i].ID] {
-				biliTcs[i].Replies = append(biliTcs[i].Replies, a.siteCommentToT(sub))
-			}
-			biliTcs[i].Count = len(biliTcs[i].Replies)
-		}
-		// 站内主楼的楼中楼
-		for i := range siteMains {
-			for _, sub := range siteByRoot[siteMains[i].ID] {
-				siteMains[i].Replies = append(siteMains[i].Replies, a.siteCommentToT(sub))
-			}
-			siteMains[i].Count = len(siteMains[i].Replies)
-		}
-		if typ == 2 {
-			biliTcs = append(siteMains, biliTcs...)
-		} else {
-			biliTcs = append(biliTcs, siteMains...)
+			siteMains = append(siteMains, c)
 		}
 	}
 
+	biliTotal, err := a.St.CountMainComments(bvid)
+	if err != nil {
+		a.fail(w, 500, err.Error())
+		return
+	}
 	const pageSize = 20
-	end := offset + pageSize
-	if end > len(biliTcs) {
-		end = len(biliTcs)
+	stop := offset + pageSize
+	total := int64(len(siteMains)) + biliTotal
+	more := int64(stop) < total
+
+	// B 站主楼段在合并序列中的基座：type=2 时站内段在前
+	siteLen := int64(len(siteMains))
+	biliBase := int64(0)
+	if typ == 2 {
+		biliBase = siteLen
 	}
+	bLo, bHi, biliOnPage := segSlice(int64(offset), int64(stop), biliBase, biliTotal)
+
+	var mains []*store.Comment
+	subs := map[int64][]*store.Comment{}
+	if biliOnPage {
+		sortKey := "hot"
+		if typ == 2 {
+			sortKey = "new"
+		}
+		mains, err = a.St.ListMainCommentsPage(bvid, sortKey, bHi-bLo, bLo)
+		if err != nil {
+			a.fail(w, 500, err.Error())
+			return
+		}
+		roots := make([]int64, 0, len(mains))
+		for _, m := range mains {
+			roots = append(roots, m.Rpid)
+		}
+		if subs, err = a.St.ListSubCommentsByRoots(bvid, roots); err != nil {
+			subs = map[int64][]*store.Comment{}
+		}
+	}
+
 	pageComments := []TComment{}
-	if offset < end {
-		pageComments = append(pageComments, biliTcs[offset:end]...)
+	buildBili := func(i int) TComment {
+		tc := a.toTComment(mains[i], subs)
+		for _, sub := range siteByRoot[mains[i].Rpid] {
+			tc.Replies = append(tc.Replies, a.siteCommentToT(sub))
+		}
+		tc.Count = len(tc.Replies)
+		return tc
 	}
-	a.ok(w, map[string]any{"more": end < len(biliTcs), "comments": pageComments})
+	buildSite := func(i int) TComment {
+		tc := a.siteCommentToT(siteMains[i])
+		for _, sub := range siteByRoot[siteMains[i].ID] {
+			tc.Replies = append(tc.Replies, a.siteCommentToT(sub))
+		}
+		tc.Count = len(tc.Replies)
+		return tc
+	}
+
+	// 按合并序列顺序填页（段与段相邻，一页最多跨一次边界）
+	fill := func(base, segLen int64, build func(i int) TComment) {
+		if l, h, ok := segSlice(int64(offset), int64(stop), base, segLen); ok {
+			for i := l; i < h; i++ {
+				pageComments = append(pageComments, build(i))
+			}
+		}
+	}
+	if typ == 2 {
+		fill(0, siteLen, buildSite)
+		fill(siteLen, biliTotal, buildBili)
+	} else {
+		fill(0, biliTotal, buildBili)
+		fill(biliTotal, siteLen, buildSite)
+	}
+	a.ok(w, map[string]any{"more": more, "comments": pageComments})
 }
 
 // commentReplyMore 楼中楼展开：?id={rootId} 返回该楼全部子评论。
@@ -296,13 +318,13 @@ func (a *Adapter) commentReplyMore(w http.ResponseWriter, r *http.Request, _ int
 		a.ok(w, []TComment{})
 		return
 	}
-	groups, err := a.groupSubReplies(bvid)
+	subs, err := a.St.ListSubComments(bvid, rootID)
 	if err != nil {
 		a.ok(w, []TComment{})
 		return
 	}
-	out := make([]TComment, 0, len(groups[rootID])+4)
-	for _, s := range groups[rootID] {
+	out := make([]TComment, 0, len(subs)+4)
+	for _, s := range subs {
 		out = append(out, a.toTComment(s, nil))
 	}
 	// B站主楼下的站内楼中楼也一并提供

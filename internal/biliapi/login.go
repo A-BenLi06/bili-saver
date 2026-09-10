@@ -116,6 +116,43 @@ func ResetLoginCache() {
 	loginCache.mu.Unlock()
 }
 
+// Account 当前登录账号资料（nav 接口；未登录时 IsLogin=false 其余零值）。
+type Account struct {
+	IsLogin    bool   `json:"is_login"`
+	Mid        int64  `json:"mid"`
+	Uname      string `json:"uname"`
+	Face       string `json:"face"`
+	Level      int    `json:"level"`
+	VipStatus  int    `json:"vip_status"` // 1=大会员有效
+	VipType    int    `json:"vip_type"`   // 0无 1月度 2年度
+	Coin       int    `json:"coin"`
+	CurrentExp int64  `json:"current_exp"`
+}
+
+// NavAccount 拉取当前登录账号资料（nav 无需 wbi 签名，未登录返回 isLogin=false）。
+func (c *Client) NavAccount(ctx context.Context) (*Account, error) {
+	var nav struct {
+		navData
+		Uname     string `json:"uname"`
+		Face      string `json:"face"`
+		LevelInfo struct {
+			CurrentLevel int   `json:"current_level"`
+			CurrentExp   int64 `json:"current_exp"`
+		} `json:"level_info"`
+		VipStatus int `json:"vipStatus"`
+		VipType   int `json:"vipType"`
+		Coin      int `json:"money"`
+	}
+	if err := c.getJSONLenient(ctx, "/x/web-interface/nav", url.Values{}, &nav); err != nil {
+		return nil, err
+	}
+	return &Account{
+		IsLogin: nav.IsLogin, Mid: nav.Mid, Uname: nav.Uname, Face: nav.Face,
+		Level: nav.LevelInfo.CurrentLevel, VipStatus: nav.VipStatus, VipType: nav.VipType,
+		Coin: nav.Coin, CurrentExp: nav.LevelInfo.CurrentExp,
+	}, nil
+}
+
 // NavIsLogin 返回当前 cookie 的登录态。
 func (c *Client) NavIsLogin(ctx context.Context) (bool, error) {
 	var nav navData

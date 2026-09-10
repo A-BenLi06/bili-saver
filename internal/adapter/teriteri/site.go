@@ -538,8 +538,8 @@ func (a *Adapter) searchUser(w http.ResponseWriter, r *http.Request, _ int64) {
 // commentGetLikeDislike 用户赞过的评论 id 集合（重载后回显高亮）。
 func (a *Adapter) commentGetLikeDislike(w http.ResponseWriter, _ *http.Request, uid int64) {
 	liked, err := a.St.ListLikedRpids(uid)
-	if err != nil {
-		liked = nil
+	if err != nil || liked == nil {
+		liked = []int64{} // 空集合不能是 null：前端对 null 取 indexOf 会崩
 	}
 	a.ok(w, map[string]any{"userLike": liked, "userDislike": []any{}})
 }

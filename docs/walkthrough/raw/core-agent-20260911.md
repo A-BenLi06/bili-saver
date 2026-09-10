@@ -1,0 +1,4 @@
+## 2026-09-10T17:13:27Z core-agent — 主程序归档链路算法优化（评论FTS去O(N²) + 批量事务 + jobs滚动保留）
+- 做了什么：人类交办全库架构评审（附实测：真实库 15 万评论，UpsertComment 逐条 FTS 存在性检查单条 116ms、平方级）后按人类指示收窄主程序。① store：`UpsertCommentsBatch`/`UpsertDanmakuBatch`（单事务+prepared，store 层原全仓零事务）；`HealCommentsFTS()` 每采集轮一次批量补索引，移除 UpsertComment 尾部逐条补索引（采纳 ui-agent 09-09 留言预留方案，已回执）；`AddTags` 单事务；schema_meta '5'→'9'（仅信息展示，无读取方）。② collector：评论 sink 缓冲 256 条批量落库（defer 冲刷保证消失检测前全部落库）、弹幕按段批量（total 只计实际持久化数）。③ jobs：`PruneTerminalJobs(keep)` 终态任务滚动保留（done/failed 留最近 1000 条），调度器每 24h 清理（P-009 失败循环曾刷 3000+ 条）。
+- 涉及：internal/store/ops_comments.go、ops_misc.go、store.go；internal/collector/comments.go、danmaku.go、collector.go；internal/jobs/jobs.go + prune_test.go（新）；internal/store/search_full_test.go（契约更新）；ARCHITECTURE §4/§7 锚点微修；CLAIMS 登记+留言。
+- 结果/状态：gofmt（改动文件零告警）+ build + vet + 全量 19 包 test 绿（新增 4 用例）；红线零触碰（消失防御/origin-derived/旧方法签名均未动）；运行中服务仍为旧二进制，待下次重启重建生效。done

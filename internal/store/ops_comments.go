@@ -1,5 +1,7 @@
 package store
 
+import "strings"
+
 // 评论与弹幕：只增不删。消失检测基于 last_seen_at 对账。
 
 // UpsertComment 单条保存评论（content 按 upsert 语义不可变，只更新互动计数与 seen）。
@@ -159,6 +161,94 @@ func (s *Store) ListComments(bvid, status string, limit, offset int) ([]*Comment
 			return nil, err
 		}
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// CountMainComments 主楼总数（teriteri 评论区翻页 more 判断用）。
+func (s *Store) CountMainComments(bvid string) (int64, error) {
+	var n int64
+	err := s.DB.QueryRow(`SELECT COUNT(*) FROM comments WHERE bvid=? AND root_rpid=0`, bvid).Scan(&n)
+	return n, err
+}
+
+// ListMainCommentsPage 主楼分页（teriteri 评论区读路径）：sort="hot" 现存优先→
+// 点赞降序→ctime 升序（与原内存排序语义一致，补 rpid 兜底保证翻页稳定）；
+// "new" 按 ctime 降序。替代"整视频全量加载后内存排序再切片"。
+func (s *Store) ListMainCommentsPage(bvid, sort string, limit, offset int) ([]*Comment, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	order := `CASE WHEN status='visible' THEN 0 ELSE 1 END, like_count DESC, ctime ASC, rpid ASC`
+	if sort == "new" {
+		order = `ctime DESC, rpid ASC`
+	}
+	rows, err := s.DB.Query(`SELECT `+commentCols+` FROM comments
+		WHERE bvid=? AND root_rpid=0 ORDER BY `+order+` LIMIT ? OFFSET ?`, bvid, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Comment
+	for rows.Next() {
+		c, err := scanComment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ListSubComments 某主楼的全部楼中楼（ctime 升序；排除 root 自身行）。
+func (s *Store) ListSubComments(bvid string, rootRpid int64) ([]*Comment, error) {
+	rows, err := s.DB.Query(`SELECT `+commentCols+` FROM comments
+		WHERE bvid=? AND root_rpid=? AND rpid<>root_rpid ORDER BY ctime ASC, rpid ASC`, bvid, rootRpid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Comment
+	for rows.Next() {
+		c, err := scanComment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ListSubCommentsByRoots 一批主楼的楼中楼，按 root 分组（ctime 升序）。
+// 一次 IN 查询替代"整视频全量加载两遍后内存分组"。
+func (s *Store) ListSubCommentsByRoots(bvid string, roots []int64) (map[int64][]*Comment, error) {
+	out := map[int64][]*Comment{}
+	if len(roots) == 0 {
+		return out, nil
+	}
+	ph := strings.Repeat("?,", len(roots))
+	ph = ph[:len(ph)-1]
+	args := make([]any, 0, len(roots)+1)
+	args = append(args, bvid)
+	for _, r := range roots {
+		args = append(args, r)
+	}
+	rows, err := s.DB.Query(`SELECT `+commentCols+` FROM comments
+		WHERE bvid=? AND root_rpid IN (`+ph+`) AND rpid<>root_rpid
+		ORDER BY root_rpid, ctime ASC, rpid ASC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		c, err := scanComment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[c.RootRpid] = append(out[c.RootRpid], c)
 	}
 	return out, rows.Err()
 }

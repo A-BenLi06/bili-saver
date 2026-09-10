@@ -5,6 +5,7 @@
 package media
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bili-saver/internal/config"
@@ -27,6 +29,11 @@ type Bridge struct {
 	St  *store.Store
 	Cfg *config.Config
 	Log *slog.Logger
+
+	// 重建单飞与合并去抖状态（RebuildAll/RebuildAllDebounced 使用）
+	rebuildMu    sync.Mutex
+	rebuilding   bool
+	rebuildDirty bool
 }
 
 func New(st *store.Store, cfg *config.Config, log *slog.Logger) *Bridge {
@@ -52,7 +59,48 @@ type LibResult struct {
 }
 
 // RebuildAll 遍历所有启用的媒体库，按各自配置与路由规则重建输出（幂等）。
+// 串行执行（单飞）：原实现两次并发重建会在 linkFile 的检查-删除-重建窗口上竞争。
 func (b *Bridge) RebuildAll() (*Result, error) {
+	b.rebuildMu.Lock()
+	defer b.rebuildMu.Unlock()
+	return b.rebuildAllLocked()
+}
+
+// RebuildAllDebounced 下载完成后的异步重建入口：批量下载时每个完成都触发一次
+// 全量重建，N 个新视频就是 N 遍全库遍历。这里做并发合并——已有重建在跑则只置
+// 脏标记，由在跑轮次结束后补跑一次；空闲则立即执行。失败只记日志（异步路径）。
+func (b *Bridge) RebuildAllDebounced() {
+	b.rebuildMu.Lock()
+	if b.rebuilding {
+		b.rebuildDirty = true
+		b.rebuildMu.Unlock()
+		return
+	}
+	b.rebuilding = true
+	b.rebuildMu.Unlock()
+	for {
+		if _, err := b.rebuildAllLocked(); err != nil {
+			b.logger().Warn("媒体库重建失败", "err", err)
+		}
+		b.rebuildMu.Lock()
+		if !b.rebuildDirty {
+			b.rebuilding = false
+			b.rebuildMu.Unlock()
+			return
+		}
+		b.rebuildDirty = false
+		b.rebuildMu.Unlock()
+	}
+}
+
+func (b *Bridge) logger() *slog.Logger {
+	if b.Log != nil {
+		return b.Log
+	}
+	return slog.Default()
+}
+
+func (b *Bridge) rebuildAllLocked() (*Result, error) {
 	res := &Result{}
 	libs, err := b.St.ListMediaLibraries()
 	if err != nil {
@@ -133,8 +181,8 @@ func (b *Bridge) gatherMeta(v *store.Video) *vmeta {
 	if tags, err := b.St.VideoTags(v.Bvid); err == nil {
 		m.biliTags = tags["bilibili"]
 	}
-	if hist, err := b.St.ListStats(v.Bvid); err == nil && len(hist) > 0 {
-		m.stats = hist[len(hist)-1]
+	if last, err := b.St.LatestStats(v.Bvid); err == nil {
+		m.stats = last
 	}
 	if model, summary, _, err := b.St.GetAIConclusion(v.Bvid); err == nil && summary != "" {
 		m.aiModel, m.aiSummary = model, summary
@@ -505,7 +553,9 @@ func (b *Bridge) buildShowEntry(v *store.Video, siblings []*store.Video, lib *st
 	// 剧集级元数据与图片（聚合全部兄弟视频，幂等）
 	m := b.gatherMeta(v)
 	if lib.MetadataFormat == "nfo" {
-		_ = os.WriteFile(filepath.Join(showDir, "tvshow.nfo"), []byte(b.showNFO(show, siblings)), 0o644)
+		// 内容不变则跳过写盘：NFO 聚合全部兄弟视频，大合集每集重建都重写
+		// 一遍是平方级 I/O
+		b.writeFileIfChanged(filepath.Join(showDir, "tvshow.nfo"), []byte(b.showNFO(show, siblings)))
 	}
 	b.artwork(showDir, v, "poster.jpg", "fanart.jpg", "banner.jpg")
 	// 季海报：取第一集封面
@@ -520,12 +570,17 @@ func (b *Bridge) buildShowEntry(v *store.Video, siblings []*store.Video, lib *st
 	return nil
 }
 
+// sortByID 按发布时间升序（稳定），求剧集集号用。
 func sortByID(vs []*store.Video) {
-	for i := 1; i < len(vs); i++ {
-		for j := i; j > 0 && vs[j].Pubdate < vs[j-1].Pubdate; j-- {
-			vs[j], vs[j-1] = vs[j-1], vs[j]
-		}
+	sort.SliceStable(vs, func(i, j int) bool { return vs[i].Pubdate < vs[j].Pubdate })
+}
+
+// writeFileIfChanged 内容不变则跳过写盘。
+func (b *Bridge) writeFileIfChanged(path string, data []byte) {
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
+		return
 	}
+	_ = os.WriteFile(path, data, 0o644)
 }
 
 // linkFile 按 auto → symlink → hardlink → copy 的降级链建立文件链接。

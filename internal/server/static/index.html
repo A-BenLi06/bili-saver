@@ -111,6 +111,9 @@ mark { background:var(--accent-soft); color:var(--txt); padding:0 1px; border-ra
 .fcheck { display:flex; align-items:flex-start; gap:8px; }
 .fcheck input { margin-top:2px; }
 .fcheck .fnote { display:block; font-size:12px; color:var(--faint); margin-top:2px; font-weight:400; }
+.fchecks { display:flex; gap:6px 16px; flex-wrap:wrap; }
+.fchecks .check { font-size:12.5px; }
+.field.dirty>label::after, .fcheck.dirty::after { content:" ●"; color:var(--accent); font-size:11px; vertical-align:2px; }
 .savebar { position:sticky; bottom:0; display:flex; gap:14px; align-items:center; padding:12px 16px;
   background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-top:8px; box-shadow:0 -4px 14px rgba(0,0,0,.05); }
 .dhead { display:flex; gap:20px; margin-bottom:24px; }
@@ -200,10 +203,15 @@ let liveTimer = setInterval(async ()=>{
 }, 4000);
 
 document.querySelectorAll('#nav button').forEach(b => b.onclick = () => {
+  if(window.__stGuard && !confirm('设置页有未保存的修改，离开将丢失。确定离开吗？')) return;
+  window.__stGuard = false;
   document.querySelectorAll('#nav button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active'); page = b.dataset.p; clearInterval(timer); render();
 });
 window.switchPage = p => { document.querySelector(`#nav button[data-p=${p}]`).click(); };
+window.addEventListener('beforeunload', e => {
+  if(window.__stGuard){ e.preventDefault(); e.returnValue=''; }
+});
 
 async function render(){
   const m = $('#main');
@@ -355,6 +363,16 @@ function renderAdd(m){
         <label class="check"><input type="checkbox" id="dl" checked><span id="dlLabel">下载视频文件</span></label>
         <label class="check"><input type="checkbox" id="watch" checked><span id="watchLabel"></span></label>
       </div>
+      <div id="spaceOpts" style="display:none">
+        <div class="field"><label>UP主归档范围（默认全部）</label>
+          <div class="inline">
+            <label class="check"><input type="checkbox" class="spScope" value="video" checked> 投稿视频</label>
+            <label class="check"><input type="checkbox" class="spScope" value="dynamic" checked> 动态</label>
+            <label class="check"><input type="checkbox" class="spScope" value="dynamic_video" checked> 动态视频</label>
+            <label class="check"><input type="checkbox" class="spScope" value="article" checked> 专栏/图文</label>
+          </div>
+          <span class="hint">动态视频=动态里发布的稿件；传统专栏仅当以动态/图文形式存在时可被归档</span></div>
+      </div>
       <div id="typeOpts" style="display:none">
         <div class="inline">
           <div class="field"><label>同步模式</label>
@@ -385,7 +403,8 @@ function renderAdd(m){
         input:v, download:$('#dl')?.checked, watch:$('#watch')?.checked,
         sync_mode:$('#syncMode')?.value||'interval', interval_minutes:+($('#ivMain')?.value)||0,
         interval_comments:+($('#ivCmt')?.value)||0, interval_danmaku:+($('#ivDm')?.value)||0,
-        interval_subtitles:+($('#ivSub')?.value)||0, confirm_hot:confirmHot})});
+        interval_subtitles:+($('#ivSub')?.value)||0, confirm_hot:confirmHot,
+        space_scope:$('#spaceOpts').style.display!=='none'?scopeChecked('#spaceOpts'):undefined})});
     try{
       let r=await submit(false);
       if(r.need_confirm){
@@ -442,11 +461,19 @@ function showTypeUI(type){
   $('#watchLabel').textContent=WATCH_LABELS[type]||'监控';
   $('#dlLabel').textContent=DL_LABELS[type]||'下载视频文件';
   $('#typeOpts').style.display='block';
+  $('#spaceOpts').style.display=type==='space'?'block':'none';
+  if(type==='space') document.querySelectorAll('#spaceOpts .spScope').forEach(x=>x.checked=true);
   updateSyncHint();
+}
+function scopeChecked(rootSel){
+  const toks=[...document.querySelectorAll(rootSel+' .spScope:checked')].map(x=>x.value);
+  if(toks.length===0) return 'none';
+  if(toks.length===4) return 'all';
+  return toks.join(',');
 }
 async function recognizeInput(seq){
   const box=$('#recognize'), val=$('#inp').value.trim();
-  if(!val){ box.innerHTML=''; curType=''; $('#baseOpts').style.display='none'; $('#typeOpts').style.display='none'; return; }
+  if(!val){ box.innerHTML=''; curType=''; $('#baseOpts').style.display='none'; $('#typeOpts').style.display='none'; $('#spaceOpts').style.display='none'; return; }
   if(val.includes('b23.tv')){
     box.innerHTML='<div class="banner info">b23 短链 — 提交时自动展开识别</div>';
     showTypeUI('video'); return;
@@ -818,6 +845,15 @@ async function renderSources(m){
         <div class="field"><label>弹幕</label><input type="number" id="seIvDm" min="-1"></div>
         <div class="field"><label>字幕</label><input type="number" id="seIvSub" min="-1"></div>
       </div>
+      <div id="srcScopeOpts" style="display:none">
+        <div class="field"><label>UP主归档范围</label>
+          <div class="inline">
+            <label class="check"><input type="checkbox" class="spScope" value="video"> 投稿视频</label>
+            <label class="check"><input type="checkbox" class="spScope" value="dynamic"> 动态</label>
+            <label class="check"><input type="checkbox" class="spScope" value="dynamic_video"> 动态视频</label>
+            <label class="check"><input type="checkbox" class="spScope" value="article"> 专栏/图文</label>
+          </div></div>
+      </div>
       <div class="actions"><button class="btn primary" onclick="saveSrc()">保存</button>
       <span class="meta-note">-1 = 从不 · 0 = 跟随主间隔/全局默认</span></div>
     </form>
@@ -843,6 +879,14 @@ window.editSrc = id => api('/sources').then(srcs=>{
   $('#seIvMain').value=s.sync_interval_minutes||0; $('#seIvCmt').value=s.interval_comments_minutes??0;
   $('#seIvDm').value=s.interval_danmaku_minutes??0; $('#seIvSub').value=s.interval_subtitles_minutes??0;
   $('#seTrig').value=String(s.auto_download||0);
+  const isSpace=(s.type==='space');
+  $('#srcScopeOpts').style.display=isSpace?'block':'none';
+  if(isSpace){
+    let toks=(s.space_scope||'all').split(',');
+    if(s.space_scope==='none') toks=[];
+    if(!s.space_scope||s.space_scope==='all') toks=['video','dynamic','dynamic_video','article'];
+    document.querySelectorAll('#srcScopeOpts .spScope').forEach(x=>x.checked=toks.includes(x.value));
+  }
   $('#srcEdit').dataset.type=s.type||'';
   $('#seTrigField').style.display=(s.type==='video')?'none':'';
   seHints();
@@ -852,6 +896,7 @@ window.saveSrc = async () => {
   const id=$('#seId').textContent, type=$('#srcEdit').dataset.type;
   const body={watch:$('#seWatch').checked, sync_mode:$('#seMode').value, interval_minutes:+$('#seIvMain').value||0,
     interval_comments:+$('#seIvCmt').value||0, interval_danmaku:+$('#seIvDm').value||0, interval_subtitles:+$('#seIvSub').value||0};
+  if($('#srcScopeOpts').style.display!=='none') body.space_scope=scopeChecked('#srcScopeOpts');
   if(type!=='video') body.auto_download=+$('#seTrig').value||0;
   try{ await api('/sources/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     toast('源设置已保存','ok'); renderSources($('#main'));
@@ -1074,15 +1119,18 @@ window.syncNow = async () => { try{ const r=await api('/sync-now',{method:'POST'
 async function renderLogin(m){
   m.innerHTML=`
   <div class="pagehead"><h1>账号</h1><span class="desc">B 站扫码登录（保存在本机）</span></div>
+  <div class="sect" id="accBox"><h2>当前账号</h2><span class="meta-note">加载中…</span></div>
   <div class="sect">
+    <h2>扫码登录</h2>
     <div class="inline" style="align-items:flex-start">
       <img id="qrimg" alt="二维码" style="width:200px;height:200px;image-rendering:pixelated;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
       <div style="flex:1;max-width:340px">
         <p id="qrstate" class="st" style="margin-bottom:10px;font-size:13px;color:var(--txt)">获取中…</p>
-        <p class="meta-note">登录后可用：1080P 高码率 / 4K（大会员）、UP主投稿列表、评论消失检测（未登录时 B 站只返回部分评论，无法对账）。</p>
+        <p class="meta-note">登录后可用：1080P 高码率 / 4K（大会员）、UP主投稿列表、评论消失检测（未登录时 B 站只返回部分评论，无法对账）。重新扫码将覆盖本机登录态。</p>
       </div>
     </div>
   </div>`;
+  loadAccountCard();
   try{
     const r=await api('/login/qr');
     $('#qrimg').src='data:image/png;base64,'+r.png_base64;
@@ -1099,6 +1147,32 @@ async function renderLogin(m){
     };
     poll();
   }catch(e){ $('#qrstate').textContent='获取二维码失败：'+e; }
+}
+
+async function loadAccountCard(){
+  const box = document.getElementById('accBox'); if(!box) return;
+  const a = await api('/login/status').catch(e=>({logged_in:false, error:String(e)}));
+  if(!box) return;
+  if(!a.logged_in){
+    box.innerHTML = `<h2>当前账号</h2><dl class="kv">
+      <dt>登录状态</dt><dd><span class="dot warn"></span>未登录 — 扫码后解锁 UP 主源 / 1080P+ / 评论消失检测</dd>
+    </dl>${a.error?`<div class="meta-note">（nav 查询失败：${esc(a.error)}）</div>`:''}`;
+    return;
+  }
+  const vip = a.vip ? `<span class="meta-note" style="color:var(--accent);font-weight:600">✦ ${esc(a.vip_label||'大会员')}</span>` : '';
+  box.innerHTML = `<h2>当前账号</h2>
+  <div class="inline" style="align-items:center">
+    <img src="/api/v1/login/avatar" alt="头像" style="width:64px;height:64px;border-radius:50%;border:1px solid var(--line);background:var(--bg)"
+         onerror="this.style.visibility='hidden'">
+    <dl class="kv" style="flex:1">
+      <dt>昵称</dt><dd><b style="font-weight:600">${esc(a.uname||'—')}</b> ${vip}</dd>
+      <dt>UID</dt><dd class="num">${a.mid}</dd>
+      <dt>等级</dt><dd>Lv.${a.level} <span class="meta-note">经验 ${a.current_exp||0}</span></dd>
+      <dt>大会员</dt><dd>${a.vip?'<span class="dot ok"></span>'+esc(a.vip_label||'是'):'<span class="dot off"></span>否'}</dd>
+      <dt>硬币</dt><dd class="num">${a.coin??'—'}</dd>
+    </dl>
+    <button class="btn sm" onclick="loadAccountCard()">刷新</button>
+  </div>`;
 }
 
 /* ============ 插件 ============ */
@@ -1122,15 +1196,89 @@ window.reloadPlugins = async () => { const r=await api('/plugins/reload',{method
 window.togglePlugin = async (id,en) => { try{ await api(`/plugins/${id}/enabled`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:en})}); toast('插件 '+id+(en?' 已启用':' 已停用'),'ok'); renderPlugins($('#main')); }catch(e){ toast('失败：'+e,'err'); } };
 
 /* ============ 设置 ============ */
+const QUAL_OPTS = ['4k','1080p60','1080p-high','1080p','720p60','720p','480p','360p'];
+const AQUAL_OPTS = ['hires','dolby','192k','132k','64k'];
+const ST_FIELDS = [
+  ['stSyncMin','sync_default_minutes','int'], ['stStatsH','stats_resync_hours','int'],
+  ['stAdaptive','adaptive_sync','bool'], ['stCmtMax','comments_max','int'],
+  ['stSubMax','sub_replies_max','int'], ['stFullCmt','full_resync_comments','bool'],
+  ['stHotV','hot_video_views','int'], ['stHotR','hot_video_replies','int'],
+  ['stAutoDl','auto_download','bool'], ['stDlDm','download_danmaku','bool'],
+  ['stConc','concurrency','int1'], ['stSeg','segments','int1'],
+  ['stAv1','allow_av1','bool'], ['st4k','allow_4k','bool'], ['stMinReq','min_req_ms','int'],
+  ['stMedEn','media_enabled','bool'], ['stMedLayout','media_layout','str'],
+  ['stMedLink','media_link_mode','str'], ['stPubUrl','media_public_url','str'],
+  ['stTeriEn','teriteri_enabled','bool'], ['stFrontUrl','frontend_url','str'],
+];
+let stInit = null;
+const stChecks = (prefix, vals) => {
+  const cur = vals||[];
+  const all = [...new Set([...(prefix==='stQ_'?QUAL_OPTS:AQUAL_OPTS), ...cur])];
+  return all.map(v=>`<label class="check"><input type="checkbox" id="${prefix}${v}" data-v="${esc(v)}" ${cur.includes(v)?'checked':''}> ${esc(v)}</label>`).join('');
+};
+const stCollect = () => {
+  const o = { qualities: [], audio_qualities: [] };
+  for(const [id,k,t] of ST_FIELDS){
+    const el = document.getElementById(id); if(!el) continue;
+    if(t==='bool') o[k]=el.checked;
+    else if(t==='int') o[k]=Math.max(0,+el.value||0);
+    else if(t==='int1') o[k]=Math.max(1,+el.value||1);
+    else o[k]=el.value.trim();
+  }
+  document.querySelectorAll('[id^="stQ_"]').forEach(x=>{ if(x.checked) o.qualities.push(x.dataset.v); });
+  document.querySelectorAll('[id^="stAQ_"]').forEach(x=>{ if(x.checked) o.audio_qualities.push(x.dataset.v); });
+  return o;
+};
+let stSeq = 0;
+const stRefresh = () => {
+  if(stInit===null) return;
+  const cur = stCollect(), diffKeys = [];
+  for(const [id,k] of ST_FIELDS){
+    const changed = JSON.stringify(cur[k])!==JSON.stringify(stInit[k]);
+    if(changed) diffKeys.push(k);
+    const el = document.getElementById(id);
+    const box = el && el.closest('.field,.fcheck');
+    if(box) box.classList.toggle('dirty', changed);
+  }
+  const qChanged = JSON.stringify(cur.qualities)!==JSON.stringify(stInit.qualities);
+  const aChanged = JSON.stringify(cur.audio_qualities)!==JSON.stringify(stInit.audio_qualities);
+  if(qChanged) diffKeys.push('qualities');
+  if(aChanged) diffKeys.push('audio_qualities');
+  const qb=document.getElementById('stQualsBox'), ab=document.getElementById('stAudioQBox');
+  if(qb) qb.classList.toggle('dirty', qChanged);
+  if(ab) ab.classList.toggle('dirty', aChanged);
+  const n = diffKeys.length;
+  window.__stGuard = n>0;
+  const dirtyEls=[document.getElementById('stDirty'),document.getElementById('stDirty2')];
+  dirtyEls.forEach(el=>{ if(!el) return; el.textContent = n>0 ? `未保存修改 ${n} 项 · 离开页面将丢失` : ''; el.style.display = n>0?'':'none'; });
+  ['stSave','stSave2'].forEach(id=>{ const b=document.getElementById(id); if(b) b.disabled = n===0; });
+  ['stReset','stReset2'].forEach(id=>{ const b=document.getElementById(id); if(b) b.style.display = n>0?'':'none'; });
+};
+const stApply = snap => {
+  for(const [id,k,t] of ST_FIELDS){
+    const el=document.getElementById(id); if(!el) continue;
+    if(t==='bool') el.checked=!!snap[k]; else el.value=snap[k];
+  }
+  document.querySelectorAll('[id^="stQ_"]').forEach(x=>x.checked=snap.qualities.includes(x.dataset.v));
+  document.querySelectorAll('[id^="stAQ_"]').forEach(x=>x.checked=snap.audio_qualities.includes(x.dataset.v));
+  stRefresh();
+};
 async function renderSettings(m){
   m.innerHTML = '<div class="empty">加载中…</div>';
+  window.__stGuard = false;
   let c;
   try{ c = await api('/config'); }
   catch(e){ m.innerHTML = '<div class="banner warn">配置加载失败：'+esc(e)+'</div>'; return; }
   const sel = (v,cur) => v===cur?' selected':'';
+  const cmts = (id,label,hint) => `<div class="field wide" id="${id}Box"><label>${label}</label>
+        <div class="fchecks">${stChecks(id==='stQualsBox'?'stQ_':'stAQ_', id==='stQualsBox'?(c.qualities||[]):(c.audio_qualities||[]))}</div>
+        <span class="hint">${hint}</span></div>`;
   m.innerHTML = `
+  <div id="stWrap">
   <div class="pagehead"><h1>设置</h1><span class="desc">运行参数 · 保存后立即生效（<span class="origin">†</span> 需重启完全生效）</span>
-    <span class="spacer"></span><button class="btn primary" id="stSave">保存全部设置</button></div>
+    <span id="stDirty" class="meta-note" style="display:none;color:var(--warn)"></span>
+    <span class="spacer"></span><button class="btn" id="stReset" style="display:none">放弃更改</button>
+    <button class="btn primary" id="stSave" disabled>保存全部设置</button></div>
   <div id="setOut"></div>
   <div class="sect"><h2>采集与补档</h2>
     <div class="fgrid">
@@ -1148,12 +1296,8 @@ async function renderSettings(m){
     <div class="fgrid">
       <label class="check fcheck"><input type="checkbox" id="stAutoDl" ${c.auto_download?'checked':''}><span>归档后自动下载视频文件</span></label>
       <label class="check fcheck"><input type="checkbox" id="stDlDm" ${c.download_danmaku?'checked':''}><span>下载弹幕文件</span></label>
-      <div class="field wide"><label>清晰度白名单（留空 = 全部画质 = 最高可用）</label>
-        <input type="text" id="stQuals" value="${esc((c.qualities||[]).join(', '))}" placeholder="4k, 1080p60, 1080p">
-        <span class="hint">可选档：4k / 1080p60 / 1080p-high / 1080p / 720p60 / 720p / 480p / 360p，逗号分隔；指定档全部不可用时自动回落更低档</span></div>
-      <div class="field wide"><label>音频质量偏好（留空 = 标准最高）</label>
-        <input type="text" id="stAudioQ" value="${esc((c.audio_qualities||[]).join(', '))}" placeholder="hires, dolby, 192k">
-        <span class="hint">可选：hires / dolby / 192k / 132k / 64k，逗号分隔</span></div>
+      ${cmts('stQualsBox','清晰度白名单（全不勾选 = 不限画质 = 最高可用）','勾选的档位参与选流；指定档全部不可用时自动回落更低档')}
+      ${cmts('stAudioQBox','音频质量偏好（全不勾选 = 标准最高）','可选：hires（Hi-Res无损）/ dolby（杜比全景声）/ 192k / 132k / 64k')}
       <div class="field"><label>同时下载任务数</label><input type="number" id="stConc" min="1" value="${c.concurrency}"></div>
       <div class="field"><label>单流分段连接数</label><input type="number" id="stSeg" min="1" value="${c.segments}"></div>
       <label class="check fcheck"><input type="checkbox" id="stAv1" ${c.allow_av1?'checked':''}><span>允许 AV1 编码</span></label>
@@ -1191,39 +1335,26 @@ async function renderSettings(m){
     </dl>
     <p></p><span class="meta-note">路径/监听地址请直接编辑 config.yaml 后重启；设置页只暴露可安全修改的项。</span>
   </div>
-  <div class="savebar"><button class="btn primary" id="stSave2">保存全部设置</button>
-    <span class="meta-note">保存立即生效 · 原配置自动备份为 config.yaml.bak</span></div>`;
+  <div class="savebar"><button class="btn primary" id="stSave2" disabled>保存全部设置</button>
+    <button class="btn" id="stReset2" style="display:none">放弃更改</button>
+    <span id="stDirty2" class="meta-note" style="display:none;color:var(--warn)"></span>
+    <span class="meta-note">保存立即生效 · 原配置自动备份为 config.yaml.bak</span></div>
+  </div>`;
+  stInit = stCollect();
+  const wrap = $('#stWrap');
+  wrap.addEventListener('input', stRefresh);
+  wrap.addEventListener('change', stRefresh);
   $('#stSave').onclick = saveSettings;
+  $('#stReset').onclick = () => stApply(stInit);
   const sb = $('#stSave2'); if(sb) sb.onclick = saveSettings;
+  const rb = $('#stReset2'); if(rb) rb.onclick = () => stApply(stInit);
+  stRefresh();
 }
 window.saveSettings = async () => {
-  const body = {
-    sync_default_minutes: Math.max(0, +$('#stSyncMin').value||0),
-    stats_resync_hours: Math.max(0, +$('#stStatsH').value||0),
-    adaptive_sync: $('#stAdaptive').checked,
-    comments_max: Math.max(0, +$('#stCmtMax').value||0),
-    sub_replies_max: Math.max(0, +$('#stSubMax').value||0),
-    full_resync_comments: $('#stFullCmt').checked,
-    hot_video_views: Math.max(0, +$('#stHotV').value||0),
-    hot_video_replies: Math.max(0, +$('#stHotR').value||0),
-    auto_download: $('#stAutoDl').checked,
-    download_danmaku: $('#stDlDm').checked,
-    qualities: $('#stQuals').value.split(',').map(x=>x.trim()).filter(Boolean),
-    audio_qualities: $('#stAudioQ').value.split(',').map(x=>x.trim()).filter(Boolean),
-    concurrency: Math.max(1, +$('#stConc').value||1),
-    segments: Math.max(1, +$('#stSeg').value||1),
-    allow_av1: $('#stAv1').checked,
-    allow_4k: $('#st4k').checked,
-    min_req_ms: Math.max(0, +$('#stMinReq').value||0),
-    media_enabled: $('#stMedEn').checked,
-    media_layout: $('#stMedLayout').value,
-    media_link_mode: $('#stMedLink').value,
-    media_public_url: $('#stPubUrl').value,
-    teriteri_enabled: $('#stTeriEn').checked,
-    frontend_url: $('#stFrontUrl').value.trim(),
-  };
   try{
-    await api('/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    await api('/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(stCollect())});
+    stInit = stCollect();
+    stRefresh();
     toast('设置已保存并生效','ok');
   }catch(e){ toast('保存失败：'+e,'err'); }
 };

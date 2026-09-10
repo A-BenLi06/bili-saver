@@ -234,6 +234,22 @@ func (s *Store) ListStats(bvid string) ([]*StatsSnapshot, error) {
 	return out, rows.Err()
 }
 
+// LatestStats 某视频最新一条统计快照（statsOf/卡片/NFO 等只取末值的读路径用，
+// 避免为一条记录加载全量历史；历史明细仅详情接口走 ListStats）。
+func (s *Store) LatestStats(bvid string) (*StatsSnapshot, error) {
+	var t StatsSnapshot
+	err := s.DB.QueryRow(`SELECT bvid, ts, view, danmaku, reply, favorite, coin, share, like
+		FROM video_stats_history WHERE bvid=? ORDER BY ts DESC LIMIT 1`, bvid).
+		Scan(&t.Bvid, &t.Ts, &t.View, &t.Danmaku, &t.Reply, &t.Favorite, &t.Coin, &t.Share, &t.Like)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
 // RecentStats 返回某视频最近 n 条统计快照（按时间升序返回），供自适应冷却估增速。
 func (s *Store) RecentStats(bvid string, n int) ([]*StatsSnapshot, error) {
 	if n <= 0 {

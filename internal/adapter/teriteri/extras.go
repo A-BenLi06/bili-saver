@@ -52,44 +52,20 @@ func (a *Adapter) categoryGetall(w http.ResponseWriter, _ *http.Request, _ int64
 }
 
 // searchHot 用归档库的高频 B 站原生标签充当热搜词，点击即走站内搜索。
+// 单条 GROUP BY 聚合（原实现全库视频逐个查标签，首页每渲染一次跑一轮 N+1）。
 func (a *Adapter) searchHot(w http.ResponseWriter, _ *http.Request, _ int64) {
-	videos, err := a.St.ListVideos(0, "ok", 0, 0)
+	tags, err := a.St.TopTags("bilibili", 10)
 	if err != nil {
 		a.ok(w, []any{})
 		return
 	}
-	counts := map[string]int{}
-	for _, v := range videos {
-		tags, err := a.St.VideoTags(v.Bvid)
-		if err != nil {
-			continue
-		}
-		for _, t := range tags["bilibili"] {
-			if t = strings.TrimSpace(t); t != "" {
-				counts[t]++
-			}
-		}
-	}
-	type kv struct {
-		k string
-		v int
-	}
-	list := make([]kv, 0, len(counts))
-	for k, v := range counts {
-		list = append(list, kv{k, v})
-	}
-	sort.Slice(list, func(i, j int) bool { return list[i].v > list[j].v })
-	const topN = 10
-	if len(list) > topN {
-		list = list[:topN]
-	}
-	out := make([]map[string]any, 0, len(list))
-	for i, e := range list {
+	out := make([]map[string]any, 0, len(tags))
+	for i, e := range tags {
 		typ := 0
 		if i < 2 {
 			typ = 2 // 前两名带“热”角标
 		}
-		out = append(out, map[string]any{"content": e.k, "type": typ})
+		out = append(out, map[string]any{"content": e.Name, "type": typ})
 	}
 	a.ok(w, out)
 }
@@ -128,11 +104,10 @@ func (a *Adapter) videosByOwner(mid int64) ([]*store.Video, int, int) {
 	}
 	playSum, likeSum := 0, 0
 	for _, v := range videos {
-		play, _, _, _, _, _, _ := a.statsOf(v.Bvid)
+		// statsOf 的 good 即最新快照点赞数，直接复用（原实现每视频再全量拉一遍历史）
+		play, _, like, _, _, _, _ := a.statsOf(v.Bvid)
 		playSum += play
-		if hist, err := a.St.ListStats(v.Bvid); err == nil && len(hist) > 0 {
-			likeSum += hist[len(hist)-1].Like
-		}
+		likeSum += like
 	}
 	return videos, playSum, likeSum
 }

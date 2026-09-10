@@ -70,7 +70,7 @@ func New(d Deps) *Server {
 		s.teri = &teriteri.Adapter{
 			St: d.St, DataDir: d.Cfg.DataDir,
 			AdminUser: d.Cfg.Teriteri.AdminUser, AdminPass: d.Cfg.Teriteri.AdminPass,
-			JWTSecret: d.Cfg.Teriteri.JWTSecret,
+			JWTSecret:    d.Cfg.Teriteri.JWTSecret,
 			PasswordHook: passHook,
 			Log:          d.Log,
 		}
