@@ -331,6 +331,12 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		}
 		res.CommentsSeen = seen
 		res.Complete = res.Complete && comp
+		// 评论全文索引批量补齐（每轮一次，幂等；失败不阻断，下轮自愈）
+		if n, err := c.St.HealCommentsFTS(); err != nil {
+			c.Log.Warn("评论FTS索引补齐失败", "bvid", bvid, "err", err)
+		} else if n > 0 {
+			c.Log.Info("评论FTS索引补齐", "bvid", bvid, "新增", n)
+		}
 	} else {
 		complete = false // 未全量对账，不做消失检测
 	}

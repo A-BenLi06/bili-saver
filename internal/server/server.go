@@ -55,11 +55,24 @@ type Server struct {
 func New(d Deps) *Server {
 	s := &Server{Deps: d, mux: http.NewServeMux()}
 	if d.Cfg.Teriteri.Enabled {
+		// 密码自助修改：经此回调写回配置文件（两套适配层共享同一账号体系）
+		passHook := func(npw string) error {
+			d.Cfg.Teriteri.AdminPass = npw
+			d.Cfg.Normalize()
+			if err := d.Cfg.Validate(); err != nil {
+				return err
+			}
+			if d.ConfigPath != "" {
+				return config.SaveConfigFile(d.ConfigPath, d.Cfg)
+			}
+			return nil
+		}
 		s.teri = &teriteri.Adapter{
 			St: d.St, DataDir: d.Cfg.DataDir,
 			AdminUser: d.Cfg.Teriteri.AdminUser, AdminPass: d.Cfg.Teriteri.AdminPass,
 			JWTSecret: d.Cfg.Teriteri.JWTSecret,
-			Log:       d.Log,
+			PasswordHook: passHook,
+			Log:          d.Log,
 		}
 		s.teri.Register(s.mux)
 		// teriteri-admin（管理员端）适配层：共用 JWT 与登录账号
@@ -141,6 +154,8 @@ func (s *Server) registerStatic() {
 			http.NotFound(w, r)
 			return
 		}
+		// 页面随二进制内嵌更新，禁缓存避免浏览器停留旧版 UI
+		w.Header().Set("Cache-Control", "no-cache")
 		if strings.HasSuffix(name, ".html") {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		} else if strings.HasSuffix(name, ".js") {
@@ -157,6 +172,7 @@ func (s *Server) registerStatic() {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(b)
 	})
 }

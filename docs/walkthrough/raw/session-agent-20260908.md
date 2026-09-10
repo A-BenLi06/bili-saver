@@ -23,3 +23,8 @@
 - 做了什么：服务 17:11 崩溃（drawGlyphOver index out of range），任务 worker 无 recover 直接带死进程。定位：①card 渲染并发共享 faceCache 的 opentype Face——无内部锁，Glyph 返回的 mask 是内部复用缓冲视图，并发 DrawString 互相打空 mask（单方法加锁不够，临界区必须覆盖 Glyph→DrawMask 全程）；②jobs.Manager.process 无 recover。修复：draw.go glyphMu（包 DrawString + measureString/runeWidth/textBaseline/textH）+ jobs.process recover（panic→任务 failed）+ app.refreshCard recover（维持只告警语义）。踩坑：font.Face 接口 6 个方法（首版漏 GlyphAdvance/GlyphBounds 编译失败）；单方法 lockedFace 方案被自己的并发测试证伪后改为绘制级互斥。
 - 涉及：internal/card/{draw.go,assets.go,concurrent_test.go(新)}；internal/jobs/{jobs.go,jobs_test.go(新)}；internal/app/app.go(refreshCard)。
 - 结果/状态：-race 并发回归精确复现生产栈→修复后过；全量门 20 包绿；崩溃视频 BV1J6tW63EfJ 重归档 done + card.png 正常（556KB）+ 服务存活；claim done-review，已留言 card-agent/core-agent（另发现 favlist "ml" 前缀解析回归，core 区域不代改）。
+
+## 2026-09-08T20:55:00Z session-agent — 采集页链接输入小 tips（微小改动）
+- 做了什么：人类交办"针对填入链接增加小 tips"。采集页输入框下加 hint：推荐粘贴完整链接（支持 b23 短链）、收藏夹用 space 收藏夹页/medialist 链接、纯数字会被当 UP 主——均为实测确认的陷阱。
+- 涉及：internal/server/static/index.html（采集页输入框 +1 行 hint）。
+- 结果/状态：JS 语法过、重建重启、浏览器实测提示渲染正确。

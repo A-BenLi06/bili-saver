@@ -196,6 +196,8 @@ type Scheduler struct {
 	Log   *slog.Logger
 	Cfg   *config.Config // 活读取：设置页 PATCH config 后下一 tick 生效
 	Every time.Duration  // 检查频率
+
+	lastPruneAt int64 // 上次终态任务清理时间（仅 Run goroutine 访问，无需锁）
 }
 
 // sync_source 防刷库退避：某源连续失败达 backoffMinFails 次后，提交间隔按 2 的幂
@@ -254,6 +256,14 @@ const (
 	freshStatsMinutes = 45
 )
 
+// 终态任务滚动保留：done/failed 只留最近 1000 条，每 24h 清理一次。
+// 任务表历史上被失败循环刷过 3000+ 条（P-009），不清会无限膨胀；
+// 审计窗口（管理端任务页）与退避判断（最近 20 条）都不依赖更早的终态行。
+const (
+	pruneJobsKeep     = 1000
+	pruneJobsEverySec = 24 * 3600
+)
+
 // Run 阻塞运行直到 ctx 取消。
 func (s *Scheduler) Run(ctx context.Context) {
 	if s.Every <= 0 {
@@ -273,6 +283,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 }
 
 func (s *Scheduler) tick(ctx context.Context) {
+	s.pruneJobsIfDue()
 	if s.Cfg.Collector.AdaptiveSync {
 		s.freshSweep()
 	}
@@ -296,6 +307,23 @@ func (s *Scheduler) tick(ctx context.Context) {
 				s.Log.Info("调度全库统计重同步")
 			}
 		}
+	}
+}
+
+// pruneJobsIfDue 每 24h 清理一次终态任务（滚动保留最近 pruneJobsKeep 条）。
+func (s *Scheduler) pruneJobsIfDue() {
+	now := store.Now()
+	if s.lastPruneAt != 0 && now-s.lastPruneAt < pruneJobsEverySec {
+		return
+	}
+	s.lastPruneAt = now
+	n, err := s.St.PruneTerminalJobs(pruneJobsKeep)
+	if err != nil {
+		s.Log.Warn("终态任务清理失败", "err", err)
+		return
+	}
+	if n > 0 {
+		s.Log.Info("终态任务清理完成", "删除", n, "保留最近", pruneJobsKeep)
 	}
 }
 

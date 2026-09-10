@@ -317,3 +317,56 @@ type QRPoll struct {
 	Code         int    `json:"code"`
 	Message      string `json:"message"`
 }
+
+// DynFeedItem 动态 feed 条目（只声明消费的字段；完整原始 JSON 单独保留，
+// 未识别的新字段不会丢——raw 快照 + SpacePost.Raw 双保险）。
+type DynFeedItem struct {
+	ID      string `json:"id_str"`
+	Raw     string `json:"-"`
+	Type    string `json:"type"` // DYNAMIC_TYPE_AV / WORD / DRAW / FORWARD / ARTICLE ...
+	Modules struct {
+		ModuleAuthor struct {
+			Mid   int64 `json:"mid"`
+			PubTs int64 `json:"pub_ts"`
+		} `json:"module_author"`
+		ModuleDynamic struct {
+			Content struct {
+				Text        string `json:"text"`
+				Description string `json:"description"`
+			} `json:"content"`
+			Major struct {
+				Type    string `json:"type"` // MAJOR_TYPE_ARCHIVE / ARTICLE / DRAW / OPUS / NONE
+				Archive *struct {
+					Bvid  string `json:"bvid"`
+					Title string `json:"title"`
+					Desc  string `json:"desc"`
+				} `json:"archive"`
+				Article *struct {
+					ID    int64  `json:"id"`
+					Title string `json:"title"`
+					Desc  string `json:"desc"`
+				} `json:"article"`
+				Draw *struct {
+					Title string `json:"title"`
+					Items []struct {
+						Src string `json:"src"`
+					} `json:"items"`
+				} `json:"draw"`
+				Opus *struct {
+					Title   string `json:"title"`
+					Content json.RawMessage `json:"content"`
+					Images  []struct {
+						Url string `json:"url"`
+					} `json:"images"`
+				} `json:"opus"`
+			} `json:"major"`
+		} `json:"module_dynamic"`
+	} `json:"modules"`
+}
+
+// DynFeed 动态 feed 分页数据。
+type DynFeed struct {
+	Items      []DynFeedItem `json:"items"`
+	HasMore    bool          `json:"has_more"`
+	NextOffset string        `json:"offset"`
+}

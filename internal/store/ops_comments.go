@@ -2,6 +2,10 @@ package store
 
 // 评论与弹幕：只增不删。消失检测基于 last_seen_at 对账。
 
+// UpsertComment 单条保存评论（content 按 upsert 语义不可变，只更新互动计数与 seen）。
+// 批量采集路径请用 UpsertCommentsBatch（单事务，整轮快一个数量级以上）。
+// comments_fts 不在此维护：FTS5 的 UNINDEXED 列无索引，逐条存在性检查是全表扫描
+// （15 万行库实测 116ms/条，平方级放大）；由 HealCommentsFTS 每采集轮一次批量补齐。
 func (s *Store) UpsertComment(c *Comment) error {
 	_, err := s.DB.Exec(`INSERT INTO comments(rpid, bvid, parent_rpid, root_rpid, member_mid, member_name,
 		member_face, member_level, content, like_count, reply_count, ctime, location, status, first_seen_at, last_seen_at, deleted_at, raw_json)
@@ -12,15 +16,55 @@ func (s *Store) UpsertComment(c *Comment) error {
 		c.Rpid, c.Bvid, c.ParentRpid, c.RootRpid, c.MemberMid, c.MemberName,
 		c.MemberFace, c.MemberLevel, c.Content, c.LikeCount, c.ReplyCount, c.Ctime, c.Location,
 		c.FirstSeenAt, c.LastSeenAt, c.RawJSON)
+	return err
+}
+
+const upsertCommentSQL = `INSERT INTO comments(rpid, bvid, parent_rpid, root_rpid, member_mid, member_name,
+	member_face, member_level, content, like_count, reply_count, ctime, location, status, first_seen_at, last_seen_at, deleted_at, raw_json)
+	VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'visible',?,?,0,?)
+	ON CONFLICT(rpid) DO UPDATE SET
+	  like_count=excluded.like_count, reply_count=excluded.reply_count,
+	  status='visible', deleted_at=0, last_seen_at=excluded.last_seen_at, raw_json=excluded.raw_json`
+
+// UpsertCommentsBatch 批量保存评论：单事务 + prepared 复用。采集一轮评论动辄
+// 上千条，逐条自动提交（每条一个隐式事务）是主要写入瓶颈；失败整体回滚，
+// 上层按"本轮不完整"处理（不做消失检测）。
+func (s *Store) UpsertCommentsBatch(cs []*Comment) error {
+	if len(cs) == 0 {
+		return nil
+	}
+	tx, err := s.DB.Begin()
 	if err != nil {
 		return err
 	}
-	// best-effort 维护评论全文索引（派生数据）：内容按 upsert 语义不可变，缺失即补，
-	// 从库内真值取 content；索引写失败不阻断归档，下一轮重同步会自愈。
-	_, _ = s.DB.Exec(`INSERT INTO comments_fts(rpid, content)
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(upsertCommentSQL)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, c := range cs {
+		if _, err := stmt.Exec(c.Rpid, c.Bvid, c.ParentRpid, c.RootRpid, c.MemberMid, c.MemberName,
+			c.MemberFace, c.MemberLevel, c.Content, c.LikeCount, c.ReplyCount, c.Ctime, c.Location,
+			c.FirstSeenAt, c.LastSeenAt, c.RawJSON); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// HealCommentsFTS 把库内尚未进入 comments_fts 的评论批量补进全文索引（幂等）。
+// 评论 content 不可变，只需补缺不需更新；每采集轮调用一次，代价是一次全量扫描
+// （15 万行库实测 ~120ms），替代此前逐条 upsert 内的全扫检查（平方级）。
+// 返回本次新增索引行数；索引写失败不阻断归档，下一轮自愈。
+func (s *Store) HealCommentsFTS() (int64, error) {
+	res, err := s.DB.Exec(`INSERT INTO comments_fts(rpid, content)
 		SELECT rpid, content FROM comments
-		WHERE rpid=? AND rpid NOT IN (SELECT rpid FROM comments_fts)`, c.Rpid)
-	return nil
+		WHERE rpid NOT IN (SELECT rpid FROM comments_fts)`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // MarkMissingComments 对账：把本轮未出现且此前 visible 的评论标为 deleted。
@@ -228,6 +272,7 @@ func (s *Store) SearchCommentsFull(query, status string, limit int) ([]*CommentH
 
 // ---- danmaku ----
 
+// UpsertDanmaku 单条保存弹幕。批量采集路径请用 UpsertDanmakuBatch。
 func (s *Store) UpsertDanmaku(d *Danmaku) error {
 	_, err := s.DB.Exec(`INSERT INTO danmaku(dmid, bvid, cid, timepoint, mode, fontsize, color, content, ctime,
 		status, first_seen_at, last_seen_at, deleted_at)
@@ -236,6 +281,34 @@ func (s *Store) UpsertDanmaku(d *Danmaku) error {
 		d.Dmid, d.Bvid, d.Cid, d.Timepoint, d.Mode, d.Fontsize, d.Color, d.Content, d.Ctime,
 		d.FirstSeenAt, d.LastSeenAt)
 	return err
+}
+
+// UpsertDanmakuBatch 批量保存弹幕：单事务 + prepared 复用（一段 seg.so 常有上千
+// 条，逐条自动提交是主要写入瓶颈）。失败整体回滚，上层按"本轮不完整"处理。
+func (s *Store) UpsertDanmakuBatch(ds []*Danmaku) error {
+	if len(ds) == 0 {
+		return nil
+	}
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stmt, err := tx.Prepare(`INSERT INTO danmaku(dmid, bvid, cid, timepoint, mode, fontsize, color, content, ctime,
+		status, first_seen_at, last_seen_at, deleted_at)
+		VALUES(?,?,?,?,?,?,?,?,?, 'visible', ?, ?, 0)
+		ON CONFLICT(dmid) DO UPDATE SET status='visible', deleted_at=0, last_seen_at=excluded.last_seen_at`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, d := range ds {
+		if _, err := stmt.Exec(d.Dmid, d.Bvid, d.Cid, d.Timepoint, d.Mode, d.Fontsize, d.Color, d.Content, d.Ctime,
+			d.FirstSeenAt, d.LastSeenAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // MarkMissingDanmaku 对账标记消失弹幕。

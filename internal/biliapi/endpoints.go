@@ -424,3 +424,53 @@ func mustJSON(v any) string {
 	b, _ := jsonMarshal(v)
 	return string(b)
 }
+
+// DynamicFeed UP主动态 feed（polymer）。免 wbi 签名（2026-09-11 实测），
+// 未登录或软风控时返回 -101/-352 由调用方按 APIError 处理。
+// 纯文字(WORD)/图文(DRAW)/专栏文章(ARTICLE)/视频动态(AV)/转发(FORWARD) 同源。
+func (c *Client) DynamicFeed(ctx context.Context, mid int64, offset string) (*DynFeed, error) {
+	if err := c.EnsureBuvid(ctx); err != nil {
+		return nil, err
+	}
+	p := url.Values{"host_mid": {strconv.FormatInt(mid, 10)}}
+	if offset != "" {
+		p.Set("offset", offset)
+	}
+	if err := c.lim.wait(ctx); err != nil {
+		return nil, err
+	}
+	u := c.base + "/x/polymer/web-dynamic/v1/feed/space?" + p.Encode()
+	body, status, err := c.do(ctx, http.MethodGet, u, nil, map[string]string{
+		"Referer": fmt.Sprintf("https://space.bilibili.com/%d/dynamic", mid),
+	})
+	if err != nil {
+		return nil, err
+	}
+	c.snapshot("/x/polymer/web-dynamic/v1/feed/space", p, status, body)
+	var env struct {
+		Code    int          `json:"code"`
+		Message string       `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return nil, fmt.Errorf("dynamic feed: http %d 非 JSON（可能风控）", status)
+	}
+	if env.Code != 0 {
+		return nil, &APIError{Code: env.Code, Message: env.Message}
+	}
+	var d DynFeed
+	if err := json.Unmarshal(env.Data, &d); err != nil {
+		return nil, err
+	}
+	// 保留每条动态的原始 JSON（保真 + 免受解析字段不全影响）
+	var raw struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	_ = json.Unmarshal(env.Data, &raw)
+	for i := range d.Items {
+		if i < len(raw.Items) {
+			d.Items[i].Raw = string(raw.Items[i])
+		}
+	}
+	return &d, nil
+}

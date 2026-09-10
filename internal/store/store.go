@@ -127,6 +127,34 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// v10 增量：UP主源扩展归档（动态/动态视频/图文专栏）。
+	if err := s.ensureColumn("sources", "space_scope", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS space_posts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		mid INTEGER NOT NULL,
+		post_id TEXT NOT NULL,
+		dtype TEXT NOT NULL DEFAULT '',
+		kind TEXT NOT NULL DEFAULT 'dynamic',
+		bvid TEXT NOT NULL DEFAULT '',
+		title TEXT NOT NULL DEFAULT '',
+		content TEXT NOT NULL DEFAULT '',
+		pics INTEGER NOT NULL DEFAULT 0,
+		origin TEXT NOT NULL DEFAULT 'bilibili',
+		raw TEXT NOT NULL DEFAULT '',
+		pubdate INTEGER NOT NULL DEFAULT 0,
+		first_seen_at INTEGER NOT NULL,
+		last_seen_at INTEGER NOT NULL,
+		deleted_at INTEGER NOT NULL DEFAULT 0,
+		UNIQUE(mid, post_id)
+	)`); err != nil {
+		return err
+	}
+	if _, err := s.DB.Exec(`CREATE INDEX IF NOT EXISTS idx_space_posts_mid ON space_posts(mid, kind)`); err != nil {
+		return err
+	}
+
 	// v4 增量：媒体库独立配置表。
 	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS media_libraries (
 	  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,7 +200,9 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
-	_, err = s.DB.Exec(`INSERT INTO schema_meta(k,v) VALUES('schema','5') ON CONFLICT(k) DO UPDATE SET v='5'`)
+	// 仅信息展示（无代码读取）：真实 schema 版本靠上面的幂等基线 + ensureColumn
+	// 增量补列保证，此值与 §5 迁移历史人工同步（当前 v9）。
+	_, err = s.DB.Exec(`INSERT INTO schema_meta(k,v) VALUES('schema','9') ON CONFLICT(k) DO UPDATE SET v='9'`)
 	return err
 }
 

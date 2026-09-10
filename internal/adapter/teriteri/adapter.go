@@ -31,7 +31,9 @@ type Adapter struct {
 	JWTSecret string
 	// DeletedMarker 前缀注入已消失评论正文。
 	DeletedMarker string
-	Log           *slog.Logger
+	// PasswordHook 密码修改持久化回调（写回配置文件）；nil 仅改内存。
+	PasswordHook func(npw string) error
+	Log          *slog.Logger
 }
 
 func (a *Adapter) log() *slog.Logger {
@@ -48,13 +50,10 @@ func (a *Adapter) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/video/cumulative/visitor", a.wrap(a.videoCumulative, false))
 	mux.HandleFunc("POST /api/video/play/visitor", a.wrap(a.okEmpty, false))
 	mux.HandleFunc("POST /api/video/play/user", a.wrap(a.okEmpty, false))
-	mux.HandleFunc("GET /api/video/collected-fids", a.wrap(a.emptyList, true))
 	mux.HandleFunc("GET /api/danmu-list/{vid}", a.wrap(a.danmuList, false))
-	mux.HandleFunc("POST /api/danmu/delete", a.wrap(a.okEmpty, false))
 	mux.HandleFunc("GET /api/comment/get", a.wrap(a.commentGet, false))
 	mux.HandleFunc("GET /api/comment/reply/get-more", a.wrap(a.commentReplyMore, false))
 	mux.HandleFunc("GET /api/comment/get-up-like", a.wrap(a.emptyList, false))
-	mux.HandleFunc("POST /api/comment/delete", a.wrap(a.okEmpty, false))
 	mux.HandleFunc("GET /api/search/video/only-pass", a.wrap(a.search, false))
 	mux.HandleFunc("POST /api/user/account/login", a.wrap(a.login, false))
 	mux.HandleFunc("POST /api/user/account/register", a.wrap(a.register, false))
@@ -209,11 +208,24 @@ func (a *Adapter) login(w http.ResponseWriter, r *http.Request, _ int64) {
 
 // adminUser 站长资料（登录响应 / personal info 共用）。
 func (a *Adapter) adminUser() TUser {
-	return TUser{
+	u := TUser{
 		UID: 1, Nickname: a.AdminUser,
 		Description: "bili-saver 补档站管理员", Sign: "bili-saver 补档站管理员",
 		Gender: 2,
 	}
+	if p, err := a.St.Profile(1); err == nil {
+		if p.Nickname != "" {
+			u.Nickname = p.Nickname
+		}
+		if p.Description != "" {
+			u.Description, u.Sign = p.Description, p.Description
+		}
+		if p.Avatar != "" {
+			u.AvatarURL = "/media/" + p.Avatar
+		}
+		u.Gender = p.Gender
+	}
+	return u
 }
 
 func (a *Adapter) register(w http.ResponseWriter, r *http.Request, _ int64) {

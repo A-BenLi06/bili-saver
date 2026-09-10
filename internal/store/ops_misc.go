@@ -18,19 +18,20 @@ func (s *Store) UpsertSource(src *Source) (int64, error) {
 	}
 	res, err := s.DB.Exec(`INSERT INTO sources(type, ext_id, extra, title, watch, sync_interval_minutes,
 		sync_mode, interval_comments_minutes, interval_danmaku_minutes, interval_subtitles_minutes,
-		layout, auto_download, created_at, last_sync_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		layout, auto_download, space_scope, created_at, last_sync_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(type, ext_id) DO UPDATE SET title=excluded.title, extra=excluded.extra,
 		  watch=excluded.watch, sync_interval_minutes=excluded.sync_interval_minutes,
 		  sync_mode=excluded.sync_mode,
 		  interval_comments_minutes=excluded.interval_comments_minutes,
 		  interval_danmaku_minutes=excluded.interval_danmaku_minutes,
 		  interval_subtitles_minutes=excluded.interval_subtitles_minutes,
-		  layout=excluded.layout, auto_download=excluded.auto_download`,
+		  layout=excluded.layout, auto_download=excluded.auto_download,
+		  space_scope=CASE WHEN excluded.space_scope='' THEN sources.space_scope ELSE excluded.space_scope END`,
 		src.Type, src.ExtID, src.Extra, src.Title, boolInt(src.Watch),
 		src.SyncIntervalMinutes,
 		src.SyncMode, src.IntervalCommentsMin, src.IntervalDanmakuMin, src.IntervalSubsMin,
-		src.Layout, src.AutoDownload, src.CreatedAt, src.LastSyncAt)
+		src.Layout, src.AutoDownload, src.SpaceScope, src.CreatedAt, src.LastSyncAt)
 	if err != nil {
 		return 0, err
 	}
@@ -61,7 +62,7 @@ func scanSource(row interface{ Scan(...any) error }) (*Source, error) {
 	err := row.Scan(&src.ID, &src.Type, &src.ExtID, &src.Extra, &src.Title, &watch,
 		&src.SyncIntervalMinutes, &syncMode,
 		&src.IntervalCommentsMin, &src.IntervalDanmakuMin, &src.IntervalSubsMin,
-		&src.Layout, &src.AutoDownload, &src.CreatedAt, &src.LastSyncAt)
+		&src.Layout, &src.AutoDownload, &src.CreatedAt, &src.LastSyncAt, &src.SpaceScope)
 	src.SyncMode = syncMode
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -75,7 +76,7 @@ func scanSource(row interface{ Scan(...any) error }) (*Source, error) {
 
 const sourceCols = `id, type, ext_id, extra, title, watch, sync_interval_minutes,
 sync_mode, interval_comments_minutes, interval_danmaku_minutes, interval_subtitles_minutes,
-layout, auto_download, created_at, last_sync_at`
+layout, auto_download, created_at, last_sync_at, COALESCE(space_scope,'')`
 
 func (s *Store) GetSource(id int64) (*Source, error) {
 	return scanSource(s.DB.QueryRow(`SELECT `+sourceCols+` FROM sources WHERE id=?`, id))
@@ -286,23 +287,32 @@ func (s *Store) HasCCSubtitle(cid int64) (bool, error) {
 // ---- tags ----
 
 func (s *Store) AddTags(bvid string, names []string, origin string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	// 单事务包住整批（每标签 3 条语句，逐条自动提交在批量归档时是纯开销）
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	for _, name := range names {
 		if name == "" {
 			continue
 		}
-		if _, err := s.DB.Exec(`INSERT INTO tags(name) VALUES(?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
+		if _, err := tx.Exec(`INSERT INTO tags(name) VALUES(?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
 			return err
 		}
 		var tagID int64
-		if err := s.DB.QueryRow(`SELECT id FROM tags WHERE name=?`, name).Scan(&tagID); err != nil {
+		if err := tx.QueryRow(`SELECT id FROM tags WHERE name=?`, name).Scan(&tagID); err != nil {
 			return err
 		}
-		if _, err := s.DB.Exec(`INSERT INTO video_tags(bvid, tag_id, origin, created_at) VALUES(?,?,?,?)
+		if _, err := tx.Exec(`INSERT INTO video_tags(bvid, tag_id, origin, created_at) VALUES(?,?,?,?)
 			ON CONFLICT(bvid, tag_id, origin) DO NOTHING`, bvid, tagID, origin, Now()); err != nil {
 			return err
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 // VideoTags 返回按 origin 分组的标签（保持 bilibili / 派生 分离）。
@@ -459,6 +469,22 @@ func (s *Store) HasActiveJob(jobType, payloadJSON string) (bool, error) {
 	err := s.DB.QueryRow(`SELECT COUNT(*) FROM jobs WHERE type=? AND payload_json=? AND state IN('queued','running')`,
 		jobType, payloadJSON).Scan(&n)
 	return n > 0, err
+}
+
+// PruneTerminalJobs 清理终态任务（done/failed），滚动保留最近 keep 条。
+// jobs 表只增不清会无限膨胀（历史上单源失败循环 8 小时刷了 300+ 条）。
+// 只动终态：崩溃恢复依赖 queued/running 不受影响；syncSourceBlocked 退避只看
+// 最近 20 条、管理端任务页展示近期记录，审计窗口足够。
+func (s *Store) PruneTerminalJobs(keep int) (int64, error) {
+	if keep < 1 {
+		keep = 1
+	}
+	res, err := s.DB.Exec(`DELETE FROM jobs WHERE state IN ('done','failed') AND id NOT IN
+		(SELECT id FROM jobs WHERE state IN ('done','failed') ORDER BY id DESC LIMIT ?)`, keep)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func (s *Store) UpdateJobState(id int64, state, detail, errMsg string, progress float64) error {

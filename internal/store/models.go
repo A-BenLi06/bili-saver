@@ -19,6 +19,7 @@ type Source struct {
 	// AutoDownload 新视频触发器（v7）：1=发现新视频自动下载并计入跟踪列表，
 	// -1=强制关，0=跟随全局 download.auto_download。
 	AutoDownload int   `json:"auto_download"`
+	SpaceScope   string `json:"space_scope"` // UP主源归档范围（v10）：video,dynamic,dynamic_video,article 子集；空=全部
 	CreatedAt    int64 `json:"created_at"`
 	LastSyncAt   int64 `json:"last_sync_at"`
 }
@@ -209,4 +210,24 @@ type PluginRun struct {
 	Error      string `json:"error"`
 	DurationMs int64  `json:"duration_ms"`
 	CreatedAt  int64  `json:"created_at"`
+}
+
+// SpacePost UP主动态/图文（专栏）归档条目（v10，origin=bilibili 原始数据层）。
+// 只增不删：动态消失时标 deleted_at，正文与原始 JSON 永久保留。
+type SpacePost struct {
+	ID          int64  `json:"id"`
+	Mid         int64  `json:"mid"`
+	PostID      string `json:"post_id"`      // 动态 id_str
+	Dtype       string `json:"dtype"`        // DYNAMIC_TYPE_XXX 原样
+	Kind        string `json:"kind"`         // dynamic | article（专栏/图文文章类）
+	Bvid        string `json:"bvid"`         // 视频动态关联的稿件
+	Title       string `json:"title"`
+	Content     string `json:"content"`      // 正文文本
+	Pics        int    `json:"pics"`         // 图片数
+	Origin      string `json:"origin"`
+	Raw         string `json:"raw"`          // 官方原始 JSON（单条）
+	Pubdate     int64  `json:"pubdate"`      // 动态发布时间（官方 pub_ts）
+	FirstSeenAt int64  `json:"first_seen_at"`
+	LastSeenAt  int64  `json:"last_seen_at"`
+	DeletedAt   int64  `json:"deleted_at"`   // 消失标记（>0 = 已消失）
 }

@@ -88,7 +88,7 @@ input:focus,select:focus { outline:2px solid var(--accent-soft); border-color:va
 code, .path { font-family:var(--mono); font-size:12px; background:var(--bg); padding:1px 5px; border-radius:4px; word-break:break-all; }
 .pre { font-family:var(--mono); font-size:12px; color:var(--sub); white-space:pre-wrap; background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:10px 12px; max-height:220px; overflow:auto; }
 
-.spark { display:inline-flex; align-items:flex-end; gap:2px; height:36px; }
+.spark { display:inline-flex; align-items:flex-end; gap:2px; height:48px; }
 .spark i { width:7px; background:var(--faint); border-radius:1px; min-height:2px; }
 .meta-note { font-size:12px; color:var(--faint); }
 .tagtext { color:var(--sub); font-size:12.5px; }
@@ -104,6 +104,25 @@ mark { background:var(--accent-soft); color:var(--txt); padding:0 1px; border-ra
 .th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
 .th-sort:hover { color:var(--txt); }
 .th-sort .arr { font-size:10px; color:var(--accent); }
+.fgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:18px 28px; align-items:start; }
+.fgrid .field { min-width:0; }
+.fgrid .field input[type=number] { max-width:180px; }
+.fgrid .wide { grid-column:1/-1; }
+.fcheck { display:flex; align-items:flex-start; gap:8px; }
+.fcheck input { margin-top:2px; }
+.fcheck .fnote { display:block; font-size:12px; color:var(--faint); margin-top:2px; font-weight:400; }
+.savebar { position:sticky; bottom:0; display:flex; gap:14px; align-items:center; padding:12px 16px;
+  background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-top:8px; box-shadow:0 -4px 14px rgba(0,0,0,.05); }
+.dhead { display:flex; gap:20px; margin-bottom:24px; }
+.dcover { width:168px; height:105px; object-fit:cover; border-radius:8px; border:1px solid var(--line); background:var(--bg); flex:none; align-self:flex-start; }
+.dhead h1 { font-size:18px; font-weight:650; line-height:1.45; }
+.dmeta { display:flex; gap:6px 16px; flex-wrap:wrap; margin-top:8px; align-items:baseline; font-size:13px; }
+.cmt { display:flex; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
+.cmt .face { width:32px; height:32px; border-radius:50%; flex:none; object-fit:cover; background:var(--bg); border:1px solid var(--line); }
+.cmt .cbody { flex:1; min-width:0; }
+.cmt .chead { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; font-size:12.5px; color:var(--sub); }
+.cmt .chead b { font-weight:500; font-size:13px; color:var(--txt); }
+.cmt .ccontent { font-size:13px; line-height:1.6; margin-top:3px; }
 .backlink { display:inline-block; margin-bottom:14px; font-size:13px; }
 .empty { padding:36px 0; text-align:center; color:var(--faint); font-size:13px; }
 #toasts { position:fixed; right:20px; top:16px; z-index:100; display:flex; flex-direction:column; gap:8px; }
@@ -252,19 +271,23 @@ async function loadMediaServers(){
   const box = document.getElementById('msBox'); if(!box) return;
   const list = await fetch('/api/v1/media-servers/status').then(r=>r.json()).catch(()=>null);
   if(!box) return;
-  if(!list || !list.length){
-    box.innerHTML = '<span class="meta-note">未配置——在 config.yaml 的 media.servers 里添加 teriteri / emby / jellyfin / plex / kodi 实例后，这里显示在线状态</span>';
-    return;
-  }
+  const typeName = t => ({teriteri:'Teriteri', emby:'Emby', jellyfin:'Jellyfin', plex:'Plex', kodi:'Kodi'}[t]||t);
+  if(!list || !list.length){ box.innerHTML = '<span class="meta-note">探测失败</span>'; return; }
   box.innerHTML = list.map(s=>{
-    const dot = s.online ? '<span class="dot ok"></span>在线' : '<span class="dot err"></span>离线';
-    const lat = s.online ? ` · ${s.latency_ms}ms` : '';
-    const link = s.url ? `<a href="${esc(s.url)}" target="_blank">${esc(s.url)}</a>` : '<span class="meta-note">未配置地址</span>';
-    return `<div style="display:flex;align-items:center;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)">
-      <span style="min-width:170px"><b style="font-weight:500">${esc(s.name)}</b> <span class="meta-note">${esc(s.type)}</span></span>
-      <span class="st" style="min-width:90px">${dot}${lat}</span>
-      <span class="st" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${link}</span>
-      <span class="meta-note">${esc(s.note||'')}</span>
+    const dot = s.online ? '<span class="dot ok"></span>在线'
+      : (s.detected ? '<span class="dot err"></span>离线' : '<span class="dot off"></span>未检测到');
+    const lat = s.online && s.latency_ms ? ` · ${s.latency_ms}ms` : '';
+    const inst = (s.instances||[]).map(i=>{
+      const link = i.url ? `<a href="${esc(i.url)}" target="_blank">${esc(i.url)}</a>` : '<span class="meta-note">未配置地址</span>';
+      return `<div class="meta-note" style="padding-left:14px">${esc(i.name||'')} · ${link} · ${esc(i.note||'')}</div>`;
+    }).join('');
+    return `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="min-width:110px"><b style="font-weight:500">${esc(typeName(s.type))}</b></span>
+        <span class="st" style="min-width:130px">${dot}${lat}</span>
+        <span class="meta-note" style="flex:1">${esc(s.note||'')}</span>
+      </div>
+      ${inst}
     </div>`;
   }).join('');
 }
@@ -325,7 +348,8 @@ function renderAdd(m){
   <div class="sect">
     <form onsubmit="return false">
       <div class="field"><label>输入</label>
-        <input type="text" id="inp" placeholder="视频链接 / BV号 / UP主主页 / 收藏夹 / 合集链接"></div>
+        <input type="text" id="inp" placeholder="视频链接 / BV号 / UP主主页 / 收藏夹 / 合集链接">
+        <span class="hint">推荐直接粘贴完整链接（支持 b23.tv 短链）；收藏夹请用 space 收藏夹页或 medialist 播放页链接，<b>只填纯数字会被当成 UP 主</b></span></div>
       <div id="recognize"></div>
       <div id="baseOpts" style="display:none" class="inline">
         <label class="check"><input type="checkbox" id="dl" checked><span id="dlLabel">下载视频文件</span></label>
@@ -516,7 +540,8 @@ async function loadV(){
       <th class="th-sort" data-sort="last_sync">最后同步${arr('last_sync')}</th>
       <th></th></tr></thead><tbody>`+
       items.map(v=>`<tr>
-        <td class="thumb"><img src="${esc(v.pic)}" loading="lazy" onerror="this.style.visibility='hidden'"></td>
+        <td class="thumb"><img src="/media/media/${esc(v.bvid)}/cover.jpg" loading="lazy"
+          onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${esc(v.pic)}'}else{this.style.visibility='hidden'}"></td>
         <td><a href="#" onclick="openArchive('${v.bvid}');return false">${esc(v.title)}</a>
             <div class="cell-sub">${esc(v.owner_name)} · ${esc(v.bvid)}</div></td>
         <td class="st">${fmtT(v.pubdate)}</td>
@@ -558,45 +583,62 @@ window.dlVideo = async (b, el) => {
 };
 window.openArchive = async b => {
   const d=await api('/videos/'+b), v=d.video;
+  window.__bvid = b;
   window.__hist = d.stats_history||[];
   const back = page==='search' ? {p:'search', t:'搜索'} : {p:'videos', t:'归档项目'};
   const tagsBili=(d.tags['bilibili']||[]).join(' · ');
   const tagsAI=Object.entries(d.tags).filter(([k])=>k!=='bilibili').map(([o,ts])=>ts.map(t=>`${esc(t)} <span class="origin">${esc(o)}</span>`).join(' · ')).join('<br>');
   const hist=d.stats_history||[], maxV=Math.max(1,...hist.map(x=>x.view));
-  const spark=hist.length?`<span class="spark">${hist.slice(-24).map(x=>`<i style="height:${Math.max(6,Math.round(x.view/maxV*100))}%"></i>`).join('')}</span>`:'<span class="meta-note">暂无</span>';
+  const spark=hist.length?`<span class="spark">${hist.slice(-24).map(x=>`<i style="height:${Math.max(6,Math.round(x.view/maxV*100))}%"></i>`).join('')}</span>`:'';
   const last=hist[hist.length-1];
+  const stat=(lab,val,sub)=>`<div class="stat"><div class="num">${val}${sub?`<small> ${sub}</small>`:''}</div><div class="lab">${lab}</div></div>`;
+  const statsRow = last
+    ? stat('播放',fmtN(last.view))+stat('点赞',fmtN(last.like))+stat('投币',fmtN(last.coin))+stat('收藏',fmtN(last.favorite))
+      +stat('评论',fmtN(d.comments.visible), d.comments.deleted?`+${d.comments.deleted} 消失`:'')
+      +stat('字幕',fmtN((d.subtitles||[]).length))
+    : `<div class="stat"><div class="num">—</div><div class="lab">暂无统计数据</div></div>`;
+  const statusTxt = v.status==='ok'?'<span class="dot ok"></span>正常':(v.status==='gone'?'<span class="dot err"></span>已消失':'<span class="dot warn"></span>私有');
+  const dmetaBits = [
+    statusTxt,
+    `<b style="font-weight:500">${esc(v.owner_name)}</b>`,
+    `<span class="st">${fmtT(v.pubdate)} 发布</span>`,
+    v.tid?`<span class="st">${esc(v.tname||('tid '+v.tid))}${v.orientation?' · '+(v.orientation==='vertical'?'竖屏':'横屏'):''}</span>`:'',
+    `<span class="st">分P ×${v.pages_count}</span>`,
+    `<span class="path">${esc(v.bvid)}</span>`,
+  ].filter(Boolean);
   $('#main').innerHTML=`
   <a class="backlink" href="#" onclick="switchPage('${back.p}');return false">← ${back.t}</a>
-  <div class="pagehead"><h1>${esc(v.title)}</h1><span class="desc">${esc(v.bvid)}</span></div>
+  <div class="dhead">
+    <img class="dcover" src="/media/media/${esc(v.bvid)}/cover.jpg" loading="lazy"
+      onerror="if(!this.dataset.f){this.dataset.f=1;this.src='${esc(v.pic)}'}else{this.style.visibility='hidden'}" alt="">
+    <div class="dmain">
+      <h1>${esc(v.title)}</h1>
+      <div class="dmeta">${dmetaBits.join('')}</div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn" onclick="syncOne('${v.bvid}', this)">重同步</button>
+        ${v.downloaded?'':`<button class="btn primary" onclick="dlVideo('${v.bvid}', this)">下载视频</button>`}
+        <a class="btn" href="/static/teriteri.html#/v/${esc(v.bvid)}" target="_blank">播放器预览</a>
+        <a class="btn" href="/api/v1/videos/${esc(v.bvid)}/card" target="_blank">预览卡片</a>
+        <a class="btn" href="/api/v1/videos/${esc(v.bvid)}/card?download=1">下载卡片</a>
+      </div>
+    </div>
+  </div>
+  <div class="sect"><h2>数据 <span class="origin">origin: bilibili 快照 · 评论/字幕为库内归档数</span></h2>
+    <div class="statrow">${statsRow}</div>
+    ${hist.length?`<div style="margin-top:14px">${spark}
+      <span class="meta-note" style="margin-left:10px">近 ${Math.min(24,hist.length)} 次快照播放走势 · 共 ${hist.length} 次</span>
+      <div class="actions" style="margin-top:10px"><button class="btn sm" id="histBtn" onclick="toggleHist()">展开快照明细</button></div>
+      <div id="histTable" style="display:none;margin-top:10px"></div></div>`:'<div class="meta-note">尚无统计快照，重同步后生成</div>'}
+  </div>
   <div class="sect"><h2>档案</h2>
     <dl class="kv">
-      <dt>UP主</dt><dd>${esc(v.owner_name)}</dd>
-      <dt>发布</dt><dd>${fmtT(v.pubdate)}</dd>
-      <dt>状态</dt><dd>${v.status==='ok'?'<span class="dot ok"></span>正常':'<span class="dot err"></span>'+esc(v.status)} · 首次归档 ${fmtT(v.first_archived_at)}</dd>
-      <dt>完整度</dt><dd>视频 ${v.downloaded?'✓':'未下载'} · 评论 ${d.comments.visible} 现存${d.comments.deleted?` + ${d.comments.deleted} 已消失（保留）`:''} · 分P ×${v.pages_count}</dd>
-      <dt>分区 / 类型</dt><dd>${v.tid?esc(v.tname||('tid '+v.tid)):'—'}${v.orientation?` · ${v.orientation==='vertical'?'竖屏':'横屏'}`:''}</dd>
+      <dt>首次归档</dt><dd>${fmtT(v.first_archived_at)}</dd>
       <dt>B站标签</dt><dd class="tagtext">${esc(tagsBili)||'—'}</dd>
       ${tagsAI?`<dt>AI标签</dt><dd class="tagtext">${tagsAI}</dd>`:''}
       <dt>简介</dt><dd style="white-space:pre-wrap">${esc(v.description)||'—'}</dd>
       ${v.local_path?`<dt>媒体文件</dt><dd><span class="path">${esc(v.local_path)}</span></dd>`:''}
       ${d.source?`<dt>关联源</dt><dd>${esc(d.source.title)}（${esc(d.source.type)}）</dd>`:''}
     </dl>
-    <p></p><div class="actions">
-      <button class="btn" onclick="syncOne('${v.bvid}', this)">重同步</button>
-      ${v.downloaded?'':`<button class="btn primary" onclick="dlVideo('${v.bvid}', this)">下载视频</button>`}
-      <a class="btn" href="/static/teriteri.html#/v/${esc(v.bvid)}" target="_blank">播放器预览</a>
-      <a class="btn" href="/api/v1/videos/${esc(v.bvid)}/card" target="_blank">预览卡片</a>
-      <a class="btn" href="/api/v1/videos/${esc(v.bvid)}/card?download=1">下载卡片</a>
-      <span class="meta-note">快速预览卡片（derived 层，供日后分享功能使用）</span>
-    </div>
-  </div>
-  <div class="sect"><h2>统计曲线 <span class="origin">origin: bilibili 快照</span></h2>
-    ${spark}
-    ${last?`<dl class="kv" style="margin-top:10px">
-      <dt>最新</dt><dd>播放 ${fmtN(last.view)} · 点赞 ${fmtN(last.like)} · 收藏 ${fmtN(last.favorite)} · 投币 ${fmtN(last.coin)}</dd>
-      <dt>快照次数</dt><dd>${hist.length}</dd></dl>`:''}
-    ${hist.length>1?`<div class="actions" style="margin-top:10px"><button class="btn sm" id="histBtn" onclick="toggleHist()">展开快照明细（${hist.length} 次）</button></div>
-    <div id="histTable" style="display:none;margin-top:10px"></div>`:''}
   </div>
   <div class="sect"><h2>评论审计 <span class="origin">消失内容与现存共存</span></h2>
     <div class="actions" style="margin-bottom:10px">
@@ -613,6 +655,8 @@ window.openArchive = async b => {
   ${d.ai_conclusion?`<div class="sect"><h2>官方AI小结 <span class="origin">origin: bilibili:ai-conclusion</span></h2><div style="white-space:pre-wrap;font-size:13px;line-height:1.7">${esc(d.ai_conclusion.summary)}</div></div>`:''}
   ${(d.summaries||[]).map(s=>`<div class="sect"><h2>AI总结 <span class="origin">${esc(s.origin)} · ${esc(s.model)}</span></h2><div style="white-space:pre-wrap;font-size:13px;line-height:1.7">${esc(s.content)}</div></div>`).join('')}`;
   window.scrollTo(0,0);
+  loadCmts();
+  loadDmAudit();
 };
 window.toggleHist = () => {
   const box = document.getElementById('histTable'); if(!box) return;
@@ -631,7 +675,7 @@ window.toggleHist = () => {
 /* ============ 评论/弹幕审计 ============ */
 let cmtOffset = 0, cmtTotal = 0;
 async function loadCmts(more){
-  const bvid = document.querySelector('.pagehead .desc')?.textContent?.trim();
+  const bvid = window.__bvid;
   if(!bvid) return;
   if(!more){ cmtOffset = 0; document.getElementById('cmtList').innerHTML='<span class="meta-note">加载中…</span>'; }
   const delOnly = document.getElementById('cmtDelOnly').checked;
@@ -641,16 +685,19 @@ async function loadCmts(more){
   if(!more) box.innerHTML = list.length?'':'<span class="meta-note">暂无评论</span>';
   for(const c of list){
     const el = document.createElement('div');
-    el.className='cmtrow'; el.dataset.text=(c.content+' '+c.member_name).toLowerCase();
-    el.style.cssText='padding:8px 0;border-bottom:1px solid var(--line);display:'+(c.status==='deleted'?'':'');
-    el.innerHTML = `<div style="display:flex;gap:10px;align-items:baseline">
-      <span class="st">${c.status==='deleted'?'<span class="dot err"></span>已消失':'<span class="dot ok"></span>现存'}</span>
-      <b style="font-weight:500;font-size:13px">${esc(c.member_name)||'匿名'}</b>
-      <span class="meta-note">👍 ${fmtN(c.like_count)} · ${fmtT(c.ctime)}${c.location?' · '+esc(c.location):''}</span>
-      ${c.status==='deleted'?`<span class="meta-note" style="color:var(--err)">消失于 ${fmtT(c.deleted_at)}</span>`:''}
-      ${c.root_rpid&&c.root_rpid!==c.rpid?'<span class="meta-note">· 楼中楼</span>':''}
-    </div>
-    <div style="font-size:13px;margin:3px 0 0 0;${c.status==='deleted'?'color:var(--faint);text-decoration:line-through':''}">${esc(c.content)}</div>`;
+    el.className='cmt'; el.dataset.text=(c.content+' '+c.member_name).toLowerCase();
+    el.innerHTML = `
+      <img class="face" loading="lazy" src="/media/media/faces/${c.member_mid}.jpg" onerror="this.style.visibility='hidden'" alt="">
+      <div class="cbody">
+        <div class="chead">
+          <b>${esc(c.member_name)||'匿名'}</b>
+          <span class="st">${c.status==='deleted'?'<span class="dot err"></span>已消失':'<span class="dot ok"></span>现存'}</span>
+          <span class="meta-note">👍 ${fmtN(c.like_count)} · ${fmtT(c.ctime)}${c.location?' · '+esc(c.location):''}</span>
+          ${c.root_rpid&&c.root_rpid!==c.rpid?'<span class="meta-note">· 楼中楼</span>':''}
+          ${c.status==='deleted'?`<span class="meta-note" style="color:var(--err)">消失于 ${fmtT(c.deleted_at)}</span>`:''}
+        </div>
+        <div class="ccontent" style="${c.status==='deleted'?'color:var(--faint);text-decoration:line-through':''}">${esc(c.content)}</div>
+      </div>`;
     box.appendChild(el);
   }
   document.getElementById('cmtMore').style.display = list.length>=100 ? '' : 'none';
@@ -658,12 +705,12 @@ async function loadCmts(more){
 }
 function filterCmts(){
   const q = (document.getElementById('cmtFilter').value||'').toLowerCase();
-  document.querySelectorAll('#cmtList .cmtrow').forEach(el=>{
+  document.querySelectorAll('#cmtList .cmt').forEach(el=>{
     el.style.display = !q || el.dataset.text.includes(q) ? '' : 'none';
   });
 }
 async function loadDmAudit(){
-  const bvid = document.querySelector('.pagehead .desc')?.textContent?.trim();
+  const bvid = window.__bvid;
   if(!bvid) return;
   const all = await api(`/videos/${bvid}/danmaku`);
   const del = all.filter(x=>x.status==='deleted');
@@ -1086,41 +1133,37 @@ async function renderSettings(m){
     <span class="spacer"></span><button class="btn primary" id="stSave">保存全部设置</button></div>
   <div id="setOut"></div>
   <div class="sect"><h2>采集与补档</h2>
-    <div class="inline">
+    <div class="fgrid">
       <div class="field"><label>监控源默认同步间隔（分钟）</label><input type="number" id="stSyncMin" min="0" value="${c.sync_default_minutes}"><span class="hint">源未单独设置间隔时使用</span></div>
       <div class="field"><label>全库统计周期（小时，0=禁用）</label><input type="number" id="stStatsH" min="0" value="${c.stats_resync_hours??0}"></div>
-    </div>
-    <label class="check"><input type="checkbox" id="stAdaptive" ${c.adaptive_sync?'checked':''}> 自适应补档频率 <span class="meta-note">新发 24h 内加速、按评论/播放活跃度冷却沉寂视频</span></label>
-    <div class="inline">
+      <label class="check fcheck"><input type="checkbox" id="stAdaptive" ${c.adaptive_sync?'checked':''}><span>自适应补档频率<span class="fnote">新发 24h 内加速、按评论/播放活跃度冷却沉寂视频</span></span></label>
       <div class="field"><label>单视频评论抓取上限（0=不限）</label><input type="number" id="stCmtMax" min="0" value="${c.comments_max}"></div>
       <div class="field"><label>楼中楼抓取上限（0=不限）</label><input type="number" id="stSubMax" min="0" value="${c.sub_replies_max}"></div>
-    </div>
-    <label class="check"><input type="checkbox" id="stFullCmt" ${c.full_resync_comments?'checked':''}> 重同步时全量翻页评论 <span class="meta-note">关闭可加速但会漏检消失评论</span></label>
-    <div class="inline">
+      <label class="check fcheck"><input type="checkbox" id="stFullCmt" ${c.full_resync_comments?'checked':''}><span>重同步时全量翻页评论<span class="fnote">关闭可加速，但会漏检消失评论</span></span></label>
       <div class="field"><label>热门提示：播放量阈值（0=禁用）</label><input type="number" id="stHotV" min="0" value="${c.hot_video_views}"></div>
       <div class="field"><label>热门提示：评论数阈值（0=禁用）</label><input type="number" id="stHotR" min="0" value="${c.hot_video_replies}"></div>
     </div>
   </div>
   <div class="sect"><h2>下载</h2>
-    <label class="check"><input type="checkbox" id="stAutoDl" ${c.auto_download?'checked':''}> 归档后自动下载视频文件</label>
-    <label class="check"><input type="checkbox" id="stDlDm" ${c.download_danmaku?'checked':''}> 下载弹幕文件</label>
-    <div class="field"><label>清晰度白名单（留空 = 全部画质 = 最高可用）</label>
-      <input type="text" id="stQuals" value="${esc((c.qualities||[]).join(', '))}" placeholder="4k, 1080p60, 1080p">
-      <span class="hint">可选档：4k / 1080p60 / 1080p-high / 1080p / 720p60 / 720p / 480p / 360p，逗号分隔；指定档全部不可用时自动回落更低档</span></div>
-    <div class="field"><label>音频质量偏好（留空 = 标准最高）</label>
-      <input type="text" id="stAudioQ" value="${esc((c.audio_qualities||[]).join(', '))}" placeholder="hires, dolby, 192k">
-      <span class="hint">可选：hires / dolby / 192k / 132k / 64k，逗号分隔</span></div>
-    <div class="inline">
+    <div class="fgrid">
+      <label class="check fcheck"><input type="checkbox" id="stAutoDl" ${c.auto_download?'checked':''}><span>归档后自动下载视频文件</span></label>
+      <label class="check fcheck"><input type="checkbox" id="stDlDm" ${c.download_danmaku?'checked':''}><span>下载弹幕文件</span></label>
+      <div class="field wide"><label>清晰度白名单（留空 = 全部画质 = 最高可用）</label>
+        <input type="text" id="stQuals" value="${esc((c.qualities||[]).join(', '))}" placeholder="4k, 1080p60, 1080p">
+        <span class="hint">可选档：4k / 1080p60 / 1080p-high / 1080p / 720p60 / 720p / 480p / 360p，逗号分隔；指定档全部不可用时自动回落更低档</span></div>
+      <div class="field wide"><label>音频质量偏好（留空 = 标准最高）</label>
+        <input type="text" id="stAudioQ" value="${esc((c.audio_qualities||[]).join(', '))}" placeholder="hires, dolby, 192k">
+        <span class="hint">可选：hires / dolby / 192k / 132k / 64k，逗号分隔</span></div>
       <div class="field"><label>同时下载任务数</label><input type="number" id="stConc" min="1" value="${c.concurrency}"></div>
       <div class="field"><label>单流分段连接数</label><input type="number" id="stSeg" min="1" value="${c.segments}"></div>
+      <label class="check fcheck"><input type="checkbox" id="stAv1" ${c.allow_av1?'checked':''}><span>允许 AV1 编码</span></label>
+      <label class="check fcheck"><input type="checkbox" id="st4k" ${c.allow_4k?'checked':''}><span>允许 4K（仍受白名单限制）</span></label>
+      <div class="field"><label>请求最小间隔（毫秒）<span class="origin">†</span></label><input type="number" id="stMinReq" min="0" value="${c.min_req_ms??350}"><span class="hint">B 站接口全局限流，调小有风控风险</span></div>
     </div>
-    <label class="check"><input type="checkbox" id="stAv1" ${c.allow_av1?'checked':''}> 允许 AV1 编码</label>
-    <label class="check"><input type="checkbox" id="st4k" ${c.allow_4k?'checked':''}> 允许 4K（仍受白名单限制）</label>
-    <div class="field" style="max-width:280px"><label>请求最小间隔（毫秒）<span class="origin">†</span></label><input type="number" id="stMinReq" min="0" value="${c.min_req_ms??350}"><span class="hint">B 站接口全局限流，调小有风控风险</span></div>
   </div>
   <div class="sect"><h2>媒体库与站点</h2>
-    <label class="check"><input type="checkbox" id="stMedEn" ${c.media_enabled?'checked':''}> 启用媒体库输出（归档后自动刷新软链接）</label>
-    <div class="inline">
+    <div class="fgrid">
+      <label class="check fcheck"><input type="checkbox" id="stMedEn" ${c.media_enabled?'checked':''}><span>启用媒体库输出<span class="fnote">归档后自动刷新软链接</span></span></label>
       <div class="field"><label>媒体库布局</label><select id="stMedLayout">
         <option value="movie"${sel('movie',c.media_layout)}>电影（每视频一部）</option>
         <option value="show"${sel('show',c.media_layout)}>剧集（UP主=剧集）</option>
@@ -1131,12 +1174,12 @@ async function renderSettings(m){
         <option value="hardlink"${sel('hardlink',c.media_link_mode)}>硬链接</option>
         <option value="copy"${sel('copy',c.media_link_mode)}>复制</option>
         <option value="strm"${sel('strm',c.media_link_mode)}>STRM（指向核心 HTTP 流，Emby 可跨机播放）</option></select></div>
-      <div class="field"><label>核心公网地址（STRM 模式使用，如 http://192.168.1.114:8080）</label>
+      <div class="field wide"><label>核心公网地址（STRM 模式使用）</label>
         <input type="text" id="stPubUrl" value="${esc(c.media_public_url||'')}" placeholder="http://192.168.1.114:8080"></div>
+      <label class="check fcheck"><input type="checkbox" id="stTeriEn" ${c.teriteri_enabled?'checked':''}><span>启用 teriteri 站点托管 <span class="origin">†</span></span></label>
+      <div class="field wide"><label>teriteri 前端地址（总览页展示的观看入口，留空显示提示）</label>
+        <input type="text" id="stFrontUrl" value="${esc(c.frontend_url||'')}" placeholder="http://192.168.1.114:8081"></div>
     </div>
-    <label class="check"><input type="checkbox" id="stTeriEn" ${c.teriteri_enabled?'checked':''}> 启用 teriteri 站点托管 <span class="origin">†</span></label>
-    <div class="field"><label>teriteri 前端地址（总览页展示的观看入口，留空显示提示）</label>
-      <input type="text" id="stFrontUrl" value="${esc(c.frontend_url||'')}" placeholder="http://192.168.1.114:8081"></div>
   </div>
   <div class="sect"><h2>只读信息</h2>
     <dl class="kv">
@@ -1146,9 +1189,12 @@ async function renderSettings(m){
       <dt>插件目录</dt><dd><span class="path">${esc(c.plugins_dir)}</span></dd>
       <dt>B 站登录</dt><dd>${c.login?'<span class="dot ok"></span>已登录':'<span class="dot warn"></span>未登录（账号页扫码）'}</dd>
     </dl>
-    <p></p><span class="meta-note">修改以上路径/监听地址请直接编辑 config.yaml 后重启；设置页只暴露可安全修改的项。保存时会自动备份原配置为 config.yaml.bak。</span>
-  </div>`;
+    <p></p><span class="meta-note">路径/监听地址请直接编辑 config.yaml 后重启；设置页只暴露可安全修改的项。</span>
+  </div>
+  <div class="savebar"><button class="btn primary" id="stSave2">保存全部设置</button>
+    <span class="meta-note">保存立即生效 · 原配置自动备份为 config.yaml.bak</span></div>`;
   $('#stSave').onclick = saveSettings;
+  const sb = $('#stSave2'); if(sb) sb.onclick = saveSettings;
 }
 window.saveSettings = async () => {
   const body = {

@@ -319,3 +319,17 @@ CREATE TABLE IF NOT EXISTS site_danmaku (
   content TEXT NOT NULL,
   ctime INTEGER NOT NULL
 );
+
+-- v9 增量：站内搜索词库 + 站长个人资料（teriteri 账号自助页）
+CREATE TABLE IF NOT EXISTS site_search_words (
+  word TEXT PRIMARY KEY,
+  uid INTEGER NOT NULL,
+  ctime INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS site_profile (
+  uid INTEGER PRIMARY KEY,
+  nickname TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  gender INTEGER NOT NULL DEFAULT 2,
+  avatar TEXT NOT NULL DEFAULT ''
+);

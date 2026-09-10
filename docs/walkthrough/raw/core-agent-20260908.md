@@ -49,3 +49,8 @@
 - 做了什么：人类交办"主panel增加第三方媒体库在线情况显示（teriteri/emby/jellyfin/plex/kodi）"。config 增 media.servers 列表（name/type/url）+ MediaServer 类型；新端点 GET /api/v1/media-servers/status 并发探测（3s 超时）——emby/jellyfin→/System/Info/Public、plex→/identity、kodi/teriteri→根路径，**收到任意 HTTP 响应（含 401/403 鉴权）即在线**，note 带状态码；teriteri 未配置但适配启用时自动显示"内置适配（随核心进程运行）"；总览页新增"第三方媒体库在线"区块（在线点/延迟/链接/note）。用户 config.yaml 已配 teriteri 前端(8081)。
 - 涉及：internal/config/config.go、config.example.yaml、config.yaml、internal/server/{mediaservers.go,mediaservers_test.go,admin.go}、internal/server/static/index.html、ARCHITECTURE §7。
 - 结果：done。全量 17 包绿（类型健康路径/401 在线判定/离线与空地址用例；inline JS 过）；实测 teriteri 前端 HTTP 200 / 57ms 在线。**踩坑（多 agent 竞争）**：我写入 config.yaml 的 servers 条目被并行 agent 的"设置页保存 config"功能整文件重写覆盖（yaml Marshal 回写丢失注释与我的条目）——config 文件与 cookies.json 一样存在多实例互相覆盖风险，已在留言区提醒；重加条目后验证通过。当前 8081 的 teriteri 前端已由 teriteriweb agent 的核心自托管方案接管（client_addr :8081）。
+
+## 2026-09-09T03:20:00Z core-agent — 媒体库状态改为五行恒显示（未配置→未检测到）
+- 做了什么：人类反馈总览页"各媒体库状态还没看到，要显示如 emby（未检测到）"。重构 mediaServerStatuses：恒定输出 teriteri/emby/jellyfin/plex/kodi 五行（未配置实例的类型输出 Detected=false + Note="未检测到"；已配置多实例聚合"在线 m/n"，单实例透传其 note；teriteri 未配置实例但适配启用时仍显示内置在线项，显式配置则不叠加）；前端按行渲染 在线/离线/未检测到 三态 + 实例子行；server.go 静态页与首页加 Cache-Control: no-cache（页面随二进制内嵌更新，防浏览器停留旧版 UI——"看不到新版"的另一个诱因）。
+- 涉及：internal/server/{mediaservers.go,mediaservers_test.go,server.go,static/index.html}。
+- 结果：done。server/config 包测试绿（新增五行聚合/内置不叠加/未检测到断言），inline JS 过；线上实测五行输出——teriteri 在线(HTTP 200)、其余四类"未检测到"，首页带 no-cache 头。

@@ -10,13 +10,49 @@ import (
 	"bili-saver/internal/store"
 )
 
+// commentSink 缓冲评论并分批落库：单事务 + prepared 复用，替代逐条自动提交
+// （整轮评论采集的主要写入瓶颈）。攒满 flushBatch 条自动冲刷。
+type commentSink struct {
+	c   *Collector
+	buf []*store.Comment
+}
+
+const flushBatch = 256
+
+func (s *commentSink) add(cm *store.Comment) error {
+	s.buf = append(s.buf, cm)
+	if len(s.buf) >= flushBatch {
+		return s.flush()
+	}
+	return nil
+}
+
+func (s *commentSink) flush() error {
+	if len(s.buf) == 0 {
+		return nil
+	}
+	batch := s.buf
+	s.buf = nil
+	return s.c.St.UpsertCommentsBatch(batch)
+}
+
 // collectComments 抓取全部评论。返回 (本轮见到条数, 是否完整抓完, 错误)。
 // 完整性决定上层是否执行消失检测——限量截断时不能标删。
-func (c *Collector) collectComments(ctx context.Context, aid int64, bvid string, syncStart int64, isNew bool) (int, bool, error) {
-	seen := 0
+func (c *Collector) collectComments(ctx context.Context, aid int64, bvid string, syncStart int64, isNew bool) (seen int, complete bool, err error) {
 	max := c.Cfg.Collector.CommentsMax
 	offset := ""
-	complete := false
+	complete = false
+
+	sink := &commentSink{c: c}
+	// 所有返回路径先冲刷缓冲：消失检测依赖本轮见到的评论已全部落库。
+	defer func() {
+		if ferr := sink.flush(); ferr != nil {
+			complete = false
+			if err == nil {
+				err = ferr
+			}
+		}
+	}()
 
 	save := func(r biliapi.Reply) error {
 		location := ""
@@ -25,7 +61,7 @@ func (c *Collector) collectComments(ctx context.Context, aid int64, bvid string,
 		}
 		location = stringsTrimPrefix(location, "IP属地：")
 		raw, _ := json.Marshal(r)
-		return c.St.UpsertComment(&store.Comment{
+		return sink.add(&store.Comment{
 			Rpid: int64(r.Rpid), Bvid: bvid,
 			ParentRpid: 0, // main 接口里 root==0 为主楼；root>0 时 parent=root
 			RootRpid:   int64(r.Root),
@@ -63,7 +99,7 @@ func (c *Collector) collectComments(ctx context.Context, aid int64, bvid string,
 				if remaining := r.Rcount - subSeen; remaining > 0 {
 					if c.Cfg.Collector.SubRepliesMax > 0 && subSeen >= c.Cfg.Collector.SubRepliesMax {
 						complete = false
-					} else if ok := c.fetchSubReplies(ctx, aid, int64(r.Rpid), int64(r.Root), bvid, remaining, syncStart, syncStart, &seen); !ok {
+					} else if ok := c.fetchSubReplies(ctx, aid, int64(r.Rpid), int64(r.Root), bvid, remaining, syncStart, syncStart, sink, &seen); !ok {
 						complete = false
 					}
 				}
@@ -89,7 +125,7 @@ func (c *Collector) collectComments(ctx context.Context, aid int64, bvid string,
 }
 
 // fetchSubReplies 翻页抓取一条主楼的全部楼中楼，返回是否抓完整。
-func (c *Collector) fetchSubReplies(ctx context.Context, aid, rpid, root int64, bvid string, remaining int, syncStart, now int64, seen *int) bool {
+func (c *Collector) fetchSubReplies(ctx context.Context, aid, rpid, root int64, bvid string, remaining int, syncStart, now int64, sink *commentSink, seen *int) bool {
 	const ps = 20
 	maxSub := c.Cfg.Collector.SubRepliesMax
 	fetched := 0
@@ -104,7 +140,7 @@ func (c *Collector) fetchSubReplies(ctx context.Context, aid, rpid, root int64, 
 				location = stringsTrimPrefix(r.ReplyControl.Location, "IP属地：")
 			}
 			raw, _ := json.Marshal(r)
-			if err := c.St.UpsertComment(&store.Comment{
+			if err := sink.add(&store.Comment{
 				Rpid: int64(r.Rpid), Bvid: bvid,
 				ParentRpid: rpid, RootRpid: orDefault(int64(r.Root), rpid),
 				MemberMid: int64(r.Member.Mid), MemberName: r.Member.Uname, MemberFace: r.Member.Avatar,

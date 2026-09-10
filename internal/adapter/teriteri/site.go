@@ -6,9 +6,13 @@ package teriteri
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"bili-saver/internal/store"
 )
@@ -25,6 +29,16 @@ func (a *Adapter) registerSite(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/video/user-collect", a.wrap(a.videoUserCollect, true))
 	mux.HandleFunc("GET /api/favorite/get-all/user", a.wrap(a.favoriteUserReal, true))
 	mux.HandleFunc("GET /api/favorite/get-all/visitor", a.wrap(a.favoriteVisitorReal, false))
+	mux.HandleFunc("GET /api/comment/get-like-and-dislike", a.wrap(a.commentGetLikeDislike, true))
+	mux.HandleFunc("GET /api/video/collected-fids", a.wrap(a.collectedFids, true))
+	mux.HandleFunc("POST /api/comment/delete", a.wrap(a.commentDelete, true))
+	mux.HandleFunc("POST /api/danmu/delete", a.wrap(a.danmuDelete, true))
+	mux.HandleFunc("POST /api/search/word/add", a.wrap(a.searchWordAdd, false))
+	mux.HandleFunc("GET /api/search/word/get", a.wrap(a.searchWordGet, false))
+	mux.HandleFunc("GET /api/search/user", a.wrap(a.searchUser, false))
+	mux.HandleFunc("POST /api/user/avatar/update", a.wrap(a.userAvatarUpdate, true))
+	mux.HandleFunc("POST /api/user/info/update", a.wrap(a.userInfoUpdate, true))
+	mux.HandleFunc("POST /api/user/password/update", a.wrap(a.userPasswordUpdate, true))
 }
 
 // videoLoveOrNot FormData{vid, isLove, isSet}。
@@ -461,4 +475,163 @@ func (a *Adapter) handleDanmuFrame(vid string, payload []byte, conn interface{ W
 	})
 	_, _ = conn.Write(writeWSTextFrame(item))
 	_ = page
+}
+
+// ---- 账号自助 / 搜索联想 / 删除（此前为占位） ----
+
+// commentDelete FormData{id}：仅站内评论可删（B站 rpid 不在 site_comments，幂等成功）。
+func (a *Adapter) commentDelete(w http.ResponseWriter, r *http.Request, uid int64) {
+	id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
+	if id == 0 {
+		a.fail(w, 400, "缺少评论 id")
+		return
+	}
+	if _, err := a.St.DeleteSiteComment(id, uid); err != nil {
+		a.fail(w, 500, err.Error())
+		return
+	}
+	a.ok(w, true)
+}
+
+// danmuDelete FormData{id}：仅站内弹幕可删。
+func (a *Adapter) danmuDelete(w http.ResponseWriter, r *http.Request, uid int64) {
+	id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
+	if id == 0 {
+		a.fail(w, 400, "缺少弹幕 id")
+		return
+	}
+	if _, err := a.St.DeleteSiteDanmaku(id, uid); err != nil {
+		a.fail(w, 500, err.Error())
+		return
+	}
+	a.ok(w, true)
+}
+
+// searchWordAdd FormData{keyword}：入站内词库（联想排序按新→旧）。
+func (a *Adapter) searchWordAdd(w http.ResponseWriter, r *http.Request, uid int64) {
+	kw := strings.TrimSpace(clientKeyword(r.FormValue("keyword")))
+	if kw == "" {
+		a.ok(w, true)
+		return
+	}
+	_ = a.St.AddSearchWord(uid, kw)
+	a.ok(w, true)
+}
+
+// searchWordGet ?keyword=：词库 + 归档标题/标签联想。
+func (a *Adapter) searchWordGet(w http.ResponseWriter, r *http.Request, _ int64) {
+	kw := clientKeyword(r.FormValue("keyword"))
+	a.ok(w, a.St.SearchWordSuggestions(kw, 10))
+}
+
+// searchUser ?keyword=：归档站单用户，昵称命中即返回站长卡片。
+func (a *Adapter) searchUser(w http.ResponseWriter, r *http.Request, _ int64) {
+	kw := strings.TrimSpace(clientKeyword(r.FormValue("keyword")))
+	u := a.adminUser()
+	if kw != "" && strings.Contains(u.Nickname, kw) {
+		a.ok(w, []TUser{u})
+		return
+	}
+	a.ok(w, []any{})
+}
+
+// commentGetLikeDislike 用户赞过的评论 id 集合（重载后回显高亮）。
+func (a *Adapter) commentGetLikeDislike(w http.ResponseWriter, _ *http.Request, uid int64) {
+	liked, err := a.St.ListLikedRpids(uid)
+	if err != nil {
+		liked = nil
+	}
+	a.ok(w, map[string]any{"userLike": liked, "userDislike": []any{}})
+}
+
+// collectedFids ?vid=：该视频已被收藏进哪些夹（收藏弹窗预勾选）。
+func (a *Adapter) collectedFids(w http.ResponseWriter, r *http.Request, uid int64) {
+	bvid, _ := splitVid(r.FormValue("vid"))
+	if bvid == "" || strings.EqualFold(bvid, "NaN") {
+		a.ok(w, []any{})
+		return
+	}
+	fids, err := a.St.ListFavItemFids(uid, bvid)
+	if err != nil {
+		a.ok(w, []any{})
+		return
+	}
+	a.ok(w, fids)
+}
+
+// userAvatarUpdate FormData{file}：头像存 dataDir/media/avatars，返回可访问 URL。
+func (a *Adapter) userAvatarUpdate(w http.ResponseWriter, r *http.Request, uid int64) {
+	_ = r.ParseMultipartForm(8 << 20)
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		a.fail(w, 400, "缺少头像文件")
+		return
+	}
+	defer file.Close()
+	ext := ".png"
+	if e := filepath.Ext(hdr.Filename); e != "" && len(e) <= 5 {
+		ext = strings.ToLower(e)
+	}
+	dir := filepath.Join(a.DataDir, "media", "avatars")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		a.fail(w, 500, err.Error())
+		return
+	}
+	rel := fmt.Sprintf("media/avatars/avatar_%d_%d%s", uid, time.Now().UnixMilli(), ext)
+	dst, err := os.Create(filepath.Join(a.DataDir, filepath.FromSlash(rel)))
+	if err != nil {
+		a.fail(w, 500, err.Error())
+		return
+	}
+	defer dst.Close()
+	if _, err := io.Copy(dst, file); err != nil {
+		a.fail(w, 500, err.Error())
+		return
+	}
+	url := "/media/" + rel
+	_ = a.St.SetProfileAvatar(uid, rel)
+	a.ok(w, url)
+}
+
+// userInfoUpdate FormData{nickname, description, gender} → 更新后的用户对象。
+func (a *Adapter) userInfoUpdate(w http.ResponseWriter, r *http.Request, uid int64) {
+	_ = r.ParseMultipartForm(1 << 20)
+	nickname := strings.TrimSpace(r.FormValue("nickname"))
+	descr := r.FormValue("description")
+	gender, _ := strconv.Atoi(r.FormValue("gender"))
+	if nickname == "" {
+		a.fail(w, 400, "昵称不能为空")
+		return
+	}
+	if gender < 0 || gender > 2 {
+		gender = 2
+	}
+	if err := a.St.UpsertProfile(uid, nickname, descr, gender); err != nil {
+		a.fail(w, 500, err.Error())
+		return
+	}
+	a.ok(w, a.adminUser())
+}
+
+// userPasswordUpdate FormData{pw, npw}：校验旧密码后经 Hook 持久化到配置。
+func (a *Adapter) userPasswordUpdate(w http.ResponseWriter, r *http.Request, uid int64) {
+	_ = r.ParseMultipartForm(1 << 20)
+	pw := r.FormValue("pw")
+	npw := r.FormValue("npw")
+	if pw != a.AdminPass {
+		a.fail(w, 400, "原密码错误")
+		return
+	}
+	if len(npw) < 6 {
+		a.fail(w, 400, "新密码至少 6 位")
+		return
+	}
+	if a.PasswordHook != nil {
+		if err := a.PasswordHook(npw); err != nil {
+			a.fail(w, 500, err.Error())
+			return
+		}
+	}
+	a.AdminPass = npw
+	a.ok(w, true)
 }

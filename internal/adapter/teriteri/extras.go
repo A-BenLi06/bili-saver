@@ -21,11 +21,8 @@ func (a *Adapter) registerExtras(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/category/getall", a.wrap(a.categoryGetall, false))
 	mux.HandleFunc("GET /api/search/hot/get", a.wrap(a.searchHot, false))
 	mux.HandleFunc("GET /api/search/count", a.wrap(a.searchCount, false))
-	mux.HandleFunc("POST /api/search/word/add", a.wrap(a.okEmpty, false))
-	mux.HandleFunc("GET /api/search/word/get", a.wrap(a.emptyList, false))
 
 	// 登录态：收藏夹与评论赞踩（App.vue 启动链路依赖）
-	mux.HandleFunc("GET /api/comment/get-like-and-dislike", a.wrap(a.likeDislike, true))
 	mux.HandleFunc("POST /api/msg-unread/clear", a.wrap(a.okEmpty, true))
 
 	// 消息页：归档站无私信，空数据占位避免报错弹窗

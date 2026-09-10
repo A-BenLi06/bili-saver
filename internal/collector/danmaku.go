@@ -30,19 +30,25 @@ func (c *Collector) collectDanmaku(ctx context.Context, bvid string, cid int64, 
 	total := 0
 
 	saveElems := func(elems []dmproto.DanmakuElem) error {
+		if len(elems) == 0 {
+			return nil
+		}
+		ds := make([]*store.Danmaku, 0, len(elems))
 		for _, e := range elems {
-			d := &store.Danmaku{
+			ds = append(ds, &store.Danmaku{
 				Dmid: e.ID, Bvid: bvid, Cid: cid,
 				Timepoint: int(e.Progress), Mode: int(e.Mode),
 				Fontsize: int(e.Fontsize), Color: int64(e.Color),
 				Content: e.Content, Ctime: e.Ctime,
 				FirstSeenAt: syncStart, LastSeenAt: syncStart,
-			}
-			if err := c.St.UpsertDanmaku(d); err != nil {
-				return err
-			}
-			total++
+			})
 		}
+		// 单事务批量落库（一段常上千条）；事务保证要么全入要么全不入，
+		// total 只在成功后累加，保证"本轮见到数"= 实际持久化数（消失防御依赖）。
+		if err := c.St.UpsertDanmakuBatch(ds); err != nil {
+			return err
+		}
+		total += len(ds)
 		return nil
 	}
 	saveRaw := func(name string, raw []byte) {
