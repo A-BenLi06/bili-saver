@@ -82,8 +82,9 @@ internal/
   store/    SQLite：schema.sql(v1 基线 IF NOT EXISTS) + migrate() 增量补列(v2-v8) + DAO
   jobs/     持久化任务队列（崩溃恢复：running→queued 重放）+ 调度器（按源独立间隔；
             statsDue 按类型查最近 job 避免误触发；freshSweep 新发 24h 内 45min 轻量统计加速；
-            终态任务滚动保留最近 1000 条、每 24h 清理）
-  media/    多媒体库桥：遍历 media_libraries，按 MatchRules(tags/categories=分区名；UP主预留)路由视频，
+            终态任务滚动保留最近 1000 条、每 24h 清理）；/jobs 读时富化任务来源
+            （source_id→源标题、bvid→视频标题，供管理端"任务来源"列）
+  media/    多媒体库桥：遍历 media_libraries，按 MatchRules(tags/categories=分区名/orientation=横竖屏；UP主预留)路由视频
             movie/show 布局，NFO(仅 origin 数据)/JSON sidecar/none 三种元数据格式，
             symlink(绝对路径)→hardlink→copy 降级链
   plugin/   事件总线 + 进程插件 runtime + op 协议（见 §9）

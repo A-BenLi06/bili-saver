@@ -1010,9 +1010,15 @@ async function loadTk(){
 async function renderLibraries(m){
   const libs=await api('/libraries');
   m.innerHTML=`
-  <div class="pagehead"><h1>媒体库</h1><span class="desc">独立配置输出路径与元数据，可按标签路由</span>
+  <div class="pagehead"><h1>媒体库</h1><span class="desc">独立配置输出路径与元数据，可按标签/分区/类型路由（仅作用于 Emby/Plex/Jellyfin/Kodi 输出；teriteri 全量显示不受影响）</span>
     <span class="spacer"></span><button class="btn primary" onclick="newLib()">新建媒体库</button>
     <button class="btn" onclick="rebuildAll()">全部重建</button></div>
+  <div class="sect" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <span class="st">路由测试：</span>
+    <input type="text" id="rtBvid" placeholder="输入 BV 号，查看会归入哪些库" style="max-width:300px;padding:6px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13px">
+    <button class="btn sm" onclick="testRoute()">测试归属</button>
+    <span id="rtResult" class="st"></span>
+  </div>
   <div class="sect">
     ${(libs&&libs.length)?`<table><thead><tr><th>名称</th><th>路径</th><th>布局</th><th>链接</th><th>元数据</th><th>路由</th><th></th></tr></thead><tbody>`+
     libs.map(l=>{
@@ -1021,6 +1027,10 @@ async function renderLibraries(m){
         const parts=[];
         if(rr.tags&&rr.tags.length) parts.push('标签: '+rr.tags.join(', '));
         if(rr.categories&&rr.categories.length) parts.push('分区: '+rr.categories.join(', '));
+        if(rr.orientation&&rr.orientation.length){
+          const cn={horizontal:'横屏',vertical:'竖屏'};
+          parts.push('类型: '+rr.orientation.map(x=>cn[x]||x).join('/'));
+        }
         if(rr.owner_mids&&rr.owner_mids.length) parts.push('UP主: '+rr.owner_mids.join(', '));
         if(parts.length) rule=parts.join(' · ');}catch(e){}
       return `<tr>
@@ -1053,6 +1063,12 @@ async function renderLibraries(m){
         <input type="text" id="leTags" placeholder="美食, 教程"><span class="hint">命中任一 B 站标签的视频进入此库</span></div>
       <div class="field"><label>路由 — 分区（逗号分隔，留空 = 不按分区）</label>
         <input type="text" id="leCats" placeholder="美食, 动画, 音乐"><span class="hint">命中任一 B 站分区的视频进入此库（按归档时官方 tname 精确匹配）</span></div>
+      <div class="field"><label>路由 — 类型（横竖屏，按归档时宽高判定）</label>
+        <div class="inline">
+          <label class="check"><input type="checkbox" class="leOrient" value="horizontal"> 横屏</label>
+          <label class="check"><input type="checkbox" class="leOrient" value="vertical"> 竖屏</label>
+        </div>
+        <span class="hint">勾选任一类型则仅该类型的视频进入此库；都不勾 = 不按类型</span></div>
       <label class="check"><input type="checkbox" id="leEnabled" checked> 启用</label>
       <div class="actions"><button class="btn primary" onclick="saveLib()">保存</button></div>
     </form>
@@ -1084,6 +1100,8 @@ window.editLib = id => api('/libraries').then(libs=>{
   try{ const rr=JSON.parse(l.match_rules||'{}');
     $('#leTags').value=(rr.tags||[]).join(', ');
     $('#leCats').value=(rr.categories||[]).join(', ');
+    const ori=rr.orientation||[];
+    document.querySelectorAll('#libEdit .leOrient').forEach(x=>x.checked=ori.includes(x.value));
   }catch(e){}
   $('#leEnabled').checked=l.enabled;
   $('#libEdit').style.display='block'; $('#libEdit').scrollIntoView({behavior:'smooth'});
@@ -1095,6 +1113,8 @@ window.saveLib = async () => {
   const rules={};
   if(tags.length) rules.tags=tags;
   if(cats.length) rules.categories=cats;
+  const ori=[...document.querySelectorAll('#libEdit .leOrient:checked')].map(x=>x.value);
+  if(ori.length) rules.orientation=ori;
   const body={name:$('#leName').value.trim(), root_path:$('#leRoot').value.trim(),
     layout:$('#leLayout').value, link_mode:$('#leLink').value, metadata_format:$('#leMeta').value,
     match_rules:JSON.stringify(rules), enabled:$('#leEnabled').checked};
@@ -1104,6 +1124,18 @@ window.saveLib = async () => {
     else { await api('/libraries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
     toast('媒体库已保存','ok'); renderLibraries($('#main'));
   }catch(e){ toast('保存失败：'+e,'err'); }
+};
+window.testRoute = async () => {
+  const bvid=document.getElementById('rtBvid').value.trim();
+  const out=document.getElementById('rtResult');
+  if(!bvid){ out.textContent='请输入 BV 号'; return; }
+  out.textContent='测试中…';
+  try{
+    const d=await api('/libraries/route-test?bvid='+encodeURIComponent(bvid));
+    const hit=(d.libraries||[]).filter(x=>x.matched).map(x=>x.name);
+    const desc=(d.tname?('分区 '+d.tname):'')+(d.orientation?((d.tname?' · ':'')+(d.orientation==='vertical'?'竖屏':'横屏')):'');
+    out.innerHTML=esc(d.bvid)+'（'+esc(desc||'未知属性')+'） → '+(hit.length?'命中库：'+esc(hit.join('、')):'无命中的启用库');
+  }catch(e){ out.textContent='失败：'+e; }
 };
 window.delLib = async id => { if(confirm('删除该媒体库配置？（不删除已输出的文件）')){ await api(`/libraries/${id}`,{method:'DELETE'}); renderLibraries($('#main')); } };
 
@@ -1194,7 +1226,7 @@ async function pollLogs(){
         const div=document.createElement('div');
         const lv=(l.text.match(/level=(\w+)/)||[])[1]||'INFO';
         const col={WARN:'#fbbf24',ERROR:'#f87171',DEBUG:'#94a3b8'}[lv]||'#93c5fd';
-        const msg=l.text.replace(/^time=[^ ]+ /,'').replace(/ level=\w+ /,' ');
+        const msg=l.text.replace(/^time=[^ ]+ /,'').replace(/^level=\w+ /,'').replace(/ level=\w+ /g,' ');
         div.innerHTML='<span style="color:#64748b">'+esc(l.ts)+'</span> <span style="color:'+col+';font-weight:600">['+lv+']</span> '+esc(msg);
         frag.appendChild(div);
       }

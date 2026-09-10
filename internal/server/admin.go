@@ -105,6 +105,7 @@ func (s *Server) registerAdmin() {
 	m.HandleFunc("GET /api/v1/tracks", s.handleTracks)
 	m.HandleFunc("GET /api/v1/media-servers/status", s.handleMediaServersStatus)
 	m.HandleFunc("GET /api/v1/libraries", s.handleListLibraries)
+	m.HandleFunc("GET /api/v1/libraries/route-test", s.handleRouteTest)
 	m.HandleFunc("POST /api/v1/libraries", s.handleCreateLibrary)
 	m.HandleFunc("PATCH /api/v1/libraries/{id}", s.handlePatchLibrary)
 	m.HandleFunc("DELETE /api/v1/libraries/{id}", s.handleDeleteLibrary)
@@ -1458,4 +1459,47 @@ func extractLogTime(line string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+// handleRouteTest 路由预览：给定 bvid（优先，读真实分区/类型/标签）或手动
+// tid+orientation，返回每个启用媒体库的命中情况（供媒体库管理页验证路由）。
+// 路由仅作用于媒体库输出（Emby/Plex/Jellyfin/Kodi），teriteri 全量显示不受影响。
+func (s *Server) handleRouteTest(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	var v store.Video
+	var tags []string
+	if bvid := q.Get("bvid"); bvid != "" {
+		got, err := s.Deps.St.GetVideo(bvid)
+		if err != nil {
+			errJSON(w, 404, errStr("未找到视频 "+bvid))
+			return
+		}
+		v = *got
+		if m, err := s.Deps.St.VideoTags(bvid); err == nil {
+			tags = m["bilibili"]
+		}
+	} else {
+		tid, _ := strconv.ParseInt(q.Get("tid"), 10, 64)
+		v = store.Video{Bvid: q.Get("bvid"), Tid: tid, Tname: bilicats.Name(int(tid)), Orientation: q.Get("orientation")}
+	}
+	libs, err := s.Deps.St.ListMediaLibraries()
+	if err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	type libHit struct {
+		Name    string `json:"name"`
+		Matched bool   `json:"matched"`
+	}
+	out := make([]libHit, 0, len(libs))
+	for _, lib := range libs {
+		if !lib.Enabled {
+			continue
+		}
+		out = append(out, libHit{Name: lib.Name, Matched: lib.Matches(&v, tags)})
+	}
+	writeJSON(w, 200, map[string]any{
+		"bvid": v.Bvid, "tname": v.Tname, "orientation": v.Orientation,
+		"tags": tags, "libraries": out,
+	})
 }

@@ -83,3 +83,28 @@ func TestVideoCategoryRoundTrip(t *testing.T) {
 		t.Errorf("更新路径分区应随最新值: %+v", got2)
 	}
 }
+
+func TestMatchRulesOrientation(t *testing.T) {
+	lib := &MediaLibrary{MatchRules: `{"orientation":["vertical"]}`}
+	vert := &Video{Orientation: "vertical"}
+	horiz := &Video{Orientation: "horizontal"}
+	unknown := &Video{}
+
+	if !lib.Matches(vert, nil) {
+		t.Error("竖屏应命中 orientation=vertical")
+	}
+	if lib.Matches(horiz, nil) {
+		t.Error("横屏不应命中 orientation=vertical")
+	}
+	if lib.Matches(unknown, nil) {
+		t.Error("orientation 未知不应命中")
+	}
+	// 分区 + 类型是"或"关系
+	mixed := &MediaLibrary{MatchRules: `{"categories":["美食制作"],"orientation":["horizontal"]}`}
+	if !mixed.Matches(&Video{Tname: "美食制作", Orientation: "vertical"}, nil) {
+		t.Error("分区命中即匹配（即使类型未中）")
+	}
+	if !mixed.Matches(&Video{Orientation: "horizontal"}, nil) {
+		t.Error("类型命中即匹配（即使分区未中）")
+	}
+}

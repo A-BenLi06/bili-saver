@@ -23,11 +23,11 @@ type Line struct {
 const ringCap = 4000
 
 var (
-	ringMu   sync.Mutex
-	ringBuf  []Line
-	ringSeq  uint64
-	logsDir  string
-	dirOnce  sync.Once
+	ringMu  sync.Mutex
+	ringBuf []Line
+	ringSeq uint64
+	logsDir string
+	dirOnce sync.Once
 )
 
 type ringWriter struct{}

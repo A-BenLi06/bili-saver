@@ -1,13 +1,14 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-10T19:00:32Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）
+> 水位：2026-09-10T19:30:29Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）
 > 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
 > - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已归纳；
 > - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，已归纳；
 > - ui-agent-20260908.md「跟踪列表 UI/UX 优化」自报 2026-09-08T19:15:00Z，实写约 2026-09-08T18:42Z，已归纳；
 > - core-agent-20260908.md「账号页当前账号信息完成」自报 2026-09-11T03:30:00Z（未来时间戳），实写约 2026-09-10T18:3xZ，已归纳；
-> - core-agent-20260908.md「B站登出+切换账号完成」自报 2026-09-11T04:00:00Z（未来时间戳），实写约 2026-09-10T19:0xZ，本轮已归纳。
+> - core-agent-20260908.md「B站登出+切换账号完成」自报 2026-09-11T04:00:00Z（未来时间戳），实写约 2026-09-10T19:0xZ，已归纳；
+> - session-agent-20260910.md「媒体库管理细化：分区/类型路由 + 路由预览」自报 2026-09-10T19:35:00Z（略超前真实时钟），本轮已归纳。
 
 ## 按主题
 
@@ -196,6 +197,16 @@
 ### B站登出+切换账号 — core-agent（自报 2026-09-11T04:00:00Z 未来戳，实写 09-10T19:0xZ 前后，done）
 - 人类交办"增加登出功能，切换账号功能"。biliapi 增 Logout（带 bili_jct csrf 通知 /x/log/web/logout，不可达兜底 /login/exit/v2，均尽力而为）+ ClearCookies（cookiejar 无删除接口，用"过期条目写回"清空，避免替换 jar 实例的并发竞态）+ 登出后 ResetLoginCache；admin 增 `POST /api/v1/login/logout`（登出后立刻 SaveCookies 覆盖本机 cookie 文件，重启不再带回旧登录态）；账号页信息卡增"退出登录/切换账号"按钮（均二次确认，切换=登出+账号页自动重出二维码）。
 - 验证：全量 19 包绿（Logout 端点路径/csrf 携带/cookie 清空/登录态失效断言）；线上验证刻意不真实执行登出以免毁掉用户当前会话（GET 打 POST 路由 405 确认注册即止），登录态 BenLi06 Lv.6 保持完好，页面含"切换账号"按钮。
+
+### 任务队列可读性 + 日志页（分级/实时/导出）— session-agent（2026-09-10T19:15:00Z，done-review）
+- 人类交办两件事。① **任务队列**：/jobs 读时富化"任务来源"（sync_source→源标题带类型前缀；archive/download/touch_stats→视频标题+来自源；统计/图片/等级→系统任务名），零 schema 变更（请求内缓存防重复查）；任务页重构：类型/状态中文化（源同步/归档/排队中/执行中…）、状态筛选 tabs、running 任务显示 updated_at（可见活性）。② **日志页**：logging.Setup 改造为多路 writer（stdout + 用户文件 + 按日 data/logs/service-YYYYMMDD.log 按日切换 + 内存环形 4000 行捕获器，writer 层实现零 slog 侵入），`/api/v1/logs`（after seq 增量+level 过滤）与 `/api/v1/logs/export`（按日文件合并+时间范围+级别过滤→附件下载），UI 日志页（级别 tabs/实时刷新 2s/增量渲染上限 1200 行/日期范围导出）。
+- 踩坑：admin.go 与 index.html 均被并行改动多次——python 锚点断言失败后必须重读再打；大段 JS 补丁 heredoc 与模板串打架，改走 Write 补丁文件+Python 拼接。
+- 验证：全量门（并行 TestNavAccount WIP 红除外）绿 + logging 单测过；服务实测任务来源三类标签正确、日志 API/导出/按日文件全过；浏览器任务页+日志页实测。
+
+### 媒体库管理细化：分区/类型路由 + 路由预览 — session-agent（自报 2026-09-10T19:35:00Z 略超前真实时钟，done-review）
+- 人类交办"媒体库管理可详细指定分区/类型到哪个库（仅限 emby 等，teriteri 全量显示）"。MatchRules 加 orientation 数组（Matches：分区名/类型任一命中即匹配；默认库语义不变）；`GET /libraries/route-test` 路由预览（bvid 优先读真实分区/类型/标签，手动 tid+orientation 兜底，返回每个启用库命中态）；媒体库页：编辑表单加类型（横屏/竖屏）勾选、规则列显示类型、路由测试工具（输入 BV 号→显示解析属性与命中库）。pagehead 注明"仅作用于 Emby/Plex/Jellyfin/Kodi 输出；teriteri 全量显示不受影响"。
+- 踩坑：UpsertMediaLibrary 系函数名记忆偏差（ListMediaLibraries 非 ListLibraries）；admin.go/index.html 持续并行漂移，锚点逐个断言。
+- 验证：全量门绿（store/server/media 包）；服务实测 route-test（BV1CRt16gEyL → 美食制作/横屏/标签 → 命中默认库+美食库）。
 
 ## 待补时间戳
 

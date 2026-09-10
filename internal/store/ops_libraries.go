@@ -14,9 +14,10 @@ import (
 
 // MatchRules 媒体库路由规则；全空 = 匹配所有视频（默认库语义）。
 type MatchRules struct {
-	Tags       []string `json:"tags"`       // 命中任一 B 站标签即匹配
-	Categories []string `json:"categories"` // 预留：视频分区（tname）
-	OwnerMids  []int64  `json:"owner_mids"` // 预留：UP 主
+	Tags        []string `json:"tags"`        // 命中任一 B 站标签即匹配
+	Categories  []string `json:"categories"`  // 分区名（tname/一级名，bilicats 解析）
+	OwnerMids   []int64  `json:"owner_mids"`  // 预留：UP 主
+	Orientation []string `json:"orientation"` // 类型：horizontal（横屏）/ vertical（竖屏）
 }
 
 // MediaLibrary 一个独立配置的媒体库输出。
@@ -44,7 +45,7 @@ func (m *MediaLibrary) ParseRules() MatchRules {
 // Matches 判断视频是否路由到该库。tags 为该视频的 B 站原生标签。
 func (m *MediaLibrary) Matches(v *Video, tags []string) bool {
 	r := m.ParseRules()
-	if len(r.Tags) == 0 && len(r.Categories) == 0 && len(r.OwnerMids) == 0 {
+	if len(r.Tags) == 0 && len(r.Categories) == 0 && len(r.OwnerMids) == 0 && len(r.Orientation) == 0 {
 		return true // 默认库：全匹配
 	}
 	for _, want := range r.Tags {
@@ -70,6 +71,11 @@ func (m *MediaLibrary) Matches(v *Video, tags []string) bool {
 			if have == want {
 				return true
 			}
+		}
+	}
+	for _, want := range r.Orientation {
+		if want != "" && v.Orientation == want {
+			return true
 		}
 	}
 	return false
