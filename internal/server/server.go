@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"log/slog"
@@ -93,23 +94,81 @@ func New(d Deps) *Server {
 
 func (s *Server) Handler() http.Handler { return s.auth(s.mux) }
 
-// auth 对 /api/v1/* 应用可选 Bearer token。
+// authUser 当前请求身份（由 auth 中间件解析并注入 context）。
+type authUser struct {
+	Role   string // admin | user
+	ID     int64  // users.id；Bearer token 方式为 0
+	Name   string
+	TierID int64
+}
+
+type ctxKey struct{}
+
+func (s *Server) currentUser(r *http.Request) authUser {
+	v, _ := r.Context().Value(ctxKey{}).(authUser)
+	return v
+}
+
+// userAllowed 用户角色的端点白名单（多用户：仅 添加/识别/查看/管理自己的补档 + 认证）。
+func userAllowed(method, path string) bool {
+	switch {
+	case method == "POST" && path == "/api/v1/add":
+		return true
+	case method == "GET" && path == "/api/v1/sources":
+		return true
+	case (method == "PATCH" || method == "DELETE") && strings.HasPrefix(path, "/api/v1/sources/"):
+		return true
+	case method == "GET" && path == "/api/v1/resolve":
+		return true
+	case path == "/api/v1/auth/me" || path == "/api/v1/auth/logout":
+		return true
+	}
+	return false
+}
+
+// auth 统一鉴权：Bearer admin.token（管理员，兼容脚本）→ 会话 cookie（多用户）→
+// 匿名仅放行登录端点；user 角色按白名单限流，其余端点 403。
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/v1/") && s.Deps.Cfg.Admin.Token != "" {
+		var au authUser
+		if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if s.Deps.Cfg.Admin.Token != "" {
 			tok := r.Header.Get("Authorization")
 			tok = strings.TrimPrefix(tok, "Bearer ")
 			if tok == "" {
 				tok = r.URL.Query().Get("token")
 			}
-			if tok != s.Deps.Cfg.Admin.Token {
-				w.Header().Set("Content-Type", "application/json; charset=utf-8")
-				w.WriteHeader(http.StatusUnauthorized)
-				_ = json.NewEncoder(w).Encode(map[string]any{"error": "unauthorized"})
-				return
+			if tok == s.Deps.Cfg.Admin.Token {
+				au = authUser{Role: "admin", Name: "token"}
 			}
 		}
-		next.ServeHTTP(w, r)
+		if au.Role == "" {
+			if ck, err := r.Cookie("bs_sess"); err == nil {
+				if u, err := s.Deps.St.UserBySession(ck.Value); err == nil {
+					au = authUser{Role: u.Role, ID: u.ID, Name: u.Username, TierID: u.TierID}
+				}
+			}
+		}
+		if au.Role == "" {
+			if r.URL.Path == "/api/v1/auth/login" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "unauthorized"})
+			return
+		}
+		if au.Role == "user" && !userAllowed(r.Method, r.URL.Path) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "用户角色无权访问该功能"})
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, au)))
 	})
 }
 

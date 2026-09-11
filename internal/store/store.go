@@ -155,6 +155,60 @@ func (s *Store) migrate() error {
 		return err
 	}
 
+	// v11 增量：补档器多用户（用户/会话/等级 + 源归属）。
+	if err := s.ensureColumn("sources", "user_id", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL UNIQUE,
+		pass_hash TEXT NOT NULL,
+		salt TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'user',
+		tier_id INTEGER NOT NULL DEFAULT 1,
+		enabled INTEGER NOT NULL DEFAULT 1,
+		created_at INTEGER NOT NULL
+	)`); err != nil {
+		return err
+	}
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS sessions (
+		token TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		expires_at INTEGER NOT NULL
+	)`); err != nil {
+		return err
+	}
+	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS user_tiers (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL UNIQUE,
+		max_daily_adds INTEGER NOT NULL DEFAULT 10,
+		min_interval_minutes INTEGER NOT NULL DEFAULT 60
+	)`); err != nil {
+		return err
+	}
+	// 种子：基础等级 + 初始管理员（admin / bili-saver，首次启动后请尽快改密）
+	var tierN, userN int
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM user_tiers`).Scan(&tierN); err != nil {
+		return err
+	}
+	if tierN == 0 {
+		if _, err := s.DB.Exec(`INSERT INTO user_tiers(name, max_daily_adds, min_interval_minutes)
+			VALUES('基础', 10, 60),('进阶', 30, 15)`); err != nil {
+			return err
+		}
+	}
+	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&userN); err != nil {
+		return err
+	}
+	if userN == 0 {
+		salt := newSalt()
+		if _, err := s.DB.Exec(`INSERT INTO users(username, pass_hash, salt, role, tier_id, enabled, created_at)
+			VALUES('admin', ?, ?, 'admin', 1, 1, ?)`,
+			HashPassword("bili-saver", salt), salt, time.Now().Unix()); err != nil {
+			return err
+		}
+	}
+
 	// v4 增量：媒体库独立配置表。
 	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS media_libraries (
 	  id INTEGER PRIMARY KEY AUTOINCREMENT,

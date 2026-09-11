@@ -142,6 +142,8 @@
 
 | 媒体库管理细化：类型（横竖屏 orientation）入路由规则 + 路由预览端点/UI（bvid→命中哪些库） | session-agent | done-review 2026-09-11 | 2026-09-11 03:3x | 人类交办："单独的媒体库管理设置，可详细指定分区/类型到哪个库（仅限 emby 等，teriteri 全量显示）"。MatchRules 加 orientation 数组（Matches 判 v.Orientation）；路由只作用于 media.Bridge 重建输出（teriteri 读核心库直连，天然不受路由影响，文档注明）；GET /libraries/route-test 预览命中；媒体库页类型勾选+规则展示+路由测试工具。验证：单测（orientation 命中/分区或类型或关系）+ build/vet 绿 + 核心包过；服务实测 route-test（BV1CRt16gEyL → 分区 美食制作/横屏/标签 解析正确，命中 默认库+美食库）；媒体库页类型勾选/规则列/路由测试工具浏览器可用 |
 
+| 补档器多用户：users/sessions/user_tiers 表（v11）+ 会话 cookie 鉴权（Bearer 兼容）+ 角色路径白名单（用户仅 添加/查看/管理自己补档）+ 源归属 sources.user_id + 等级配额（每日添加数/检查频率下限）+ 用户管理/等级管理端点与 UI（admin）+ 用户端"我的补档"页 + 登录门 | session-agent | active | 2026-09-12 02:2x | 人类交办："补档器加入多用户。用户可添加补档、设置检查频率、查看管理自己的补档，没有其它任何功能。管理员可管理不同等级用户每天可添加的补档数量、检查频率等"。设计：role=user 仅白名单端点；源级 user_id 归属（admin=0 看全部）；每日配额=当日 created_at 计数；用户设频率强制钳到等级下限；用户建的源 auto_download 强制 -1（不自动下载）；登录必选（seed admin/bili-saver + 基础等级），admin.token Bearer 兼容不变 |
+
 
 > 新 claim 追加在表格末尾；状态变更原地更新；done/done-review 保留供追溯。
 

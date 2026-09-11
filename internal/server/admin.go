@@ -72,6 +72,17 @@ func (s *Server) registerAdmin() {
 	m.HandleFunc("POST /api/v1/add", s.handleAdd)
 	m.HandleFunc("GET /api/v1/resolve", s.handleResolve)
 	m.HandleFunc("GET /api/v1/sources", s.handleListSources)
+	m.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
+	m.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
+	m.HandleFunc("GET /api/v1/auth/me", s.handleMe)
+	m.HandleFunc("GET /api/v1/users", s.handleListUsers)
+	m.HandleFunc("POST /api/v1/users", s.handleCreateUser)
+	m.HandleFunc("PATCH /api/v1/users/{id}", s.handlePatchUser)
+	m.HandleFunc("DELETE /api/v1/users/{id}", s.handleDeleteUser)
+	m.HandleFunc("GET /api/v1/tiers", s.handleListTiers)
+	m.HandleFunc("POST /api/v1/tiers", s.handleUpsertTier)
+	m.HandleFunc("PATCH /api/v1/tiers/{id}", s.handleUpsertTier)
+	m.HandleFunc("DELETE /api/v1/tiers/{id}", s.handleDeleteTier)
 	m.HandleFunc("GET /api/v1/logs", s.handleLogs)
 	m.HandleFunc("GET /api/v1/logs/export", s.handleLogsExport)
 	m.HandleFunc("GET /api/v1/sources/{id}/posts", s.handleSourcePosts)
@@ -198,8 +209,20 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 	if req.Download != nil {
 		download = *req.Download
 	}
-	// 热门视频二次确认：手动补档前告知评论全量翻页的耗时代价（自动化路径不打扰）
-	if in.Type == resolver.TypeVideo && !req.ConfirmHot {
+	au := s.currentUser(r)
+	userMode := au.Role == "user"
+	var tier *store.UserTier
+	if userMode {
+		if t, err := s.Deps.St.GetTier(au.TierID); err == nil {
+			tier = t
+		}
+		if n, err := s.Deps.St.CountUserAddsToday(au.ID); err == nil && tier != nil && n >= tier.MaxDailyAdds {
+			errJSON(w, 403, errStr(fmt.Sprintf("今日添加额度已用完（等级「%s」每日 %d 个），明天再试或联系管理员", tier.Name, tier.MaxDailyAdds)))
+			return
+		}
+	}
+	// 热门视频二次确认：手动补档前告知评论全量翻页的耗时代价（自动化路径不打扰；用户端不做）
+	if in.Type == resolver.TypeVideo && !req.ConfirmHot && au.Role != "user" {
 		if vv, err := s.Deps.API.VideoView(r.Context(), in.ExtID); err == nil {
 			if reason := s.hotReason(vv.StatStat.View, vv.StatStat.Reply); reason != "" {
 				writeJSON(w, 200, map[string]any{
@@ -224,6 +247,20 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		IntervalDanmakuMin:  req.IntervalDanmaku,
 		IntervalSubsMin:     req.IntervalSubs,
 		CreatedAt:           store.Now(),
+	}
+	if userMode {
+		src.UserID = au.ID
+		// 用户建的补档默认不自动下载新视频（磁盘消耗由管理员控制）；检查频率钳到等级下限
+		src.AutoDownload = -1
+		if tier != nil && src.SyncIntervalMinutes > 0 && src.SyncIntervalMinutes < tier.MinIntervalMin {
+			src.SyncIntervalMinutes = tier.MinIntervalMin
+		}
+		if src.SyncIntervalMinutes > 0 {
+			src.SyncIntervalMinutes = src.SyncIntervalMinutes // 已钳
+		}
+		if download {
+			download = false // 用户端不立即下载视频文件
+		}
 	}
 	// 勾选态即源级触发器初值：勾=1 开启自动下载，不勾=-1 明确关闭。
 	// 否则源保持 0（跟随全局，默认开），出现"本次不下载、日后新视频仍被自动下载"的语义陷阱。
@@ -273,8 +310,15 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 
 // ---- 源管理 ----
 
-func (s *Server) handleListSources(w http.ResponseWriter, _ *http.Request) {
-	srcs, err := s.Deps.St.ListSources()
+func (s *Server) handleListSources(w http.ResponseWriter, r *http.Request) {
+	au := s.currentUser(r)
+	var srcs []*store.Source
+	var err error
+	if au.Role == "user" {
+		srcs, err = s.Deps.St.ListSourcesByUser(au.ID)
+	} else {
+		srcs, err = s.Deps.St.ListSources()
+	}
 	if err != nil {
 		errJSON(w, 500, err)
 		return
@@ -287,6 +331,14 @@ func (s *Server) handleListSources(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) handleDeleteSource(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	au := s.currentUser(r)
+	if au.Role == "user" {
+		src, err := s.Deps.St.GetSource(id)
+		if err != nil || src.UserID != au.ID {
+			errJSON(w, 404, errStr("补档不存在"))
+			return
+		}
+	}
 	if err := s.Deps.St.DeleteSource(id); err != nil {
 		errJSON(w, 500, err)
 		return
@@ -1199,6 +1251,12 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 400, err)
 		return
 	}
+	au := s.currentUser(r)
+	userMode := au.Role == "user"
+	if userMode && src.UserID != au.ID {
+		errJSON(w, 404, errStr("补档不存在"))
+		return
+	}
 	if req.Watch != nil {
 		src.Watch = *req.Watch
 	}
@@ -1223,6 +1281,19 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.IntervalSubsMin != nil {
 		src.IntervalSubsMin = *req.IntervalSubsMin
+	}
+	if userMode {
+		// 用户仅可改 监控开关 与 检查频率（钳到等级下限）；其余字段忽略
+		if req.IntervalMin != nil && *req.IntervalMin > 0 {
+			floor := 60
+			if tier, err := s.Deps.St.GetTier(au.TierID); err == nil && tier.MinIntervalMin > 0 {
+				floor = tier.MinIntervalMin
+			}
+			if *req.IntervalMin < floor {
+				*req.IntervalMin = floor
+			}
+		}
+		req.AutoDownload, req.SpaceScope = nil, nil
 	}
 	if req.AutoDownload != nil {
 		if *req.AutoDownload != 0 && *req.AutoDownload != 1 && *req.AutoDownload != -1 {
@@ -1502,4 +1573,226 @@ func (s *Server) handleRouteTest(w http.ResponseWriter, r *http.Request) {
 		"bvid": v.Bvid, "tname": v.Tname, "orientation": v.Orientation,
 		"tags": tags, "libraries": out,
 	})
+}
+
+// ---- 多用户认证与管理（v11）----
+
+// handleLogin 用户名密码登录，签发会话 cookie（HttpOnly，7 天）。
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, 400, err)
+		return
+	}
+	u, err := s.Deps.St.GetUserByUsername(strings.TrimSpace(req.Username))
+	if err != nil || !u.Enabled || u.PassHash != store.HashPassword(req.Password, u.Salt) {
+		errJSON(w, 401, errStr("用户名或密码错误"))
+		return
+	}
+	token, err := s.Deps.St.CreateSession(u.ID)
+	if err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: "bs_sess", Value: token, Path: "/", HttpOnly: true,
+		MaxAge: 7 * 24 * 3600, SameSite: http.SameSiteLaxMode,
+	})
+	writeJSON(w, 200, map[string]any{"username": u.Username, "role": u.Role})
+}
+
+// handleLogout 注销会话。
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if ck, err := r.Cookie("bs_sess"); err == nil {
+		s.Deps.St.DeleteSession(ck.Value)
+	}
+	http.SetCookie(w, &http.Cookie{Name: "bs_sess", Value: "", Path: "/", MaxAge: -1})
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// handleMe 当前登录身份与配额状态（供前端角色渲染与“我的补档”提示）。
+func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
+	au := s.currentUser(r)
+	if au.Role == "" {
+		errJSON(w, 401, errStr("未登录"))
+		return
+	}
+	out := map[string]any{"username": au.Name, "role": au.Role}
+	if u, err := s.Deps.St.GetUser(au.ID); err == nil {
+		out["user_id"] = u.ID
+		out["tier_id"] = u.TierID
+		if t, err := s.Deps.St.GetTier(u.TierID); err == nil {
+			out["tier_name"] = t.Name
+			out["max_daily_adds"] = t.MaxDailyAdds
+			out["min_interval_minutes"] = t.MinIntervalMin
+		}
+		if n, err := s.Deps.St.CountUserAddsToday(u.ID); err == nil {
+			out["today_adds"] = n
+		}
+	}
+	writeJSON(w, 200, out)
+}
+
+// requireAdmin 用户角色访问管理端点时统一 403（白名单兜底之外的防御）。
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if s.currentUser(r).Role != "admin" {
+		errJSON(w, 403, errStr("仅管理员可操作"))
+		return false
+	}
+	return true
+}
+
+// handleListUsers 用户列表（含等级名与当日添加数）。
+func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	us, err := s.Deps.St.ListUsers()
+	if err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	if us == nil {
+		us = []*store.User{}
+	}
+	writeJSON(w, 200, us)
+}
+
+// handleCreateUser 创建普通用户。
+func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+		TierID   int64  `json:"tier_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, 400, err)
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	if len(req.Username) < 2 || len(req.Password) < 4 {
+		errJSON(w, 400, errStr("用户名至少 2 位，密码至少 4 位"))
+		return
+	}
+	if req.TierID <= 0 {
+		if ts, err := s.Deps.St.ListTiers(); err == nil && len(ts) > 0 {
+			req.TierID = ts[0].ID
+		}
+	}
+	u, err := s.Deps.St.CreateUser(req.Username, req.Password, "user", req.TierID)
+	if err != nil {
+		errJSON(w, 400, errStr("创建失败（用户名可能已存在）: "+err.Error()))
+		return
+	}
+	writeJSON(w, 200, u)
+}
+
+// handlePatchUser 改密码/等级/启用态。
+func (s *Server) handlePatchUser(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	var req struct {
+		Password *string `json:"password"`
+		TierID   *int64  `json:"tier_id"`
+		Enabled  *bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, 400, err)
+		return
+	}
+	if err := s.Deps.St.UpdateUser(id, req.Password, req.TierID, req.Enabled); err != nil {
+		errJSON(w, 400, err)
+		return
+	}
+	u, err := s.Deps.St.GetUser(id)
+	if err != nil {
+		errJSON(w, 404, err)
+		return
+	}
+	writeJSON(w, 200, u)
+}
+
+// handleDeleteUser 删除用户（名下补档转归管理员）。
+func (s *Server) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err := s.Deps.St.DeleteUser(id); err != nil {
+		errJSON(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// handleListTiers 等级列表。
+func (s *Server) handleListTiers(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	ts, err := s.Deps.St.ListTiers()
+	if err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	if ts == nil {
+		ts = []*store.UserTier{}
+	}
+	writeJSON(w, 200, ts)
+}
+
+// handleUpsertTier 新建（POST）或修改（PATCH {id}）等级。
+func (s *Server) handleUpsertTier(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var req struct {
+		Name           string `json:"name"`
+		MaxDailyAdds   int    `json:"max_daily_adds"`
+		MinIntervalMin int    `json:"min_interval_minutes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errJSON(w, 400, err)
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		errJSON(w, 400, errStr("等级名称必填"))
+		return
+	}
+	if req.MaxDailyAdds < 0 || req.MinIntervalMin < 0 {
+		errJSON(w, 400, errStr("配额与频率下限不能为负"))
+		return
+	}
+	t := &store.UserTier{Name: req.Name, MaxDailyAdds: req.MaxDailyAdds, MinIntervalMin: req.MinIntervalMin}
+	if p := r.PathValue("id"); p != "" {
+		t.ID, _ = strconv.ParseInt(p, 10, 64)
+	}
+	id, err := s.Deps.St.UpsertTier(t)
+	if err != nil {
+		errJSON(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"id": id})
+}
+
+// handleDeleteTier 删除等级（在用时拒绝）。
+func (s *Server) handleDeleteTier(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id, _ := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err := s.Deps.St.DeleteTier(id); err != nil {
+		errJSON(w, 400, err)
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 }

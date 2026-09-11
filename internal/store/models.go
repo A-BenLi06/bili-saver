@@ -20,6 +20,7 @@ type Source struct {
 	// -1=强制关，0=跟随全局 download.auto_download。
 	AutoDownload int    `json:"auto_download"`
 	SpaceScope   string `json:"space_scope"` // UP主源归档范围（v10）：video,dynamic,dynamic_video,article 子集；空=全部
+	UserID       int64  `json:"user_id"`     // 归属用户（v11；0=管理员/历史遗留）
 	CreatedAt    int64  `json:"created_at"`
 	LastSyncAt   int64  `json:"last_sync_at"`
 }

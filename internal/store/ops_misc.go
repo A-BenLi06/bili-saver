@@ -18,8 +18,8 @@ func (s *Store) UpsertSource(src *Source) (int64, error) {
 	}
 	res, err := s.DB.Exec(`INSERT INTO sources(type, ext_id, extra, title, watch, sync_interval_minutes,
 		sync_mode, interval_comments_minutes, interval_danmaku_minutes, interval_subtitles_minutes,
-		layout, auto_download, space_scope, created_at, last_sync_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		layout, auto_download, space_scope, user_id, created_at, last_sync_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(type, ext_id) DO UPDATE SET title=excluded.title, extra=excluded.extra,
 		  watch=excluded.watch, sync_interval_minutes=excluded.sync_interval_minutes,
 		  sync_mode=excluded.sync_mode,
@@ -31,7 +31,7 @@ func (s *Store) UpsertSource(src *Source) (int64, error) {
 		src.Type, src.ExtID, src.Extra, src.Title, boolInt(src.Watch),
 		src.SyncIntervalMinutes,
 		src.SyncMode, src.IntervalCommentsMin, src.IntervalDanmakuMin, src.IntervalSubsMin,
-		src.Layout, src.AutoDownload, src.SpaceScope, src.CreatedAt, src.LastSyncAt)
+		src.Layout, src.AutoDownload, src.SpaceScope, src.UserID, src.CreatedAt, src.LastSyncAt)
 	if err != nil {
 		return 0, err
 	}
@@ -62,7 +62,7 @@ func scanSource(row interface{ Scan(...any) error }) (*Source, error) {
 	err := row.Scan(&src.ID, &src.Type, &src.ExtID, &src.Extra, &src.Title, &watch,
 		&src.SyncIntervalMinutes, &syncMode,
 		&src.IntervalCommentsMin, &src.IntervalDanmakuMin, &src.IntervalSubsMin,
-		&src.Layout, &src.AutoDownload, &src.CreatedAt, &src.LastSyncAt, &src.SpaceScope)
+		&src.Layout, &src.AutoDownload, &src.CreatedAt, &src.LastSyncAt, &src.SpaceScope, &src.UserID)
 	src.SyncMode = syncMode
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -76,7 +76,7 @@ func scanSource(row interface{ Scan(...any) error }) (*Source, error) {
 
 const sourceCols = `id, type, ext_id, extra, title, watch, sync_interval_minutes,
 sync_mode, interval_comments_minutes, interval_danmaku_minutes, interval_subtitles_minutes,
-layout, auto_download, created_at, last_sync_at, COALESCE(space_scope,'')`
+layout, auto_download, created_at, last_sync_at, COALESCE(space_scope,''), COALESCE(user_id,0)`
 
 func (s *Store) GetSource(id int64) (*Source, error) {
 	return scanSource(s.DB.QueryRow(`SELECT `+sourceCols+` FROM sources WHERE id=?`, id))
@@ -84,6 +84,24 @@ func (s *Store) GetSource(id int64) (*Source, error) {
 
 func (s *Store) ListSources() ([]*Source, error) {
 	rows, err := s.DB.Query(`SELECT ` + sourceCols + ` FROM sources ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Source
+	for rows.Next() {
+		src, err := scanSource(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, src)
+	}
+	return out, rows.Err()
+}
+
+// ListSourcesByUser 某用户的补档列表（多用户隔离）。
+func (s *Store) ListSourcesByUser(userID int64) ([]*Source, error) {
+	rows, err := s.DB.Query(`SELECT `+sourceCols+` FROM sources WHERE user_id=? ORDER BY created_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}

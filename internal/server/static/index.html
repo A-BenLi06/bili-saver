@@ -115,10 +115,18 @@ mark { background:var(--accent-soft); color:var(--txt); padding:0 1px; border-ra
 .fchecks .check { font-size:12.5px; border:1px solid var(--line-strong); border-radius:6px; padding:4px 10px; cursor:pointer; color:var(--sub); }
 .fchecks .check:has(input:checked) { border-color:var(--accent); background:var(--accent-soft); color:var(--txt); }
 .field.dirty>label::after, .fcheck.dirty::after { content:" ●"; color:var(--accent); font-size:11px; vertical-align:2px; }
-.sliderow { display:flex; gap:12px; align-items:center; }
-.fgrid .sliderow input[type=number] { width:76px; max-width:none; flex:none; padding:5px 8px; }
-.sliderow input[type=range] { flex:1; min-width:0; accent-color:var(--accent); }
-.sliderval { float:right; font-weight:600; color:var(--txt); font-variant-numeric:tabular-nums; font-size:12.5px; }
+.chips { display:flex; gap:6px; flex-wrap:wrap; }
+.chips button { border:1px solid var(--line-strong); background:var(--panel); border-radius:6px; padding:4px 10px; font-size:12.5px; color:var(--sub); cursor:pointer; }
+.chips button:hover { color:var(--txt); }
+.chips button.on { border-color:var(--accent); background:var(--accent-soft); color:var(--txt); font-weight:500; }
+.combo { display:flex; align-items:center; gap:8px; }
+.fgrid .combo input[type=number] { width:110px; max-width:none; }
+.combo .unit { font-size:12.5px; color:var(--sub); }
+.stepper { display:inline-flex; align-items:center; border:1px solid var(--line-strong); border-radius:6px; overflow:hidden; }
+.stepper button { width:32px; height:30px; border:none; background:var(--panel); font-size:15px; color:var(--sub); cursor:pointer; }
+.stepper button:hover { background:var(--bg); color:var(--txt); }
+.stepper input { width:54px; height:30px; text-align:center; border:none; border-left:1px solid var(--line); border-right:1px solid var(--line); border-radius:0; }
+.stepper input:focus { outline:none; }
 .switch { position:relative; width:36px; height:20px; flex:none; }
 .switch input { position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; }
 .switch i { position:absolute; inset:0; background:var(--line-strong); border-radius:10px; transition:background .15s; pointer-events:none; }
@@ -234,7 +242,7 @@ async function render(){
   const m = $('#main');
   ({dash:renderDash, add:renderAdd, videos:renderVideos, search:renderSearch, sources:renderSources,
     tracks:renderTracks, libraries:renderLibraries, jobs:renderJobs, login:renderLogin, plugins:renderPlugins,
-    settings:renderSettings, logs:renderLogs})[page](m);
+    settings:renderSettings, logs:renderLogs, mine:renderMine, users:renderUsers})[page](m);
 }
 
 /* ============ 总览 ============ */
@@ -1352,24 +1360,21 @@ const ST_FIELDS = [
   ['stMedLink','media_link_mode','seg'], ['stPubUrl','media_public_url','str'],
   ['stTeriEn','teriteri_enabled','bool'], ['stFrontUrl','frontend_url','str'],
 ];
-const ST_SLIDERS = [
-  {id:'stSyncMin', min:0,    max:10080,   step:15,     fmt:v=>v<60?v+' 分钟':(Math.round(v/6)/10)+' 小时'},
-  {id:'stStatsH',  min:0,    max:72,      step:1,      fmt:v=>v===0?'禁用':v+' 小时'},
-  {id:'stCmtMax',  min:0,    max:2000,    step:50,     fmt:v=>v===0?'不限':fmtN(v)+' 条'},
-  {id:'stSubMax',  min:0,    max:1000,    step:10,     fmt:v=>v===0?'不限':fmtN(v)+' 条'},
-  {id:'stHotV',    min:0,    max:5000000, step:100000, fmt:v=>v===0?'禁用':fmtN(v)},
-  {id:'stHotR',    min:0,    max:100000,  step:1000,   fmt:v=>v===0?'禁用':fmtN(v)},
-  {id:'stConc',    min:1,    max:16,      step:1,      fmt:v=>v+' 个'},
-  {id:'stSeg',     min:1,    max:16,      step:1,      fmt:v=>v+' 路'},
-  {id:'stMinReq',  min:0,    max:3000,    step:50,     fmt:v=>v+' ms'},
+const ST_COMBOS = [
+  {id:'stSyncMin', unit:'分钟', presets:[[15,'15 分钟'],[30,'30 分钟'],[60,'1 小时'],[180,'3 小时'],[360,'6 小时'],[720,'12 小时'],[1440,'每天']]},
+  {id:'stStatsH',  unit:'小时', presets:[[0,'禁用'],[1,'1 小时'],[2,'2 小时'],[6,'6 小时'],[12,'12 小时'],[24,'24 小时']]},
+  {id:'stCmtMax',  unit:'条',   presets:[[0,'不限'],[200,'200'],[500,'500'],[1000,'1000'],[2000,'2000']]},
+  {id:'stSubMax',  unit:'条',   presets:[[0,'不限'],[50,'50'],[100,'100'],[200,'200']]},
+  {id:'stHotV',    unit:'',     presets:[[0,'禁用'],[100000,'10万'],[500000,'50万'],[1000000,'100万'],[2000000,'200万'],[5000000,'500万']]},
+  {id:'stHotR',    unit:'',     presets:[[0,'禁用'],[1000,'1000'],[5000,'5000'],[10000,'1万'],[50000,'5万']]},
 ];
-const stSyncSliders = () => {
-  for(const s of ST_SLIDERS){
-    const r=document.getElementById('r_'+s.id), n=document.getElementById(s.id), lab=document.getElementById('v_'+s.id);
-    if(!r||!n||!lab) continue;
-    const v=Math.max(0,+n.value||0);
-    lab.textContent=' '+s.fmt(v);
-    r.value=Math.min(s.max, Math.max(s.min, v));
+const ST_STEPPERS = ['stConc','stSeg'];
+const stSyncCombos = () => {
+  for(const cb of ST_COMBOS){
+    const n=document.getElementById(cb.id), box=document.getElementById(cb.id+'Box');
+    if(!n||!box) continue;
+    const v=+n.value||0;
+    box.querySelectorAll('.chips button').forEach(b=>b.classList.toggle('on', +b.dataset.v===v));
   }
 };
 let stInit = null;
@@ -1395,6 +1400,7 @@ const stCollect = () => {
 let stSeq = 0;
 const stRefresh = () => {
   if(stInit===null) return;
+  stSyncCombos();
   const cur = stCollect(), diffKeys = [];
   for(const [id,k] of ST_FIELDS){
     const changed = JSON.stringify(cur[k])!==JSON.stringify(stInit[k]);
@@ -1426,7 +1432,7 @@ const stApply = snap => {
   }
   document.querySelectorAll('[id^="stQ_"]').forEach(x=>x.checked=snap.qualities.includes(x.dataset.v));
   document.querySelectorAll('[id^="stAQ_"]').forEach(x=>x.checked=snap.audio_qualities.includes(x.dataset.v));
-  stSyncSliders();
+  stSyncCombos();
   stRefresh();
 };
 async function renderSettings(m){
@@ -1438,9 +1444,13 @@ async function renderSettings(m){
   const cmts = (id,label,hint) => `<div class="field wide" id="${id}Box"><label>${label}</label>
         <div class="fchecks">${stChecks(id==='stQualsBox'?'stQ_':'stAQ_', id==='stQualsBox'?(c.qualities||[]):(c.audio_qualities||[]))}</div>
         <span class="hint">${hint}</span></div>`;
-  const slF = (s,label,hint,val) => `<div class="field"><label>${label}<span class="sliderval" id="v_${s.id}"></span></label>
-        <div class="sliderow"><input type="range" id="r_${s.id}" min="${s.min}" max="${s.max}" step="${s.step}" value="${Math.min(s.max,Math.max(s.min,val))}">
-        <input type="number" id="${s.id}" min="${s.min}" value="${val}"></div><span class="hint">${hint}</span></div>`;
+  const comboF = (cb,label,hint,val) => `<div class="field" id="${cb.id}Box"><label>${label}</label>
+        <div class="chips">${cb.presets.map(([v,t])=>`<button type="button" data-v="${v}" class="${v===+val?'on':''}">${t}</button>`).join('')}</div>
+        <div class="combo"><input type="number" id="${cb.id}" min="0" value="${val}">${cb.unit?`<span class="unit">${cb.unit}</span>`:''}</div>
+        <span class="hint">${hint}</span></div>`;
+  const stepF = (id,label,hint,val) => `<div class="field"><label>${label}</label>
+        <div class="stepper"><button type="button" data-d="-1">−</button><input type="number" id="${id}" min="1" max="16" value="${val}"><button type="button" data-d="1">＋</button></div>
+        <span class="hint">${hint}</span></div>`;
   const swF = (id,checked,text,note) => `<label class="check fcheck"><span class="switch"><input type="checkbox" id="${id}" ${checked?'checked':''}><i></i></span><span>${text}${note?`<span class="fnote">${note}</span>`:''}</span></label>`;
   const segF = (id,label,opts,cur) => `<div class="field"><label>${label}</label><div class="seg" id="${id}">
         ${opts.map(o=>`<button type="button" data-v="${o[0]}" title="${esc(o[2]||'')}" class="${o[0]===cur?'on':''}">${o[1]}</button>`).join('')}</div></div>`;
@@ -1453,14 +1463,14 @@ async function renderSettings(m){
   <div id="setOut"></div>
   <div class="sect"><h2>采集与补档</h2>
     <div class="fgrid">
-      ${slF(ST_SLIDERS[0],'监控源默认同步间隔','源未单独设置间隔时使用',c.sync_default_minutes)}
-      ${slF(ST_SLIDERS[1],'全库统计周期','定时刷新全库播放/点赞等统计数值',c.stats_resync_hours??0)}
+      ${comboF(ST_COMBOS[0],'监控源默认同步间隔','源未单独设置间隔时使用；可直接输入任意分钟',c.sync_default_minutes)}
+      ${comboF(ST_COMBOS[1],'全库统计周期','定时刷新全库播放/点赞等统计数值',c.stats_resync_hours??0)}
       ${swF('stAdaptive',c.adaptive_sync,'自适应补档频率','新发 24h 内加速、按评论/播放活跃度冷却沉寂视频')}
-      ${slF(ST_SLIDERS[2],'单视频评论抓取上限','首次归档抓取的评论深度',c.comments_max)}
-      ${slF(ST_SLIDERS[3],'楼中楼抓取上限','每条评论的回复抓取深度',c.sub_replies_max)}
+      ${comboF(ST_COMBOS[2],'单视频评论抓取上限','首次归档抓取的评论深度',c.comments_max)}
+      ${comboF(ST_COMBOS[3],'楼中楼抓取上限','每条评论的回复抓取深度',c.sub_replies_max)}
       ${swF('stFullCmt',c.full_resync_comments,'重同步时全量翻页评论','关闭可加速，但会漏检消失评论')}
-      ${slF(ST_SLIDERS[4],'热门提示：播放量阈值','手动补档热门视频前二次确认；0 = 禁用',c.hot_video_views)}
-      ${slF(ST_SLIDERS[5],'热门提示：评论数阈值','手动补档热门视频前二次确认；0 = 禁用',c.hot_video_replies)}
+      ${comboF(ST_COMBOS[4],'热门提示：播放量阈值','手动补档热门视频前二次确认',c.hot_video_views)}
+      ${comboF(ST_COMBOS[5],'热门提示：评论数阈值','手动补档热门视频前二次确认',c.hot_video_replies)}
     </div>
   </div>
   <div class="sect"><h2>下载</h2>
@@ -1469,11 +1479,11 @@ async function renderSettings(m){
       ${swF('stDlDm',c.download_danmaku,'下载弹幕文件','')}
       ${cmts('stQualsBox','清晰度白名单（全不勾选 = 不限画质 = 最高可用）','勾选的档位参与选流；指定档全部不可用时自动回落更低档')}
       ${cmts('stAudioQBox','音频质量偏好（全不勾选 = 标准最高）','可选：hires（Hi-Res 无损）/ dolby（杜比全景声）/ 192k / 132k / 64k')}
-      ${slF(ST_SLIDERS[6],'同时下载任务数','全局下载并发',c.concurrency)}
-      ${slF(ST_SLIDERS[7],'单流分段连接数','每个视频流的分块并行数',c.segments)}
+      ${stepF('stConc','同时下载任务数','全局下载并发',c.concurrency)}
+      ${stepF('stSeg','单流分段连接数','每个视频流的分块并行数',c.segments)}
       ${swF('stAv1',c.allow_av1,'允许 AV1 编码','体积更小，播放设备兼容性略差')}
       ${swF('st4k',c.allow_4k,'允许 4K（仍受白名单限制）','')}
-      ${slF(ST_SLIDERS[8],'请求最小间隔（毫秒）<span class="origin">†</span>','B 站接口全局限流，调小有风控风险',c.min_req_ms??350)}
+      <div class="field"><label>请求最小间隔（毫秒）<span class="origin">†</span></label><input type="number" id="stMinReq" min="0" value="${c.min_req_ms??350}"><span class="hint">B 站接口全局限流，调小有风控风险</span></div>
     </div>
   </div>
   <div class="sect"><h2>媒体库与站点</h2>
@@ -1508,17 +1518,25 @@ async function renderSettings(m){
   wrap.addEventListener('input', stRefresh);
   wrap.addEventListener('change', stRefresh);
   wrap.addEventListener('click', e => {
+    const chip = e.target.closest('.chips button');
+    if(chip){
+      const n = document.getElementById(chip.closest('.chips').dataset.for);
+      n.value = chip.dataset.v;
+      n.dispatchEvent(new Event('input', {bubbles:true}));
+      return;
+    }
+    const sb2 = e.target.closest('.stepper button');
+    if(sb2){
+      const n = sb2.parentElement.querySelector('input');
+      n.value = Math.min(16, Math.max(1, (+n.value||1) + (+sb2.dataset.d)));
+      n.dispatchEvent(new Event('input', {bubbles:true}));
+      return;
+    }
     const b = e.target.closest('.seg button'); if(!b) return;
     b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
     b.parentElement.dispatchEvent(new Event('input', {bubbles:true}));
   });
-  for(const s of ST_SLIDERS){
-    const r=document.getElementById('r_'+s.id), n=document.getElementById(s.id);
-    if(!r||!n) continue;
-    r.addEventListener('input', ()=>{ n.value=r.value; stSyncSliders(); n.dispatchEvent(new Event('input',{bubbles:true})); });
-    n.addEventListener('input', stSyncSliders);
-  }
-  stSyncSliders();
+  stSyncCombos();
   $('#stSave').onclick = saveSettings;
   $('#stReset').onclick = () => stApply(stInit);
   const sb = $('#stSave2'); if(sb) sb.onclick = saveSettings;
@@ -1534,7 +1552,220 @@ window.saveSettings = async () => {
   }catch(e){ toast('保存失败：'+e,'err'); }
 };
 
-render();
+/* ============ 多用户：登录门 / 我的补档 / 用户管理 ============ */
+function buildNav(){
+  const me=window.ME||{role:'anon'};
+  const nav=document.getElementById('nav');
+  if(!nav) return;
+  if(me.role==='admin' && !document.querySelector('[data-p=users]')){
+    const b=document.createElement('button');
+    b.dataset.p='users'; b.textContent='用户管理';
+    document.querySelector('#nav').appendChild(b);
+  }
+  if(me.role==='user'){
+    document.querySelectorAll('#nav button').forEach(b=>{ if(b.dataset.p!=='mine') b.style.display='none'; });
+    if(!document.querySelector('[data-p=mine]')){
+      const b=document.createElement('button');
+      b.dataset.p='mine'; b.className='active'; b.textContent='我的补档';
+      nav.insertBefore(b, nav.firstChild.nextSibling);
+    }
+    document.querySelectorAll('#nav button').forEach(b=>{ b.style.display = b.dataset.p==='mine'?'':'none'; });
+  }
+  if(me.role!=='anon' && !document.getElementById('logoutBtn')){
+    const btn=document.createElement('button');
+    btn.id='logoutBtn'; btn.textContent='退出登录（'+(me.username||'')+'）';
+    btn.style.margin='16px 20px 0'; btn.style.width='calc(100% - 40px)'; btn.style.textAlign='left';
+    btn.onclick=async()=>{ await fetch('/api/v1/auth/logout',{method:'POST'}); location.reload(); };
+    nav.after(btn);
+  }
+}
+function renderLoginView(m){
+  document.getElementById('nav').style.display='none';
+  m.innerHTML=`
+  <div style="max-width:340px;margin:12vh auto 0;border:1px solid var(--line);border-radius:10px;padding:28px;background:var(--panel)">
+    <h1 style="font-size:18px;margin-bottom:4px"><span style="color:var(--accent)">bili</span>-saver 补档器</h1>
+    <p class="meta-note" style="margin-bottom:18px">请登录后使用（初始管理员 admin / bili-saver，登录后可在用户管理修改密码）</p>
+    <form onsubmit="return false">
+      <div class="field"><label>用户名</label><input type="text" id="lgUser" autocomplete="username"></div>
+      <div class="field"><label>密码</label><input type="password" id="lgPass" autocomplete="current-password"></div>
+      <div class="actions" style="margin-top:14px"><button class="btn primary" id="lgGo" style="width:100%">登 录</button></div>
+      <p id="lgErr" class="meta-note" style="color:var(--err);margin-top:10px"></p>
+    </form>
+  </div>`;
+  document.getElementById('lgGo').onclick=async()=>{
+    const errEl=document.getElementById('lgErr');
+    errEl.textContent='';
+    try{
+      const r=await fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({username:document.getElementById('lgUser').value.trim(),password:document.getElementById('lgPass').value})});
+      if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||('HTTP '+r.status)); }
+      location.reload();
+    }catch(e){ errEl.textContent='登录失败：'+e.message; }
+  };
+  document.getElementById('lgPass').onkeydown=e=>{ if(e.key==='Enter') document.getElementById('lgGo').click(); };
+}
+let mineEditId=null;
+async function renderMine(m){
+  const [me,srcs]=await Promise.all([
+    api('/auth/me').catch(()=>({})),
+    api('/sources').catch(()=>[])
+  ]);
+  const floor=me.min_interval_minutes||60;
+  const editing=mineEditId&&((srcs||[]).find(x=>x.id===mineEditId));
+  m.innerHTML=`
+  <div class="pagehead"><h1>我的补档</h1><span class="desc">等级「${esc(me.tier_name||'—')}」 · 今日已添加 ${me.today_adds||0}/${me.max_daily_adds??'—'} · 检查频率不低于 ${floor} 分钟</span></div>
+  <div class="sect">
+    <form onsubmit="return false">
+      <div class="field"><label>${editing?'编辑补档 #'+editing.id+'（'+esc(editing.title)+'）':'添加补档'}</label>
+        <input type="text" id="mInp" ${editing?'disabled':''} placeholder="视频链接 / BV号 / UP主主页 / 收藏夹 / 合集链接（推荐粘贴完整链接）"></div>
+      <div class="inline">
+        <div class="field"><label>检查频率（分钟）</label>
+          <input type="number" id="mIv" min="${floor}" value="${editing?(editing.sync_interval_minutes||360):360}">
+          <span class="hint">不得低于等级下限 ${floor} 分钟；新投稿/新收藏会自动补档</span></div>
+        <label class="check" style="align-self:end;margin-bottom:14px"><input type="checkbox" id="mWatch" ${(!editing||editing.watch)?'checked':''}> 开启监控</label>
+      </div>
+      <div class="actions">
+        ${editing?`<button class="btn primary" onclick="mineSave()">保存修改</button><button class="btn" onclick="mineCancelEdit()">取消</button>`
+                 :`<button class="btn primary" onclick="mineAdd()">添加补档</button>`}
+      </div>
+      <p></p><div class="pre" id="mOut" style="display:none"></div>
+    </form>
+  </div>
+  <div class="sect">
+    ${(srcs&&srcs.length)?`<table><thead><tr><th>补档</th><th>类型</th><th>状态</th><th>检查频率</th><th>最后同步</th><th></th></tr></thead><tbody>`+
+    srcs.map(x=>{
+      const dot=x.watch?'ok':'off';
+      const st=x.watch?'监控中':'已暂停';
+      const tn={video:'单视频',space:'UP主',favlist:'收藏夹',season:'合集',series:'系列'}[x.type]||x.type;
+      return `<tr><td><b style="font-weight:500">${esc(x.title)}</b><div class="cell-sub">${esc(x.ext_id)}</div></td>
+      <td class="st">${tn}</td>
+      <td class="st"><span class="dot ${dot}"></span>${st}</td>
+      <td class="st">${x.sync_interval_minutes?x.sync_interval_minutes+' 分钟':'默认（360 分钟）'}</td>
+      <td class="st">${x.last_sync_at?fmtT(x.last_sync_at):'待首次同步'}</td>
+      <td><div class="actions"><button class="btn sm" onclick="mineEdit(${x.id})">编辑</button>
+      <button class="btn sm danger" onclick="mineDel(${x.id})">删除</button></div></td></tr>`;
+    }).join('')+'</tbody></table>':'<div class="empty">还没有补档，在上面粘贴链接添加吧</div>'}
+  </div>`;
+}
+async function mineAdd(){
+  const v=document.getElementById('mInp').value.trim(); if(!v) return;
+  const out=document.getElementById('mOut'); out.style.display='block'; out.textContent='提交中…';
+  try{
+    const r=await api('/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      input:v, watch:document.getElementById('mWatch').checked, sync_mode:'interval',
+      interval_minutes:+(document.getElementById('mIv').value)||0})});
+    toast('补档已添加，即将开始首次归档','ok');
+    renderMine($('#main'));
+  }catch(e){ out.textContent='失败：'+e; }
+}
+function mineEdit(id){ mineEditId=id; renderMine($('#main')); }
+function mineCancelEdit(){ mineEditId=null; renderMine($('#main')); }
+async function mineSave(){
+  if(!mineEditId) return;
+  try{
+    await api('/sources/'+mineEditId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      watch:document.getElementById('mWatch').checked, interval_minutes:+(document.getElementById('mIv').value)||0})});
+    toast('已保存','ok'); mineEditId=null; renderMine($('#main'));
+  }catch(e){ toast('保存失败：'+e,'err'); }
+}
+async function mineDel(id){
+  if(!confirm('删除该补档？已归档的数据不受影响')) return;
+  try{ await api('/sources/'+id,{method:'DELETE'}); toast('已删除','ok'); renderMine($('#main')); }
+  catch(e){ toast('删除失败：'+e,'err'); }
+}
+async function renderUsers(m){
+  const [us,ts]=await Promise.all([api('/users'),api('/tiers')]);
+  m.innerHTML=`
+  <div class="pagehead"><h1>用户管理</h1><span class="desc">等级决定每日可添加补档数与检查频率下限</span></div>
+  <div class="sect"><h2>等级</h2>
+    <table><thead><tr><th>ID</th><th>名称</th><th>每日可添加</th><th>检查频率下限（分）</th><th></th></tr></thead><tbody>
+    ${ts.map(x=>`<tr><td class="num">${x.id}</td>
+      <td><input type="text" id="tn${x.id}" value="${esc(x.name)}" style="width:120px;padding:4px 8px"></td>
+      <td><input type="number" id="td${x.id}" value="${x.max_daily_adds}" min="0" style="width:90px;padding:4px 8px"></td>
+      <td><input type="number" id="ti${x.id}" value="${x.min_interval_minutes}" min="0" style="width:90px;padding:4px 8px"></td>
+      <td><div class="actions"><button class="btn sm" onclick="saveTier(${x.id})">保存</button>
+      <button class="btn sm danger" onclick="delTier(${x.id})">删除</button></div></td></tr>`).join('')}
+    <tr><td class="num">+</td>
+      <td><input type="text" id="tnNew" placeholder="名称" style="width:120px;padding:4px 8px"></td>
+      <td><input type="number" id="tdNew" placeholder="10" min="0" style="width:90px;padding:4px 8px"></td>
+      <td><input type="number" id="tiNew" placeholder="60" min="0" style="width:90px;padding:4px 8px"></td>
+      <td><button class="btn sm" onclick="addTier()">新增等级</button></td></tr>
+    </tbody></table>
+  </div>
+  <div class="sect"><h2>用户</h2>
+    <div class="inline" style="margin-bottom:12px;align-items:end">
+      <div class="field"><label>新用户名</label><input type="text" id="nuName" style="width:140px"></div>
+      <div class="field"><label>初始密码</label><input type="text" id="nuPass" style="width:140px"></div>
+      <div class="field"><label>等级</label><select id="nuTier" style="width:140px">${ts.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
+      <button class="btn primary sm" style="margin-bottom:2px" onclick="addUser()">添加用户</button>
+    </div>
+    <table><thead><tr><th>用户名</th><th>等级</th><th>今日添加</th><th>启用</th><th>创建时间</th><th></th></tr></thead><tbody>
+    ${us.map(x=>`<tr><td><b style="font-weight:500">${esc(x.username)}</b>${x.role==='admin'?' <span class="meta-note">(管理员)</span>':''}</td>
+      <td>${x.role==='admin'?'—':`<select id="ut${x.id}" style="padding:4px 8px">${ts.map(y=>`<option value="${y.id}" ${x.tier_id===y.id?'selected':''}>${esc(y.name)}</option>`).join('')}</select>`}</td>
+      <td class="num">${x.today_adds??'—'}</td>
+      <td>${x.role==='admin'?'<span class="dot ok"></span>':'<input type="checkbox" id="ue'+x.id+'" '+(x.enabled?'checked':'')+'>'}</td>
+      <td class="st">${fmtT(x.created_at)}</td>
+      <td><div class="actions">
+        ${x.role==='admin'?'':`<button class="btn sm" onclick="saveUser(${x.id})">保存</button>
+        <button class="btn sm" onclick="resetPw(${x.id})">改密</button>
+        <button class="btn sm danger" onclick="delUser(${x.id})">删除</button>`}
+      </div></td></tr>`).join('')}
+    </tbody></table>
+  </div>`;
+}
+async function saveTier(id){
+  try{ await api('/tiers/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    name:document.getElementById('tn'+id).value.trim(), max_daily_adds:+document.getElementById('td'+id).value||0,
+    min_interval_minutes:+document.getElementById('ti'+id).value||0})});
+    toast('等级已保存','ok'); renderUsers($('#main'));
+  }catch(e){ toast('失败：'+e,'err'); }
+}
+async function addTier(){
+  try{ await api('/tiers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    name:document.getElementById('tnNew').value.trim(), max_daily_adds:+document.getElementById('tdNew').value||0,
+    min_interval_minutes:+document.getElementById('tiNew').value||0})});
+    toast('等级已新增','ok'); renderUsers($('#main'));
+  }catch(e){ toast('失败：'+e,'err'); }
+}
+async function delTier(id){
+  if(!confirm('删除该等级？')) return;
+  try{ await api('/tiers/'+id,{method:'DELETE'}); toast('已删除','ok'); renderUsers($('#main')); }
+  catch(e){ toast('失败：'+e,'err'); }
+}
+async function addUser(){
+  try{ await api('/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    username:document.getElementById('nuName').value.trim(), password:document.getElementById('nuPass').value,
+    tier_id:+document.getElementById('nuTier').value||0})});
+    toast('用户已添加','ok'); renderUsers($('#main'));
+  }catch(e){ toast('失败：'+e,'err'); }
+}
+async function saveUser(id){
+  try{ await api('/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    tier_id:+document.getElementById('ut'+id).value||0, enabled:document.getElementById('ue'+id).checked})});
+    toast('已保存','ok'); renderUsers($('#main'));
+  }catch(e){ toast('失败：'+e,'err'); }
+}
+async function resetPw(id){
+  const pw=prompt('为用户 #'+id+' 设置新密码（至少 4 位）'); if(pw===null) return;
+  try{ await api('/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
+    toast('密码已重置','ok');
+  }catch(e){ toast('失败：'+e,'err'); }
+}
+async function delUser(id){
+  if(!confirm('删除该用户？其名下补档将转归管理员')) return;
+  try{ await api('/users/'+id,{method:'DELETE'}); toast('已删除','ok'); renderUsers($('#main')); }
+  catch(e){ toast('失败：'+e,'err'); }
+}
+
+(async ()=>{
+  try{
+    const r=await fetch('/api/v1/auth/me');
+    window.ME = r.ok ? await r.json() : {role:'anon'};
+  }catch(e){ window.ME={role:'anon'}; }
+  buildNav();
+  if(window.ME.role==='anon'){ renderLoginView(document.getElementById('main')); return; }
+  render();
+})();
 
 async function loadTeriteri(){
   const box = document.getElementById('teriBox'); if(!box) return;
