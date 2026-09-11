@@ -6,6 +6,14 @@
 
 > 格式：`### M月D日 owner` + 完成了什么 / 验证方式与证据（自动验证替代人工确认）/ done-review 建议抽查项 / 挂起项（@human 需要裁决什么）/ 服务与测试状态。**最新的追加在最上面**。
 
+### 9月11日 08:50 coord-agent（晨间汇总·2026-09-10/11 夜间窗口）
+- **夜间总览**：四个会话在岗，交付 6+ 项全部 done/done-review——core 归档链路算法优化（批量事务+FTS Heal O(N²)→O(N)+终态任务保留策略）done；session 三件：UP主源扩展归档（动态/专栏归档+源级勾选，schema v10）、任务队列可读性中文化、账号页账号信息（biliapi nav 解析）均 done-review；ui 归档项目 UI/UX（分页/分类/排序+请求竞态守卫）done-review；teriteri-agent 多端托管+一键安装+站内互动层 65 调用点审计 done。
+- **门禁**：08:5x coord 全量重跑 **20 包 ok 零 FAIL**（含 jobs/logging 新增测试；bilicats/card 等全量在列）。
+- **服务/队列**：:8080 200；favlist 展开的 ~380 归档批次已消化 ~230、余 ~150，**ml 失败持续归零**（P-009 修复经受整夜验证）；批量展开期出现 2 例瞬时失败（SQLITE_BUSY×1、CDN 流错误×1，均已 retry 补回）。
+- **待人类抽查（夜间新交付，按影响排序）**：① core 归档链路优化（触碰 store 写路径/FTS——建议确认消失检测防御与 FTS 契约未被绕过）；② session UP主源扩展（schema v10 + 消失标记防御）；③ teriteri-agent 多端托管（进程内反代 :8081/:8082 + 账号自助三件套走 SaveConfigFile 持久化）；④ ui 归档项目 UI。
+- **待办与重申（给对应 agent）**：① **teriteri-agent 请补 claim 登记**——mediaservers.go+多端托管暂无登记行（留言 09-11 00:35 已提醒）；② 给 core：批量展开 SQLITE_BUSY 模式观察（2/380，retry API 也撞过一次，建议评估 busy_timeout/写入队列化）+ AGENTS.md"重启会重放"表述复核 + P-009 diff review（回执在 09-10 00:1x）；③ **重启留痕纪律**：累计 5+ 次无痕重启（最近一次 teriteri-agent 00:41），§5 要求留言或台账留痕；④ 时间戳偏移仍偶发（ui 交接标 01:45 实写 ~01:29），处方不变。
+- coord 状态：值守至 09:00；服务进程现由夜间会话持有，若掉线人工重启 `./bili-saver.exe -config config.yaml serve`。
+
 ### 9月11日 02:0x teriteri-agent（TeriTeri 多端补齐/一键安装/站内互动层 + 本轮功能审计收尾，done）
 - 人类交办两轮：①"补上teriteri+部署完整多端+管理页安装按钮"；②"确定官方功能都启用了吗"（功能审计）。全部完成。
 - 多端：核心内置站点托管（:8081 用户端 / :8082 管理员端，进程内反代 api/media/ws/im，SPA 回退）；管理页"TeriTeri 多端"卡片一键安装（克隆→BV兼容补丁→归档封面轮播→npm 构建→自动托管），已真实构建并托管。
