@@ -1,7 +1,7 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-11T19:00:39Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）
+> 水位：2026-09-11T19:30:43Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）
 > 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
 > - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已归纳；
 > - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，已归纳；
@@ -216,6 +216,15 @@
 ### 总览媒体服务器区块补品牌图标 — ui-agent（自报 2026-09-09T19:10:00Z，实为同期新追加，done）
 - 人类交办"给 emby/plex 等补上对应的图标"。总览「第三方媒体库在线」区块此前纯文字：从 simple-icons（CC0）取 Emby/Plex/Jellyfin/Kodi 官方 path，与自制 Teriteri 播放圈、通用服务器图标一起以 MS_ICONS 映射内嵌 index.html（无外部资源依赖，守单二进制约束）；msIcon(type) 渲染 18px 单色 SVG（fill var(--sub) 与控制台中性色一致），类型单元格 flex 排列图标+名称，未知类型回退通用服务器图标。
 - 验证：构建绿；服务重启；浏览器实测五类图标全部渲染（teriteri 在线 4ms 绿点 + emby/jellyfin/plex/kodi 未检测到灰显）；截图确认。
+
+### 管理端深色模式 — ui-agent（自报 2026-09-09T19:20:00Z，实为 09-11T19:3xZ 前新追加，done-review）
+- 人类交办"加入深色模式"。① 全站颜色已走 CSS 变量，新增 html[data-theme=dark] 暗色变量覆盖组（bg #0f1115/panel #161a20/line/txt/sub/faint，状态色 ok/warn/err/info 提亮保证暗底可读，accent 粉保持）；② 新增变量：表头底 --th、行悬停 --hover、primary 按钮悬停 --btn-hov、三色 banner 的 --ok/warn/info-bg+tx（浅深两套）；③ 硬编码清查变量化（th 底、行悬停、dot.off、primary 按钮文字与悬停、seg 选中文字、teriteri 日志 pre 底与错误文字）；④ <head> 防闪屏预置脚本（localStorage bili-theme 优先，未设置跟随 prefers-color-scheme）；⑤ 侧栏底部主题切换按钮（🌙 深色 / ☀️ 浅色），切换即存 localStorage 刷新保持；:root 加 color-scheme 让原生控件跟随主题。
+- 踩坑：双 script 块提取首版贪心正则误跨块，node --check 改逐块。
+- 验证：双 script 逐块 node --check 过；构建绿、服务重启；浏览器断言——dark 下 body #0f1115、aside #161a20、输入框反色、primary 按钮文字反色、切换按钮文案互切、localStorage 持久化；设置页/归档项目页深色截图确认；全量门 20 包绿。
+
+### walkthrough/git 体系：提交策略改为按 feature — walkthrough-agent（2026-09-11T19:17:04Z，done）
+- 人类指示"git 按 feature 提交，不要定时 snapshot，agent 做完一个就提交一下"。CronUpdate 重写自动化第二部分：每轮汇总后识别新完成（done/done-review）主题 → 按 raw「涉及」文件单独创建 feature 提交（`feat/fix/refactor(<scope>): 摘要（owner，状态）`+要点+验证+水位）→ 即时 push → WALKTHROUGH 小节标题回填「（已提交 <hash>）」作台账；纯文档改动单独 `docs:` 提交；无完成项的轮次不产生提交；轮询节奏不变（夜窗 30 分钟/白天 2 次，兼作完成信号发现）。
+- 切换基点：7119ebf 为最后一个 snapshot 提交，其后改动按 feature 等待各自完成信号。
 
 ## 待补时间戳
 

@@ -1805,6 +1805,7 @@ async function delUser(id){
   }catch(e){ window.ME={role:'anon'}; }
   buildNav();
   if(window.ME.role==='anon'){ renderLoginView(document.getElementById('main')); return; }
+  if(window.ME.role==='user'){ switchPage('mine'); return; }
   render();
 })();
 
