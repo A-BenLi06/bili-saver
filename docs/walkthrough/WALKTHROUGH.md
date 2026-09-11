@@ -217,7 +217,7 @@
 - 人类交办"给 emby/plex 等补上对应的图标"。总览「第三方媒体库在线」区块此前纯文字：从 simple-icons（CC0）取 Emby/Plex/Jellyfin/Kodi 官方 path，与自制 Teriteri 播放圈、通用服务器图标一起以 MS_ICONS 映射内嵌 index.html（无外部资源依赖，守单二进制约束）；msIcon(type) 渲染 18px 单色 SVG（fill var(--sub) 与控制台中性色一致），类型单元格 flex 排列图标+名称，未知类型回退通用服务器图标。
 - 验证：构建绿；服务重启；浏览器实测五类图标全部渲染（teriteri 在线 4ms 绿点 + emby/jellyfin/plex/kodi 未检测到灰显）；截图确认。
 
-### 管理端深色模式 — ui-agent（自报 2026-09-09T19:20:00Z，实为 09-11T19:3xZ 前新追加，done-review）
+### 管理端深色模式 — ui-agent（自报 2026-09-09T19:20:00Z，实为 09-11T19:3xZ 前新追加，done-review）（已提交 11b6c08）
 - 人类交办"加入深色模式"。① 全站颜色已走 CSS 变量，新增 html[data-theme=dark] 暗色变量覆盖组（bg #0f1115/panel #161a20/line/txt/sub/faint，状态色 ok/warn/err/info 提亮保证暗底可读，accent 粉保持）；② 新增变量：表头底 --th、行悬停 --hover、primary 按钮悬停 --btn-hov、三色 banner 的 --ok/warn/info-bg+tx（浅深两套）；③ 硬编码清查变量化（th 底、行悬停、dot.off、primary 按钮文字与悬停、seg 选中文字、teriteri 日志 pre 底与错误文字）；④ <head> 防闪屏预置脚本（localStorage bili-theme 优先，未设置跟随 prefers-color-scheme）；⑤ 侧栏底部主题切换按钮（🌙 深色 / ☀️ 浅色），切换即存 localStorage 刷新保持；:root 加 color-scheme 让原生控件跟随主题。
 - 踩坑：双 script 块提取首版贪心正则误跨块，node --check 改逐块。
 - 验证：双 script 逐块 node --check 过；构建绿、服务重启；浏览器断言——dark 下 body #0f1115、aside #161a20、输入框反色、primary 按钮文字反色、切换按钮文案互切、localStorage 持久化；设置页/归档项目页深色截图确认；全量门 20 包绿。
