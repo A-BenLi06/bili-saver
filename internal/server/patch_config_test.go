@@ -4,6 +4,7 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/config"
+	"bili-saver/internal/store"
 )
 
 func TestPatchConfig(t *testing.T) {
@@ -25,13 +27,45 @@ func TestPatchConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := New(Deps{Cfg: cfg, API: api, ConfigPath: cfgPath})
+	st, err := store.Open(filepath.Join(t.TempDir(), "users.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	s := New(Deps{Cfg: cfg, API: api, St: st, ConfigPath: cfgPath})
+	h := s.Handler()
+
+	// v11 起 /api/v1 需登录：先用种子管理员换会话 cookie
+	lreq := httptest.NewRequest("POST", "/api/v1/auth/login", strings.NewReader(`{"username":"admin","password":"bili-saver"}`))
+	lreq.Header.Set("Content-Type", "application/json")
+	lw := httptest.NewRecorder()
+	h.ServeHTTP(lw, lreq)
+	if lw.Code != 200 {
+		t.Fatalf("种子管理员登录应 200: %d", lw.Code)
+	}
+	sess := ""
+	for _, ck := range lw.Result().Cookies() {
+		if ck.Name == "bs_sess" {
+			sess = ck.Value
+		}
+	}
+	if sess == "" {
+		t.Fatal("登录应签发会话 cookie")
+	}
 
 	do := func(body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest("PATCH", "/api/v1/config", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(&http.Cookie{Name: "bs_sess", Value: sess})
 		w := httptest.NewRecorder()
-		s.Handler().ServeHTTP(w, req)
+		h.ServeHTTP(w, req)
+		return w
+	}
+	get := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", path, nil)
+		req.AddCookie(&http.Cookie{Name: "bs_sess", Value: sess})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
 		return w
 	}
 
@@ -50,9 +84,7 @@ func TestPatchConfig(t *testing.T) {
 	}
 
 	// 内存已生效（GET 一致）
-	w2 := httptest.NewRequest("GET", "/api/v1/config", nil)
-	rec2 := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec2, w2)
+	rec2 := get("/api/v1/config")
 	var got map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &got)
 	if got["sync_default_minutes"].(float64) != 120 || got["stats_resync_hours"].(float64) != 24 {

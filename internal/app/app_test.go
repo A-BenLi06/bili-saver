@@ -6,9 +6,11 @@ package app
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,8 +52,16 @@ func TestHTTPWiring(t *testing.T) {
 	srv := httptest.NewServer(a.HTTPHandler())
 	t.Cleanup(srv.Close)
 
+	// v11 起 /api/v1 需登录：种子管理员登录拿会话
+	jar, _ := cookiejar.New(nil)
+	client := &http.Client{Jar: jar}
+	if lr, lerr := client.Post(srv.URL+"/api/v1/auth/login", "application/json",
+		strings.NewReader(`{"username":"admin","password":"bili-saver"}`)); lerr != nil || lr.StatusCode != 200 {
+		t.Fatalf("种子管理员登录失败: %v %v", lerr, lr)
+	}
+
 	// stats
-	resp, err := http.Get(srv.URL + "/api/v1/stats")
+	resp, err := client.Get(srv.URL + "/api/v1/stats")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +72,7 @@ func TestHTTPWiring(t *testing.T) {
 	}
 
 	// videos 列表（分页富结果：{total,counts,items}）
-	resp2, _ := http.Get(srv.URL + "/api/v1/videos")
+	resp2, _ := client.Get(srv.URL + "/api/v1/videos")
 	var vl struct {
 		Total  int64            `json:"total"`
 		Counts map[string]int64 `json:"counts"`
@@ -74,7 +84,7 @@ func TestHTTPWiring(t *testing.T) {
 	}
 
 	// teriteri 适配层共存于同一 mux
-	resp3, _ := http.Get(srv.URL + "/api/video/getone?vid=BV1Test00001")
+	resp3, _ := client.Get(srv.URL + "/api/video/getone?vid=BV1Test00001")
 	var env struct {
 		Code int `json:"code"`
 	}

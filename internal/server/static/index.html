@@ -1594,6 +1594,12 @@ window.saveSettings = async () => {
 };
 
 /* ============ 多用户：登录门 / 我的补档 / 用户管理 ============ */
+function bindNavBtn(b){
+  b.onclick = () => {
+    document.querySelectorAll('#nav button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active'); page=b.dataset.p; clearInterval(timer); render();
+  };
+}
 function buildNav(){
   const me=window.ME||{role:'anon'};
   const nav=document.getElementById('nav');
@@ -1601,14 +1607,14 @@ function buildNav(){
   if(me.role==='admin' && !document.querySelector('[data-p=users]')){
     const b=document.createElement('button');
     b.dataset.p='users'; b.textContent='用户管理';
-    document.querySelector('#nav').appendChild(b);
+    bindNavBtn(b); document.querySelector('#nav').appendChild(b);
   }
   if(me.role==='user'){
     document.querySelectorAll('#nav button').forEach(b=>{ if(b.dataset.p!=='mine') b.style.display='none'; });
     if(!document.querySelector('[data-p=mine]')){
       const b=document.createElement('button');
       b.dataset.p='mine'; b.className='active'; b.textContent='我的补档';
-      nav.insertBefore(b, nav.firstChild.nextSibling);
+      bindNavBtn(b); nav.insertBefore(b, nav.firstChild.nextSibling);
     }
     document.querySelectorAll('#nav button').forEach(b=>{ b.style.display = b.dataset.p==='mine'?'':'none'; });
   }

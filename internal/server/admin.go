@@ -1280,7 +1280,7 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 		src.IntervalSubsMin = *req.IntervalSubsMin
 	}
 	if userMode {
-		// 用户仅可改 监控开关 与 检查频率（钳到等级下限）；其余字段忽略
+		// 用户仅可改 监控开关 与 检查频率（钳到等级下限，注意在赋值后重写）；其余字段忽略
 		if req.IntervalMin != nil && *req.IntervalMin > 0 {
 			floor := 60
 			if tier, err := s.Deps.St.GetTier(au.TierID); err == nil && tier.MinIntervalMin > 0 {
@@ -1289,6 +1289,7 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 			if *req.IntervalMin < floor {
 				*req.IntervalMin = floor
 			}
+			src.SyncIntervalMinutes = *req.IntervalMin
 		}
 		req.AutoDownload, req.SpaceScope = nil, nil
 	}

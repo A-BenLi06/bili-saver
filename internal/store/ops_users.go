@@ -85,7 +85,7 @@ func (s *Store) GetUser(id int64) (*User, error) {
 
 // ListUsers 全部用户（附等级名与当日添加数）。
 func (s *Store) ListUsers() ([]*User, error) {
-	rows, err := s.DB.Query(`SELECT u.`+userColsWithPrefix("u")+`, COALESCE(t.name,''), 
+	rows, err := s.DB.Query(`SELECT `+userColsWithPrefix("u")+`, COALESCE(t.name,''), 
 		(SELECT COUNT(*) FROM sources s2 WHERE s2.user_id=u.id AND s2.created_at>=? AND s2.created_at<?)
 		FROM users u LEFT JOIN user_tiers t ON t.id=u.tier_id ORDER BY u.id`,
 		todayStart(), todayStart()+86400)
