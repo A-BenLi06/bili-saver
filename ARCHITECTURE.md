@@ -54,7 +54,7 @@
 | --- | --- | --- |
 | 语言 | Go 1.27（纯 Go，无 CGO） | 单二进制交叉编译 linux/macOS/windows |
 | 存储 | SQLite（modernc.org/sqlite 纯 Go 驱动）+ FTS5 | WAL；幂等迁移（当前 **schema v8**） |
-| HTTP | net/http（Go 1.22 方法路由） | 管理 UI 与 API 同端口分路由 |
+| HTTP | net/http（Go 1.22 方法路由） | 管理 UI 与 API 同端口分路由；多用户会话 cookie（v11）+ admin.token Bearer 兼容 |
 | 视频 | 外部 ffmpeg（缺失时降级仅元数据归档） | `-c copy` 合并 DASH，`.merging` 原子改名 |
 | 插件 | 外部进程（stdin/stdout 行 JSON） | 任意语言；Python 示例 |
 | 前端 | 内嵌静态 HTML（go:embed） | 无构建链；SaaS 风格（侧栏/中性色/细线表格） |
