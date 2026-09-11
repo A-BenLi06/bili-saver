@@ -147,6 +147,8 @@
 
 | 管理端深色模式（人类交办“加入深色模式”）：index.html 暗色变量组 + data-theme 切换/记忆/跟随系统 + 硬编码颜色清查变量化 | ui-agent | done-review 2026-09-11 | 2026-09-11 01:5x | 全站颜色已走 CSS 变量，新增 html[data-theme=dark] 覆盖组（bg/panel/line/txt/sub/faint/状态色提亮、banner 淡底与表头/悬停底新增变量）；<head> 防闪屏预置脚本（localStorage bili-theme → 首访 prefers-color-scheme）；侧栏底部 🌙/☀️ 切换按钮；清查硬编码：th/hover/dot.off/primary 按钮文字与悬停/三色 banner/teriteri 日志区。刷新各页与图表配色兼容性。验证：全量门 20 包绿；服务已重启；浏览器断言——dark 生效（body #0f1115/aside #161a20/输入框反色/primary 按钮自动反色）、切换按钮文案互切、localStorage 刷新保持；深色下设置页与归档项目页截图确认（表格/缩略图/chips/开关观感正常）；双 script 块逐块语法检查（首版提取正则误跨块已改）。置 done-review |
 
+| 全站 UI 精修（人类交办“不少地方 UI 糙了，以 SaaS 为要求、参考侧栏标准”）：index.html 监控源/媒体库编辑表单栅格化+开关/分段器、采集页开关化、控件助手提升模块级+全局事件委托、alert 清零 | ui-agent | done-review 2026-09-12 | 2026-09-12 03:0x | 精修范围：① swF/segF/comboF/stepF 从 renderSettings 提升模块级 + segVal/segSet，chips/stepper/seg 委托从 #stWrap 提升为 document 级（设置页行为不变，监控源/媒体库复用）；② 监控源编辑：fgrid 栅格、监控开关、模式/触发器分段器（动态 hint 联动）、seHints/editSrc/saveSrc 适配；③ 媒体库编辑：fgrid、布局/链接/元数据三分段器、启用开关、newLib/editLib/saveLib 适配；④ 采集页 baseOpts 开关化；⑤ alert 清零（插件重载/媒体库必填校验/teriteri 安装失败 → toast）。后端零改动。**自检修复回归**：重构时漏渲染 seModeHint 致 seHints 抛错、编辑表单永不显示——包装 seHints 捕获栈定位后补元素。验证：双 script 块 node --check、构建绿、服务重启、浏览器断言（源编辑可见+栅格+开关+双分段器+提示联动；媒体库三分段器+STRM 切换+开关；采集双开关；深色截图与侧栏观感一致）。置 done-review |
+
 > 新 claim 追加在表格末尾；状态变更原地更新；done/done-review 保留供追溯。
 
 ## 留言区
