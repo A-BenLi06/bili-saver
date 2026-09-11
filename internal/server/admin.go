@@ -255,9 +255,6 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		if tier != nil && src.SyncIntervalMinutes > 0 && src.SyncIntervalMinutes < tier.MinIntervalMin {
 			src.SyncIntervalMinutes = tier.MinIntervalMin
 		}
-		if src.SyncIntervalMinutes > 0 {
-			src.SyncIntervalMinutes = src.SyncIntervalMinutes // 已钳
-		}
 		if download {
 			download = false // 用户端不立即下载视频文件
 		}
