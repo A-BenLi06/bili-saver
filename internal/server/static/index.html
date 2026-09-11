@@ -268,6 +268,39 @@ const applyTheme = t => {
   applyTheme(document.documentElement.dataset.theme || 'light');
 }
 
+/* 表单控件助手（设置/监控源/媒体库/采集共用） */
+const swF = (id,checked,text,note) => `<label class="check fcheck"><span class="switch"><input type="checkbox" id="${id}" ${checked?'checked':''}><i></i></span><span>${text}${note?`<span class="fnote">${note}</span>`:''}</span></label>`;
+const segF = (id,label,opts,cur) => `<div class="field"><label>${label}</label><div class="seg" id="${id}">
+        ${opts.map(o=>`<button type="button" data-v="${o[0]}" title="${esc(o[2]||'')}" class="${o[0]===cur?'on':''}">${o[1]}</button>`).join('')}</div></div>`;
+const segVal = id => { const el=document.getElementById(id); const on=el&&el.querySelector('.on'); return on?on.dataset.v:''; };
+const segSet = (id,v) => { const el=document.getElementById(id); if(!el) return; el.querySelectorAll('button').forEach(b=>b.classList.toggle('on', b.dataset.v===String(v))); };
+const comboF = (cb,label,hint,val) => `<div class="field" id="${cb.id}Box"><label>${label}</label>
+        <div class="chips" data-for="${cb.id}">${cb.presets.map(([v,t])=>`<button type="button" data-v="${v}" class="${v===+val?'on':''}">${t}</button>`).join('')}</div>
+        <div class="combo"><input type="number" id="${cb.id}" min="0" value="${val}">${cb.unit?`<span class="unit">${cb.unit}</span>`:''}</div>
+        <span class="hint">${hint}</span></div>`;
+const stepF = (id,label,hint,val) => `<div class="field"><label>${label}</label>
+        <div class="stepper"><button type="button" data-d="-1">−</button><input type="number" id="${id}" min="1" max="16" value="${val}"><button type="button" data-d="1">＋</button></div>
+        <span class="hint">${hint}</span></div>`;
+/* chips/stepper/seg 全局事件委托 */
+document.addEventListener('click', e => {
+  const chip = e.target.closest('.chips button');
+  if(chip){
+    const n = document.getElementById(chip.closest('.chips').dataset.for);
+    if(n){ n.value = chip.dataset.v; n.dispatchEvent(new Event('input', {bubbles:true})); }
+    return;
+  }
+  const sb = e.target.closest('.stepper button');
+  if(sb){
+    const n = sb.parentElement.querySelector('input');
+    n.value = Math.min(16, Math.max(1, (+n.value||1) + (+sb.dataset.d)));
+    n.dispatchEvent(new Event('input', {bubbles:true}));
+    return;
+  }
+  const b = e.target.closest('.seg button'); if(!b) return;
+  b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
+  b.parentElement.dispatchEvent(new Event('input', {bubbles:true}));
+});
+
 async function render(){
   const m = $('#main');
   ({dash:renderDash, add:renderAdd, videos:renderVideos, search:renderSearch, sources:renderSources,
@@ -425,9 +458,9 @@ function renderAdd(m){
         <input type="text" id="inp" placeholder="视频链接 / BV号 / UP主主页 / 收藏夹 / 合集链接">
         <span class="hint">推荐直接粘贴完整链接（支持 b23.tv 短链）；收藏夹请用 space 收藏夹页或 medialist 播放页链接，<b>只填纯数字会被当成 UP 主</b></span></div>
       <div id="recognize"></div>
-      <div id="baseOpts" style="display:none" class="inline">
-        <label class="check"><input type="checkbox" id="dl" checked><span id="dlLabel">下载视频文件</span></label>
-        <label class="check"><input type="checkbox" id="watch" checked><span id="watchLabel"></span></label>
+      <div id="baseOpts" style="display:none;gap:28px;flex-wrap:wrap">
+        ${swF('dl',true,'<span id="dlLabel">下载视频文件</span>','')}
+        <label class="check fcheck"><span class="switch"><input type="checkbox" id="watch" checked><i></i></span><span id="watchLabel"></span></label>
       </div>
       <div id="spaceOpts" style="display:none">
         <div class="field"><label>UP主归档范围（默认全部）</label>
@@ -902,16 +935,21 @@ async function renderSources(m){
   </div>
   <div class="sect" id="srcEdit" style="display:none"><h2>编辑源 #<span id="seId"></span></h2>
     <form onsubmit="return false">
-      <div class="inline">
-        <label class="check"><input type="checkbox" id="seWatch"> 监控</label>
-        <div class="field"><label>模式</label><select id="seMode"><option value="interval">周期同步</option><option value="once">仅一次</option></select><span class="hint" id="seModeHint"></span></div>
-        <div class="field"><label>主刷新间隔（分）</label><input type="number" id="seIvMain" min="0"></div>
-        <div class="field" id="seTrigField"><label>新视频触发器</label><select id="seTrig"><option value="0">跟随全局</option><option value="1">开启（自动下载）</option><option value="-1">关闭（仅归档数据）</option></select><span class="hint" id="seTrigHint"></span></div>
-      </div>
-      <div class="inline">
-        <div class="field"><label>评论</label><input type="number" id="seIvCmt" min="-1"></div>
-        <div class="field"><label>弹幕</label><input type="number" id="seIvDm" min="-1"></div>
-        <div class="field"><label>字幕</label><input type="number" id="seIvSub" min="-1"></div>
+      <div class="fgrid">
+        ${swF('seWatch',false,'监控','关闭 = 暂停该源的全部同步与触发')}
+        <div class="field"><label>模式</label><div class="seg" id="seMode">
+          <button type="button" data-v="interval" class="on">周期同步</button>
+          <button type="button" data-v="once" title="首次同步后自动停止监控">仅一次</button></div>
+          <span class="hint" id="seModeHint"></span></div>
+        <div class="field"><label>主刷新间隔（分）</label><input type="number" id="seIvMain" min="0"><span class="hint">0 = 跟随全局默认</span></div>
+        <div class="field" id="seTrigField"><label>新视频触发器</label><div class="seg" id="seTrig">
+          <button type="button" data-v="0" class="on">跟随全局</button>
+          <button type="button" data-v="1" title="发现新视频即自动下载并进跟踪列表">开启</button>
+          <button type="button" data-v="-1" title="仅归档数据，不下载文件">关闭</button></div>
+          <span class="hint" id="seTrigHint"></span></div>
+        <div class="field"><label>评论间隔（分）</label><input type="number" id="seIvCmt" min="-1"><span class="hint">-1 从不 · 0 跟随主间隔</span></div>
+        <div class="field"><label>弹幕间隔（分）</label><input type="number" id="seIvDm" min="-1"></div>
+        <div class="field"><label>字幕间隔（分）</label><input type="number" id="seIvSub" min="-1"></div>
       </div>
       <div id="srcScopeOpts" style="display:none">
         <div class="field"><label>UP主归档范围</label>
@@ -927,15 +965,15 @@ async function renderSources(m){
       <span class="meta-note">-1 = 从不 · 0 = 跟随主间隔/全局默认</span></div>
     </form>
   </div>`;
-  $('#seMode').onchange=seHints; $('#seTrig').onchange=seHints;
+  $('#seMode').addEventListener('input', seHints); $('#seTrig').addEventListener('input', seHints);
 }
 const ivTxt = v => v===-1?'从不':(v?v+'分':'跟随');
 function seHints(){
-  const mode=$('#seMode').value;
+  const mode=segVal('seMode');
   $('#seModeHint').textContent = mode==='once'
     ? '仅一次：首次同步后自动停止监控，不再发现新视频或刷新数据'
     : '周期刷新评论/弹幕/字幕与统计，并在此过程中发现新视频';
-  const t=$('#seTrig').value;
+  const t=segVal('seTrig');
   $('#seTrigHint').textContent = t==='0'
     ? (window.__gAuto==null?'继承全局 download.auto_download 设置':`全局当前为「${window.__gAuto?'开':'关'}」，随全局设置变化`)
     : (t==='1'?'发现新视频即自动下载并进跟踪列表':'新视频仅归档数据，不下载文件');
@@ -944,10 +982,10 @@ window.syncSrc = async id => { try{ await api(`/sources/${id}/sync`,{method:'POS
 window.delSrc = async id => { if(confirm('删除该监控源？已归档数据不受影响')){ await api(`/sources/${id}`,{method:'DELETE'}); renderSources($('#main')); } };
 window.editSrc = id => api('/sources').then(srcs=>{
   const s=srcs.find(x=>x.id===id); if(!s) return;
-  $('#seId').textContent=id; $('#seWatch').checked=s.watch; $('#seMode').value=s.sync_mode||'interval';
+  $('#seId').textContent=id; $('#seWatch').checked=s.watch; segSet('seMode', s.sync_mode||'interval');
   $('#seIvMain').value=s.sync_interval_minutes||0; $('#seIvCmt').value=s.interval_comments_minutes??0;
   $('#seIvDm').value=s.interval_danmaku_minutes??0; $('#seIvSub').value=s.interval_subtitles_minutes??0;
-  $('#seTrig').value=String(s.auto_download||0);
+  segSet('seTrig', String(s.auto_download||0));
   const isSpace=(s.type==='space');
   $('#srcScopeOpts').style.display=isSpace?'block':'none';
   if(isSpace){
@@ -963,10 +1001,10 @@ window.editSrc = id => api('/sources').then(srcs=>{
 });
 window.saveSrc = async () => {
   const id=$('#seId').textContent, type=$('#srcEdit').dataset.type;
-  const body={watch:$('#seWatch').checked, sync_mode:$('#seMode').value, interval_minutes:+$('#seIvMain').value||0,
+  const body={watch:$('#seWatch').checked, sync_mode:segVal('seMode')||'interval', interval_minutes:+$('#seIvMain').value||0,
     interval_comments:+$('#seIvCmt').value||0, interval_danmaku:+$('#seIvDm').value||0, interval_subtitles:+$('#seIvSub').value||0};
   if($('#srcScopeOpts').style.display!=='none') body.space_scope=scopeChecked('#srcScopeOpts');
-  if(type!=='video') body.auto_download=+$('#seTrig').value||0;
+  if(type!=='video') body.auto_download=+segVal('seTrig')||0;
   try{ await api('/sources/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     toast('源设置已保存','ok'); renderSources($('#main'));
   }catch(e){ toast('保存失败：'+e,'err'); }
@@ -1094,31 +1132,24 @@ async function renderLibraries(m){
   </div>
   <div class="sect" id="libEdit" style="display:none"><h2 id="leTitle">新建媒体库</h2>
     <form onsubmit="return false">
-      <div class="inline">
+      <div class="fgrid">
         <div class="field"><label>名称</label><input type="text" id="leName"></div>
-        <div class="field" style="flex:2"><label>输出路径</label><input type="text" id="leRoot" placeholder="D:\\media\\bili 或 /srv/media/bili"></div>
+        <div class="field"><label>输出路径</label><input type="text" id="leRoot" placeholder="D:\\media\\bili 或 /srv/media/bili"></div>
+        ${segF('leLayout','布局',[['movie','电影','每个视频独立一部'],['show','剧集','同一 UP主 归为一部剧集']],'movie')}
+        ${segF('leLink','链接方式',[['auto','自动','symlink→hardlink→copy 逐级降级'],['symlink','符号链接',''],['hardlink','硬链接',''],['copy','复制',''],['strm','STRM','生成指向核心 HTTP 流的 .strm 文件，Emby 可跨机播放']],'auto')}
+        ${segF('leMeta','元数据格式',[['nfo','NFO','Kodi 标准格式，Emby/Jellyfin/Kodi 通用'],['json','JSON','sidecar 文件'],['none','无','不生成元数据']],'nfo')}
+        <div class="field wide"><label>路由 — 标签（逗号分隔，留空 = 不按标签）</label>
+          <input type="text" id="leTags" placeholder="美食, 教程"><span class="hint">命中任一 B 站标签的视频进入此库</span></div>
+        <div class="field wide"><label>路由 — 分区（逗号分隔，留空 = 不按分区）</label>
+          <input type="text" id="leCats" placeholder="美食, 动画, 音乐"><span class="hint">命中任一 B 站分区的视频进入此库（按归档时官方 tname 精确匹配）</span></div>
+        <div class="field"><label>路由 — 类型（横竖屏，按归档时宽高判定）</label>
+          <div class="inline">
+            <label class="check"><input type="checkbox" class="leOrient" value="horizontal"> 横屏</label>
+            <label class="check"><input type="checkbox" class="leOrient" value="vertical"> 竖屏</label>
+          </div>
+          <span class="hint">勾选任一类型则仅该类型的视频进入此库；都不勾 = 不按类型</span></div>
+        ${swF('leEnabled',true,'启用','停用后此库不再参与重建与路由')}
       </div>
-      <div class="inline">
-        <div class="field"><label>布局</label><select id="leLayout">
-          <option value="movie">电影（每视频一部）</option><option value="show">剧集（UP主=剧集）</option></select></div>
-        <div class="field"><label>链接方式</label><select id="leLink">
-          <option value="auto">自动（symlink→hardlink→copy）</option><option value="symlink">符号链接</option>
-          <option value="hardlink">硬链接</option><option value="copy">复制</option>
-          <option value="strm">STRM（指向核心 HTTP 流）</option></select></div>
-        <div class="field"><label>元数据格式</label><select id="leMeta">
-          <option value="nfo">Kodi NFO（Emby/Jellyfin/Kodi）</option><option value="json">JSON sidecar</option><option value="none">无</option></select></div>
-      </div>
-      <div class="field"><label>路由 — 标签（逗号分隔，留空 = 不按标签）</label>
-        <input type="text" id="leTags" placeholder="美食, 教程"><span class="hint">命中任一 B 站标签的视频进入此库</span></div>
-      <div class="field"><label>路由 — 分区（逗号分隔，留空 = 不按分区）</label>
-        <input type="text" id="leCats" placeholder="美食, 动画, 音乐"><span class="hint">命中任一 B 站分区的视频进入此库（按归档时官方 tname 精确匹配）</span></div>
-      <div class="field"><label>路由 — 类型（横竖屏，按归档时宽高判定）</label>
-        <div class="inline">
-          <label class="check"><input type="checkbox" class="leOrient" value="horizontal"> 横屏</label>
-          <label class="check"><input type="checkbox" class="leOrient" value="vertical"> 竖屏</label>
-        </div>
-        <span class="hint">勾选任一类型则仅该类型的视频进入此库；都不勾 = 不按类型</span></div>
-      <label class="check"><input type="checkbox" id="leEnabled" checked> 启用</label>
       <div class="actions"><button class="btn primary" onclick="saveLib()">保存</button></div>
     </form>
   </div>`;
@@ -1137,15 +1168,15 @@ window.rebuildAll = async () => {
 };
 window.newLib = () => {
   $('#leTitle').textContent='新建媒体库'; $('#libEdit').dataset.id='';
-  $('#leName').value=''; $('#leRoot').value=''; $('#leLayout').value='movie'; $('#leLink').value='auto';
-  $('#leMeta').value='nfo'; $('#leTags').value=''; $('#leEnabled').checked=true;
+  $('#leName').value=''; $('#leRoot').value=''; segSet('leLayout','movie'); segSet('leLink','auto');
+  segSet('leMeta','nfo'); $('#leTags').value=''; $('#leEnabled').checked=true;
   $('#libEdit').style.display='block'; $('#libEdit').scrollIntoView({behavior:'smooth'});
 };
 window.editLib = id => api('/libraries').then(libs=>{
   const l=libs.find(x=>x.id===id); if(!l) return;
   $('#leTitle').textContent='编辑 '+l.name; $('#libEdit').dataset.id=id;
-  $('#leName').value=l.name; $('#leRoot').value=l.root_path; $('#leLayout').value=l.layout;
-  $('#leLink').value=l.link_mode; $('#leMeta').value=l.metadata_format;
+  $('#leName').value=l.name; $('#leRoot').value=l.root_path; segSet('leLayout', l.layout);
+  segSet('leLink', l.link_mode); segSet('leMeta', l.metadata_format);
   try{ const rr=JSON.parse(l.match_rules||'{}');
     $('#leTags').value=(rr.tags||[]).join(', ');
     $('#leCats').value=(rr.categories||[]).join(', ');
@@ -1165,9 +1196,9 @@ window.saveLib = async () => {
   const ori=[...document.querySelectorAll('#libEdit .leOrient:checked')].map(x=>x.value);
   if(ori.length) rules.orientation=ori;
   const body={name:$('#leName').value.trim(), root_path:$('#leRoot').value.trim(),
-    layout:$('#leLayout').value, link_mode:$('#leLink').value, metadata_format:$('#leMeta').value,
+    layout:segVal('leLayout'), link_mode:segVal('leLink'), metadata_format:segVal('leMeta'),
     match_rules:JSON.stringify(rules), enabled:$('#leEnabled').checked};
-  if(!body.name||!body.root_path){ alert('名称与路径必填'); return; }
+  if(!body.name||!body.root_path){ toast('名称与路径必填','err'); return; }
   try{
     if(id){ await api('/libraries/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
     else { await api('/libraries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); }
@@ -1383,7 +1414,7 @@ async function renderPlugins(m){
     :'<div class="empty">未发现插件 — 放入 data/plugins/&lt;目录&gt;/manifest.yaml</div>'}
   </div>`;
 }
-window.reloadPlugins = async () => { const r=await api('/plugins/reload',{method:'POST'}); alert('已加载 '+r.loaded+' 个插件'); renderPlugins($('#main')); };
+window.reloadPlugins = async () => { try{ const r=await api('/plugins/reload',{method:'POST'}); toast('已加载 '+r.loaded+' 个插件','ok'); renderPlugins($('#main')); }catch(e){ toast('失败：'+e,'err'); } };
 window.togglePlugin = async (id,en) => { try{ await api(`/plugins/${id}/enabled`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:en})}); toast('插件 '+id+(en?' 已启用':' 已停用'),'ok'); renderPlugins($('#main')); }catch(e){ toast('失败：'+e,'err'); } };
 
 /* ============ 设置 ============ */
@@ -1485,16 +1516,6 @@ async function renderSettings(m){
   const cmts = (id,label,hint) => `<div class="field wide" id="${id}Box"><label>${label}</label>
         <div class="fchecks">${stChecks(id==='stQualsBox'?'stQ_':'stAQ_', id==='stQualsBox'?(c.qualities||[]):(c.audio_qualities||[]))}</div>
         <span class="hint">${hint}</span></div>`;
-  const comboF = (cb,label,hint,val) => `<div class="field" id="${cb.id}Box"><label>${label}</label>
-        <div class="chips" data-for="${cb.id}">${cb.presets.map(([v,t])=>`<button type="button" data-v="${v}" class="${v===+val?'on':''}">${t}</button>`).join('')}</div>
-        <div class="combo"><input type="number" id="${cb.id}" min="0" value="${val}">${cb.unit?`<span class="unit">${cb.unit}</span>`:''}</div>
-        <span class="hint">${hint}</span></div>`;
-  const stepF = (id,label,hint,val) => `<div class="field"><label>${label}</label>
-        <div class="stepper"><button type="button" data-d="-1">−</button><input type="number" id="${id}" min="1" max="16" value="${val}"><button type="button" data-d="1">＋</button></div>
-        <span class="hint">${hint}</span></div>`;
-  const swF = (id,checked,text,note) => `<label class="check fcheck"><span class="switch"><input type="checkbox" id="${id}" ${checked?'checked':''}><i></i></span><span>${text}${note?`<span class="fnote">${note}</span>`:''}</span></label>`;
-  const segF = (id,label,opts,cur) => `<div class="field"><label>${label}</label><div class="seg" id="${id}">
-        ${opts.map(o=>`<button type="button" data-v="${o[0]}" title="${esc(o[2]||'')}" class="${o[0]===cur?'on':''}">${o[1]}</button>`).join('')}</div></div>`;
   m.innerHTML = `
   <div id="stWrap">
   <div class="pagehead"><h1>设置</h1><span class="desc">运行参数 · 保存后立即生效（<span class="origin">†</span> 需重启完全生效）</span>
@@ -1558,25 +1579,6 @@ async function renderSettings(m){
   const wrap = $('#stWrap');
   wrap.addEventListener('input', stRefresh);
   wrap.addEventListener('change', stRefresh);
-  wrap.addEventListener('click', e => {
-    const chip = e.target.closest('.chips button');
-    if(chip){
-      const n = document.getElementById(chip.closest('.chips').dataset.for);
-      n.value = chip.dataset.v;
-      n.dispatchEvent(new Event('input', {bubbles:true}));
-      return;
-    }
-    const sb2 = e.target.closest('.stepper button');
-    if(sb2){
-      const n = sb2.parentElement.querySelector('input');
-      n.value = Math.min(16, Math.max(1, (+n.value||1) + (+sb2.dataset.d)));
-      n.dispatchEvent(new Event('input', {bubbles:true}));
-      return;
-    }
-    const b = e.target.closest('.seg button'); if(!b) return;
-    b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
-    b.parentElement.dispatchEvent(new Event('input', {bubbles:true}));
-  });
   stSyncCombos();
   $('#stSave').onclick = saveSettings;
   $('#stReset').onclick = () => stApply(stInit);
@@ -1845,7 +1847,7 @@ async function teriteriInstall(){
   try{
     const r = await fetch('/api/v1/teriteri/install', {method:'POST'});
     if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.error || ('HTTP '+r.status)); }
-  }catch(e){ alert('启动安装失败: '+e.message); }
+  }catch(e){ toast('启动安装失败：'+e.message,'err'); }
   loadTeriteri();
 }
 </script>
