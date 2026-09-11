@@ -226,7 +226,7 @@
 - 人类指示"git 按 feature 提交，不要定时 snapshot，agent 做完一个就提交一下"。CronUpdate 重写自动化第二部分：每轮汇总后识别新完成（done/done-review）主题 → 按 raw「涉及」文件单独创建 feature 提交（`feat/fix/refactor(<scope>): 摘要（owner，状态）`+要点+验证+水位）→ 即时 push → WALKTHROUGH 小节标题回填「（已提交 <hash>）」作台账；纯文档改动单独 `docs:` 提交；无完成项的轮次不产生提交；轮询节奏不变（夜窗 30 分钟/白天 2 次，兼作完成信号发现）。
 - 切换基点：7119ebf 为最后一个 snapshot 提交，其后改动按 feature 等待各自完成信号。
 
-### 补档器多用户（v11：多用户+等级配额+权限隔离）— session-agent（2026-09-11T19:45:00Z，done-review）
+### 补档器多用户（v11：多用户+等级配额+权限隔离）— session-agent（2026-09-11T19:45:00Z，done-review）（已提交 43c4404）
 - 人类交办"补档器加入多用户：用户可添加/设频率/查看/管理自己的补档（无其它功能）；管理员管理等级的每日添加数与检查频率"。
 - 交付：store v11（users/sessions/user_tiers 三表 + 种子 admin/bili-saver 与 基础/进阶 两等级 + sources.user_id）；鉴权中间件重构（Bearer admin.token 兼容 → 会话 cookie bs_sess → 匿名仅放行登录；user 角色路径白名单=添加/识别/源列表/改删自己源/me/logout，其余 403）；handleAdd 用户分支（每日配额=当日 created_at 计数、频率钳等级下限、归属 user_id、强制不自动下载、免热门确认）；PATCH/DELETE 源归属校验（用户仅可改监控/频率）；/users 与 /tiers CRUD 端点（requireAdmin）；UI 三视图（登录门、角色化导航、我的补档页=额度显示+添加/编辑/删除、用户管理页=等级表+用户表）。
 - 踩坑：①heredoc 与 JS 模板串/弯引号打架→大段 JS 改 Write 补丁文件+Python 拼接；②ListUsers SQL 前缀拼成 u.u.id；③PATCH 钳制在赋值之后等于没钳（重写赋值）；④buildNav 与并行编辑撞出交错重复（node --check 只查 findall[0] 漏检主块）——python 逐片段解析定位后字符串手术修复；⑤本机 LAN IP 从 192.168.1.114 漂移到 192.168.0.35（用户访问地址需更新，与代码无关）。
