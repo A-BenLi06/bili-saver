@@ -156,6 +156,35 @@ mark { background:var(--accent-soft); color:var(--txt); padding:0 1px; border-ra
 .msicon { width:18px; height:18px; fill:var(--sub); flex:none; }
 .savebar { position:sticky; bottom:0; display:flex; gap:14px; align-items:center; padding:12px 16px;
   background:var(--panel); border:1px solid var(--line); border-radius:8px; margin-top:8px; box-shadow:0 -4px 14px rgba(0,0,0,.05); }
+
+/* ---- 设置页现代 SaaS 扁平细线列表与子页签 ---- */
+.st-sub-tabs { margin-bottom:18px; border-bottom:1px solid var(--line); }
+.st-panel { display:none; }
+.st-panel.active { display:block; animation:stFadeIn .14s ease-out; }
+@keyframes stFadeIn { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
+.st-list { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; margin-bottom:18px; }
+.st-row { display:flex; align-items:center; justify-content:space-between; padding:14px 18px; border-bottom:1px solid var(--line); gap:20px; }
+.st-row:last-child { border-bottom:none; }
+.st-row-left { flex:1; min-width:220px; }
+.st-row-title { font-size:13.5px; font-weight:550; color:var(--txt); display:flex; align-items:center; gap:6px; }
+.st-row-desc { font-size:12.5px; color:var(--sub); margin-top:3px; line-height:1.45; }
+.st-row-right { display:flex; align-items:center; justify-content:flex-end; flex-shrink:0; }
+.st-ctrl-combo { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.st-ctrl-combo .chips { display:inline-flex; gap:3px; background:var(--bg); padding:2px; border-radius:6px; border:1px solid var(--line); }
+.st-ctrl-combo .chips button { border:none; background:none; border-radius:4px; padding:3px 7px; font-size:12px; color:var(--sub); cursor:pointer; }
+.st-ctrl-combo .chips button:hover { color:var(--txt); }
+.st-ctrl-combo .chips button.on { background:var(--panel); color:var(--txt); font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+html[data-theme="dark"] .st-ctrl-combo .chips button.on { background:var(--line-strong); color:#fff; }
+.st-ctrl-combo .combo input[type=number] { width:84px; padding:5px 8px; border:1px solid var(--line-strong); border-radius:6px; font-size:13px; background:var(--panel); color:var(--txt); }
+.st-advanced { margin-top:14px; border:1px solid var(--line); border-radius:8px; background:var(--panel); overflow:hidden; }
+.st-advanced summary { padding:11px 16px; font-size:13px; font-weight:550; color:var(--sub); cursor:pointer; user-select:none; list-style:none; display:flex; align-items:center; gap:6px; background:var(--bg); }
+.st-advanced summary::-webkit-details-marker { display:none; }
+.st-advanced summary::before { content:"▸"; font-size:11px; transition:transform .15s; }
+.st-advanced[open] summary::before { transform:rotate(90deg); }
+.st-advanced summary:hover { color:var(--txt); }
+.st-advanced .st-list { margin:0; border:none; border-top:1px solid var(--line); border-radius:0; }
+.st-row.dirty .st-row-title::after { content:" ●"; color:var(--accent); font-size:11px; vertical-align:2px; }
+
 .dhead { display:flex; gap:20px; margin-bottom:24px; }
 .dcover { width:168px; height:105px; object-fit:cover; border-radius:8px; border:1px solid var(--line); background:var(--bg); flex:none; align-self:flex-start; }
 .dhead h1 { font-size:18px; font-weight:650; line-height:1.45; }
@@ -1628,7 +1657,7 @@ const stRefresh = () => {
     const changed = JSON.stringify(cur[k])!==JSON.stringify(stInit[k]);
     if(changed) diffKeys.push(k);
     const el = document.getElementById(id);
-    const box = el && el.closest('.field,.fcheck');
+    const box = el && el.closest('.field,.fcheck,.st-row');
     if(box) box.classList.toggle('dirty', changed);
   }
   const qChanged = JSON.stringify(cur.qualities)!==JSON.stringify(stInit.qualities);
@@ -1657,74 +1686,215 @@ const stApply = snap => {
   stSyncCombos();
   stRefresh();
 };
+let curStTab = 'sync';
 async function renderSettings(m){
   m.innerHTML = '<div class="empty">加载中…</div>';
   window.__stGuard = false;
   let c;
   try{ c = await api('/config'); }
   catch(e){ m.innerHTML = '<div class="banner warn">配置加载失败：'+esc(e)+'</div>'; return; }
-  const cmts = (id,label,hint) => `<div class="field wide" id="${id}Box"><label>${label}</label>
-        <div class="fchecks">${stChecks(id==='stQualsBox'?'stQ_':'stAQ_', id==='stQualsBox'?(c.qualities||[]):(c.audio_qualities||[]))}</div>
-        <span class="hint">${hint}</span></div>`;
+
+  const stRow = (id, title, desc, ctrlHtml) => `
+    <div class="st-row" id="${id}Box">
+      <div class="st-row-left">
+        <div class="st-row-title">${title}</div>
+        ${desc ? `<div class="st-row-desc">${desc}</div>` : ''}
+      </div>
+      <div class="st-row-right">${ctrlHtml}</div>
+    </div>`;
+
+  const stSwRow = (id, checked, title, desc) => `
+    <div class="st-row" id="${id}Box">
+      <div class="st-row-left">
+        <div class="st-row-title">${title}</div>
+        ${desc ? `<div class="st-row-desc">${desc}</div>` : ''}
+      </div>
+      <div class="st-row-right">
+        <label class="switch"><input type="checkbox" id="${id}" ${checked?'checked':''}><i></i></label>
+      </div>
+    </div>`;
+
+  const stComboCtrl = (cb, val) => `
+    <div class="st-ctrl-combo">
+      <div class="chips" data-for="${cb.id}">
+        ${cb.presets.map(([v,t])=>`<button type="button" data-v="${v}" class="${v===+val?'on':''}">${t}</button>`).join('')}
+      </div>
+      <div class="combo">
+        <input type="number" id="${cb.id}" min="0" value="${val}">
+        ${cb.unit ? `<span class="unit">${cb.unit}</span>` : ''}
+      </div>
+    </div>`;
+
+  const stStepCtrl = (id, val) => `
+    <div class="stepper">
+      <button type="button" data-d="-1">−</button>
+      <input type="number" id="${id}" min="1" max="16" value="${val}">
+      <button type="button" data-d="1">＋</button>
+    </div>`;
+
   m.innerHTML = `
   <div id="stWrap">
-  <div class="pagehead"><h1>设置</h1><span class="desc">运行参数 · 保存后立即生效（<span class="origin">†</span> 需重启完全生效）</span>
+  <div class="pagehead">
+    <h1>设置</h1><span class="desc">运行参数 · 保存后立即生效（<span class="origin">†</span> 需重启完全生效）</span>
     <span id="stDirty" class="meta-note" style="display:none;color:var(--warn)"></span>
-    <span class="spacer"></span><button class="btn" id="stReset" style="display:none">放弃更改</button>
-    <button class="btn primary" id="stSave" disabled>保存全部设置</button></div>
+    <span class="spacer"></span>
+    <button class="btn" id="stReset" style="display:none">放弃更改</button>
+    <button class="btn primary" id="stSave" disabled>保存全部设置</button>
+  </div>
   <div id="setOut"></div>
-  <div class="sect"><h2>采集与补档</h2>
-    <div class="fgrid">
-      ${comboF(ST_COMBOS[0],'监控源默认同步间隔','源未单独设置间隔时使用；可直接输入任意分钟',c.sync_default_minutes)}
-      ${comboF(ST_COMBOS[1],'全库统计周期','定时刷新全库播放/点赞等统计数值',c.stats_resync_hours??0)}
-      ${swF('stAdaptive',c.adaptive_sync,'自适应补档频率','新发 24h 内加速、按评论/播放活跃度冷却沉寂视频')}
-      ${comboF(ST_COMBOS[2],'单视频评论抓取上限','首次归档抓取的评论深度',c.comments_max)}
-      ${comboF(ST_COMBOS[3],'楼中楼抓取上限','每条评论的回复抓取深度',c.sub_replies_max)}
-      ${swF('stFullCmt',c.full_resync_comments,'重同步时全量翻页评论','关闭可加速，但会漏检消失评论')}
-      ${comboF(ST_COMBOS[4],'热门提示：播放量阈值','手动补档热门视频前二次确认',c.hot_video_views)}
-      ${comboF(ST_COMBOS[5],'热门提示：评论数阈值','手动补档热门视频前二次确认',c.hot_video_replies)}
+
+  <div class="tabs st-sub-tabs" id="stSubTabs">
+    <button type="button" data-tab="sync" class="${curStTab==='sync'?'active':''}">采集与同步</button>
+    <button type="button" data-tab="download" class="${curStTab==='download'?'active':''}">下载与流媒体</button>
+    <button type="button" data-tab="media" class="${curStTab==='media'?'active':''}">媒体库与站点</button>
+    <button type="button" data-tab="system" class="${curStTab==='system'?'active':''}">系统环境</button>
+  </div>
+
+  <!-- Tab 1: 采集与同步 -->
+  <div class="st-panel ${curStTab==='sync'?'active':''}" id="stPanel-sync">
+    <div class="st-list">
+      ${stRow(ST_COMBOS[0].id, '监控源默认同步间隔', '源未单独指定间隔时使用的全局默认刷新周期', stComboCtrl(ST_COMBOS[0], c.sync_default_minutes))}
+      ${stRow(ST_COMBOS[1].id, '全库统计周期', '定时刷新全库视频播放量、点赞、投币等走势快照', stComboCtrl(ST_COMBOS[1], c.stats_resync_hours??0))}
+      ${stSwRow('stAdaptive', c.adaptive_sync, '自适应补档频率', '新发布视频 24h 内高频追踪，对沉寂老视频自动降低检测频率')}
+      ${stSwRow('stFullCmt', c.full_resync_comments, '重同步时全量翻页评论', '关闭可显著加快重同步速度，但可能漏检早期被删除的消失评论')}
+      ${stRow(ST_COMBOS[2].id, '单视频评论抓取上限', '首次归档该视频时抓取的最大主楼评论深度（0 为不限）', stComboCtrl(ST_COMBOS[2], c.comments_max))}
+      ${stRow(ST_COMBOS[3].id, '楼中楼抓取上限', '单条主楼评论下抓取的最大回复评论深度（0 为不限）', stComboCtrl(ST_COMBOS[3], c.sub_replies_max))}
+    </div>
+    <details class="st-advanced">
+      <summary>热门视频二次确认阈值（防止意外误入巨量数据）</summary>
+      <div class="st-list">
+        ${stRow(ST_COMBOS[4].id, '播放量预警阈值', '手动添加热门视频达到该播放量时弹出二次确认（0 为禁用）', stComboCtrl(ST_COMBOS[4], c.hot_video_views))}
+        ${stRow(ST_COMBOS[5].id, '评论数预警阈值', '手动添加热门视频达到该评论数时弹出二次确认（0 为禁用）', stComboCtrl(ST_COMBOS[5], c.hot_video_replies))}
+      </div>
+    </details>
+  </div>
+
+  <!-- Tab 2: 下载与流媒体 -->
+  <div class="st-panel ${curStTab==='download'?'active':''}" id="stPanel-download">
+    <div class="st-list">
+      ${stSwRow('stAutoDl', c.auto_download, '归档后自动下载视频', '开启后每次归档或监控源发现新视频将自动拉取视频流文件')}
+      ${stSwRow('stDlDm', c.download_danmaku, '下载弹幕文件', '将视频弹幕同步下载保存为 XML 本地弹幕文件')}
+      <div class="st-row" id="stQualsBox">
+        <div class="st-row-left">
+          <div class="st-row-title">清晰度白名单</div>
+          <div class="st-row-desc">全不勾选 = 不限画质（默认选取最高可用）。勾选档位参与选流，全部不可用时自动回落更低档</div>
+        </div>
+        <div class="st-row-right" style="flex:1;max-width:540px;">
+          <div class="fchecks">${stChecks('stQ_', c.qualities||[])}</div>
+        </div>
+      </div>
+      <div class="st-row" id="stAudioQBox">
+        <div class="st-row-left">
+          <div class="st-row-title">音频质量偏好</div>
+          <div class="st-row-desc">全不勾选 = 标准最高可用。支持 Hi-Res 无损音质与杜比全景声优先选取</div>
+        </div>
+        <div class="st-row-right" style="flex:1;max-width:540px;">
+          <div class="fchecks">${stChecks('stAQ_', c.audio_qualities||[])}</div>
+        </div>
+      </div>
+      ${stRow('stConc', '同时下载任务并发数', '全局最大下载任务并发 worker 数量', stStepCtrl('stConc', c.concurrency))}
+      ${stRow('stSeg', '单视频分段连接数', '每个视频流分块并行切片下载连接数（Range 切片加速）', stStepCtrl('stSeg', c.segments))}
+      ${stSwRow('stAv1', c.allow_av1, '允许 AV1 编码', 'AV1 压缩率更高体积更小，但老旧播放设备硬件解码兼容性略弱')}
+      ${stSwRow('st4k', c.allow_4k, '允许 4K 超清', '开启后允许请求 4K 分辨率（仍需账号大会员与清晰度白名单支持）')}
+    </div>
+    <details class="st-advanced">
+      <summary>接口限流微调（高级调优）</summary>
+      <div class="st-list">
+        <div class="st-row" id="stMinReqBox">
+          <div class="st-row-left">
+            <div class="st-row-title">请求最小间隔（毫秒）<span class="origin">†</span></div>
+            <div class="st-row-desc">B 站接口全局请求速率限制。过小会导致风控封 IP，修改后需重启服务生效</div>
+          </div>
+          <div class="st-row-right">
+            <div class="combo"><input type="number" id="stMinReq" min="0" value="${c.min_req_ms??350}"><span class="unit">ms</span></div>
+          </div>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <!-- Tab 3: 媒体库与站点 -->
+  <div class="st-panel ${curStTab==='media'?'active':''}" id="stPanel-media">
+    <div class="st-list">
+      ${stSwRow('stMedEn', c.media_enabled, '启用媒体库文件输出', '归档完成后自动在媒体库根目录生成软链接或规范剧集目录')}
+      <div class="st-row" id="stMedLayoutBox">
+        <div class="st-row-left">
+          <div class="st-row-title">媒体库布局模式</div>
+          <div class="st-row-desc">电影（每个视频独立一部）/ 剧集（同一 UP 主归为一部剧集）/ 合集（按 B 站合集组织）</div>
+        </div>
+        <div class="st-row-right" style="width:100%;max-width:320px;">
+          <div class="seg" id="stMedLayout">
+            ${[['movie','电影','每个视频独立一部'],['show','剧集','同一 UP主 归为一部剧集'],['collection','合集','按 B 站合集组织']].map(o=>`<button type="button" data-v="${o[0]}" title="${esc(o[2]||'')}" class="${o[0]===c.media_layout?'on':''}">${o[1]}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="st-row" id="stMedLinkBox">
+        <div class="st-row-left">
+          <div class="st-row-title">链接生成方式</div>
+          <div class="st-row-desc">自动模式将在 symlink → hardlink → copy 间逐级降级；STRM 模式生成流媒体文件供 Emby 跨机直连</div>
+        </div>
+        <div class="st-row-right" style="width:100%;max-width:360px;">
+          <div class="seg" id="stMedLink">
+            ${[['auto','自动','symlink→hardlink→copy 逐级降级'],['symlink','符号链接',''],['hardlink','硬链接',''],['copy','复制',''],['strm','STRM','生成指向核心 HTTP 流的 .strm 文件']].map(o=>`<button type="button" data-v="${o[0]}" title="${esc(o[2]||'')}" class="${o[0]===c.media_link_mode?'on':''}">${o[1]}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="st-row" id="stPubUrlBox">
+        <div class="st-row-left">
+          <div class="st-row-title">核心公网地址（STRM 模式专用）</div>
+          <div class="st-row-desc">STRM 文件中内嵌的媒体流基地址，需能被外部 Emby/Jellyfin 服务访问</div>
+        </div>
+        <div class="st-row-right" style="flex:1;max-width:360px;">
+          <input type="text" id="stPubUrl" value="${esc(c.media_public_url||'')}" placeholder="http://192.168.1.114:8080" style="width:100%;padding:6px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13px;background:var(--panel);color:var(--txt)">
+        </div>
+      </div>
+      ${stSwRow('stTeriEn', c.teriteri_enabled, '启用 TeriTeri 站点托管 <span class="origin">†</span>', '由 bili-saver 内置反向代理托管 TeriTeri 播放站（:8081）与审核台（:8082）')}
+      <div class="st-row" id="stFrontUrlBox">
+        <div class="st-row-left">
+          <div class="st-row-title">TeriTeri 前端地址</div>
+          <div class="st-row-desc">总览页“观看渠道”中直接跳转的前端访问入口，留空则根据默认托管端口展示提示</div>
+        </div>
+        <div class="st-row-right" style="flex:1;max-width:360px;">
+          <input type="text" id="stFrontUrl" value="${esc(c.frontend_url||'')}" placeholder="http://192.168.1.114:8081" style="width:100%;padding:6px 10px;border:1px solid var(--line-strong);border-radius:6px;font-size:13px;background:var(--panel);color:var(--txt)">
+        </div>
+      </div>
     </div>
   </div>
-  <div class="sect"><h2>下载</h2>
-    <div class="fgrid">
-      ${swF('stAutoDl',c.auto_download,'归档后自动下载视频文件','关闭后仅手动或触发器明确指定时下载')}
-      ${swF('stDlDm',c.download_danmaku,'下载弹幕文件','')}
-      ${cmts('stQualsBox','清晰度白名单（全不勾选 = 不限画质 = 最高可用）','勾选的档位参与选流；指定档全部不可用时自动回落更低档')}
-      ${cmts('stAudioQBox','音频质量偏好（全不勾选 = 标准最高）','可选：hires（Hi-Res 无损）/ dolby（杜比全景声）/ 192k / 132k / 64k')}
-      ${stepF('stConc','同时下载任务数','全局下载并发',c.concurrency)}
-      ${stepF('stSeg','单流分段连接数','每个视频流的分块并行数',c.segments)}
-      ${swF('stAv1',c.allow_av1,'允许 AV1 编码','体积更小，播放设备兼容性略差')}
-      ${swF('st4k',c.allow_4k,'允许 4K（仍受白名单限制）','')}
-      <div class="field"><label>请求最小间隔（毫秒）<span class="origin">†</span></label><input type="number" id="stMinReq" min="0" value="${c.min_req_ms??350}"><span class="hint">B 站接口全局限流，调小有风控风险</span></div>
+
+  <!-- Tab 4: 系统环境 -->
+  <div class="st-panel ${curStTab==='system'?'active':''}" id="stPanel-system">
+    <div class="st-list" style="padding:16px 20px;">
+      <dl class="kv">
+        <dt>数据目录</dt><dd><span class="path">${esc(c.data_dir)}</span></dd>
+        <dt>监听地址</dt><dd><span class="path">${esc(c.listen)}</span></dd>
+        <dt>媒体库根</dt><dd><span class="path">${esc(c.media_root)}</span></dd>
+        <dt>插件目录</dt><dd><span class="path">${esc(c.plugins_dir)}</span></dd>
+        <dt>B 站登录</dt><dd>${c.login?'<span class="dot ok"></span>已登录':'<span class="dot warn"></span>未登录（账号页扫码）'}</dd>
+      </dl>
+    </div>
+    <div class="banner info" style="margin-top:10px">
+      提示：数据目录、监听端口及媒体库根路径为底层服务启动级参数，如需调整请在配置文件 <code>config.yaml</code> 中直接修改后重启服务。设置界面仅提供支持运行时动态更新的安全选项。
     </div>
   </div>
-  <div class="sect"><h2>媒体库与站点</h2>
-    <div class="fgrid">
-      ${swF('stMedEn',c.media_enabled,'启用媒体库输出','归档后自动刷新软链接')}
-      ${segF('stMedLayout','媒体库布局',[['movie','电影','每个视频独立一部'],['show','剧集','同一 UP主 归为一部剧集'],['collection','合集','按 B 站合集组织']],c.media_layout)}
-      ${segF('stMedLink','链接方式',[['auto','自动','symlink→hardlink→copy 逐级降级'],['symlink','符号链接',''],['hardlink','硬链接',''],['copy','复制',''],['strm','STRM','生成指向核心 HTTP 流的 .strm 文件，Emby 可跨机播放']],c.media_link_mode)}
-      <div class="field wide"><label>核心公网地址（STRM 模式使用）</label>
-        <input type="text" id="stPubUrl" value="${esc(c.media_public_url||'')}" placeholder="http://192.168.1.114:8080"></div>
-      ${swF('stTeriEn',c.teriteri_enabled,'启用 teriteri 站点托管 <span class="origin">†</span>','')}
-      <div class="field wide"><label>teriteri 前端地址（总览页展示的观看入口，留空显示提示）</label>
-        <input type="text" id="stFrontUrl" value="${esc(c.frontend_url||'')}" placeholder="http://192.168.1.114:8081"></div>
-    </div>
-  </div>
-  <div class="sect"><h2>只读信息</h2>
-    <dl class="kv">
-      <dt>数据目录</dt><dd><span class="path">${esc(c.data_dir)}</span></dd>
-      <dt>监听地址</dt><dd><span class="path">${esc(c.listen)}</span></dd>
-      <dt>媒体库根</dt><dd><span class="path">${esc(c.media_root)}</span></dd>
-      <dt>插件目录</dt><dd><span class="path">${esc(c.plugins_dir)}</span></dd>
-      <dt>B 站登录</dt><dd>${c.login?'<span class="dot ok"></span>已登录':'<span class="dot warn"></span>未登录（账号页扫码）'}</dd>
-    </dl>
-    <p></p><span class="meta-note">路径/监听地址请直接编辑 config.yaml 后重启；设置页只暴露可安全修改的项。</span>
-  </div>
-  <div class="savebar"><button class="btn primary" id="stSave2" disabled>保存全部设置</button>
+
+  <div class="savebar">
+    <button class="btn primary" id="stSave2" disabled>保存全部设置</button>
     <button class="btn" id="stReset2" style="display:none">放弃更改</button>
     <span id="stDirty2" class="meta-note" style="display:none;color:var(--warn)"></span>
-    <span class="meta-note">保存立即生效 · 原配置自动备份为 config.yaml.bak</span></div>
+    <span class="meta-note">保存立即生效 · 原配置自动备份为 config.yaml.bak</span>
+  </div>
   </div>`;
+
+  // 子页签切换事件绑定
+  document.querySelectorAll('#stSubTabs button').forEach(btn => {
+    btn.onclick = () => {
+      const tab = btn.dataset.tab;
+      curStTab = tab;
+      document.querySelectorAll('#stSubTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      document.querySelectorAll('.st-panel').forEach(p => p.classList.toggle('active', p.id === 'stPanel-' + tab));
+    };
+  });
+
   stInit = stCollect();
   const wrap = $('#stWrap');
   wrap.addEventListener('input', stRefresh);
