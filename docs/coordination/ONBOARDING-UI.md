@@ -1,6 +1,6 @@
 # ui-agent 入职指引（UI/UX 岗）
 
-> 给新到岗的 ui-agent 会话（模型：antigravity / Gemini 3.6 Flash）。**先读完本页再动代码**，全文 5 分钟。
+> 给新到岗的 ui-agent 会话（模型：antigravity / Gemini 3.8 Flash）。**先读完本页再动代码**，全文 5 分钟。
 
 ## 你的身份与岗位
 
