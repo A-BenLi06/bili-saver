@@ -34,10 +34,10 @@ a { color:var(--info); text-decoration:none; }
 a:hover { text-decoration:underline; }
 
 .layout { display:grid; grid-template-columns:200px 1fr; min-height:100vh; }
-aside { background:var(--panel); border-right:1px solid var(--line); padding:16px 0; position:sticky; top:0; height:100vh; overflow-y:auto; }
-.brand { padding:4px 20px 16px; font-size:15px; font-weight:700; letter-spacing:.2px; }
+aside { background:var(--panel); border-right:1px solid var(--line); padding:16px 0 12px; position:sticky; top:0; height:100vh; display:flex; flex-direction:column; }
+.brand { padding:4px 20px 16px; font-size:15px; font-weight:700; letter-spacing:.2px; flex-shrink:0; }
 .brand span { color:var(--accent); }
-nav { display:flex; flex-direction:column; gap:1px; }
+nav { display:flex; flex-direction:column; gap:1px; flex:1; overflow-y:auto; }
 nav button { display:flex; align-items:center; gap:10px; width:100%; text-align:left; border:none; background:none;
   padding:8px 20px; font-size:13.5px; color:var(--sub); cursor:pointer; border-left:2px solid transparent; }
 nav button:hover { background:var(--bg); color:var(--txt); }
@@ -77,7 +77,7 @@ form { display:flex; flex-direction:column; gap:14px; max-width:680px; }
 .field { display:flex; flex-direction:column; gap:5px; }
 .field > label { font-size:12.5px; font-weight:500; color:var(--sub); }
 .field .hint { font-size:12px; color:var(--faint); }
-input[type=text],input[type=number],select {
+input[type=text],input[type=number],input[type=password],select {
   padding:7px 10px; border:1px solid var(--line-strong); border-radius:6px; font-size:13.5px; background:var(--panel); color:var(--txt); width:100%; }
 input:focus,select:focus { outline:2px solid var(--accent-soft); border-color:var(--accent); }
 .inline { display:flex; gap:16px; flex-wrap:wrap; }
@@ -168,11 +168,14 @@ mark { background:var(--accent-soft); color:var(--txt); padding:0 1px; border-ra
 .cmt .ccontent { font-size:13px; line-height:1.6; margin-top:3px; }
 .backlink { display:inline-block; margin-bottom:14px; font-size:13px; }
 .empty { padding:36px 0; text-align:center; color:var(--faint); font-size:13px; }
-#toasts { position:fixed; right:20px; top:16px; z-index:100; display:flex; flex-direction:column; gap:8px; }
+#toasts { position:fixed; right:20px; top:16px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
 .toast { padding:10px 14px; border-radius:8px; font-size:13px; box-shadow:0 4px 16px rgba(0,0,0,.10);
-  background:var(--panel); border:1px solid var(--line); animation:tin .18s ease-out; max-width:340px; }
+  background:var(--panel); border:1px solid var(--line); animation:tin .18s ease-out; max-width:340px; display:flex; align-items:center; gap:8px; }
 .toast.ok { border-left:3px solid var(--ok); } .toast.err { border-left:3px solid var(--err); }
-.toast.info { border-left:3px solid var(--info); }
+.toast.warn { border-left:3px solid var(--warn); } .toast.info { border-left:3px solid var(--info); }
+.toast-icon { font-weight:700; font-size:14px; flex-shrink:0; }
+.toast.ok .toast-icon { color:var(--ok); } .toast.err .toast-icon { color:var(--err); }
+.toast.warn .toast-icon { color:var(--warn); } .toast.info .toast-icon { color:var(--info); }
 @keyframes tin { from{opacity:0; transform:translateX(12px)} to{opacity:1; transform:none} }
 .pbar { height:4px; background:var(--line); border-radius:2px; overflow:hidden; min-width:70px; }
 .pbar i { display:block; height:100%; background:var(--info); transition:width .4s; }
@@ -182,6 +185,99 @@ nav button { position:relative; }
 .navbadge { position:absolute; right:12px; top:50%; transform:translateY(-50%);
   background:var(--accent); color:#fff; font-size:10px; border-radius:8px; padding:1px 5px; font-weight:600; }
 nav button.active .navbadge { background:var(--accent); }
+
+/* ---- 登录门 & 全屏认证布局 ---- */
+.layout.auth-state { display:flex; justify-content:center; align-items:center; min-height:100vh; background:var(--bg); }
+.layout.auth-state aside { display:none !important; }
+.layout.auth-state main { padding:0; max-width:none; width:100%; display:flex; justify-content:center; align-items:center; min-height:100vh; }
+.auth-card {
+  width:100%; max-width:380px; padding:36px 32px; background:var(--panel);
+  border:1px solid var(--line); border-radius:12px; box-shadow:0 12px 36px rgba(0,0,0,.04);
+  position:relative; margin:20px; animation:authIn .24s ease-out;
+}
+@keyframes authIn { from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none} }
+.auth-brand { font-size:20px; font-weight:700; letter-spacing:.2px; margin-bottom:6px; }
+.auth-brand span { color:var(--accent); }
+.auth-desc { font-size:13px; color:var(--sub); margin-bottom:24px; }
+.auth-theme-btn {
+  position:absolute; right:20px; top:20px; background:none; border:1px solid var(--line);
+  border-radius:6px; padding:4px 8px; font-size:12px; cursor:pointer; color:var(--sub);
+}
+.auth-theme-btn:hover { background:var(--bg); color:var(--txt); }
+.pwd-wrap { position:relative; display:flex; align-items:center; width:100%; }
+.pwd-wrap input { padding-right:38px !important; }
+.pwd-toggle {
+  position:absolute; right:8px; background:none; border:none; color:var(--sub);
+  cursor:pointer; padding:4px 6px; font-size:13px; line-height:1; display:flex;
+  align-items:center; border-radius:4px;
+}
+.pwd-toggle:hover { color:var(--txt); }
+.auth-err {
+  padding:8px 12px; border-radius:6px; background:var(--warn-bg); color:var(--err);
+  font-size:12.5px; margin-top:12px; display:none; align-items:center; gap:6px; line-height:1.4;
+}
+.auth-note { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); font-size:12px; color:var(--faint); text-align:center; }
+.auth-note a { color:var(--sub); cursor:pointer; }
+.auth-note a:hover { color:var(--txt); text-decoration:underline; }
+
+/* ---- 侧栏用户面板 ---- */
+.user-panel {
+  margin:10px 12px 0; padding:10px; border:1px solid var(--line); border-radius:8px;
+  background:var(--bg); display:flex; align-items:center; gap:9px; flex-shrink:0;
+}
+.user-avatar {
+  width:30px; height:30px; border-radius:50%; background:var(--accent-soft); color:var(--accent);
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12.5px;
+  flex-shrink:0; border:1px solid rgba(251,114,153,.25); text-transform:uppercase;
+}
+.user-info { flex:1; min-width:0; }
+.user-name-row { display:flex; align-items:center; gap:6px; }
+.user-name { font-weight:600; font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.user-badge { font-size:10px; padding:1px 5px; border-radius:4px; font-weight:500; }
+.user-badge.admin { background:var(--txt); color:var(--panel); }
+.user-badge.user { background:var(--accent-soft); color:var(--accent); }
+.user-tier { font-size:11px; color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:1px; }
+.user-actions { display:flex; align-items:center; gap:2px; flex-shrink:0; }
+.user-btn {
+  background:none; border:none; color:var(--sub); cursor:pointer; padding:5px;
+  border-radius:4px; display:flex; align-items:center; justify-content:center; line-height:1;
+}
+.user-btn:hover { background:var(--panel); color:var(--txt); }
+
+/* ---- 全局轻量模态对话框体系 ---- */
+.modal-overlay {
+  position:fixed; inset:0; background:rgba(0,0,0,.42); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px);
+  z-index:9000; display:flex; align-items:center; justify-content:center; opacity:0; pointer-events:none;
+  transition:opacity .18s ease-out;
+}
+.modal-overlay.active { opacity:1; pointer-events:auto; }
+.modal-box {
+  background:var(--panel); border:1px solid var(--line); border-radius:10px; width:92%; max-width:440px;
+  box-shadow:0 12px 32px rgba(0,0,0,.14); transform:scale(.95); transition:transform .18s ease-out;
+  overflow:hidden; display:flex; flex-direction:column;
+}
+.modal-overlay.active .modal-box { transform:scale(1); }
+.modal-head {
+  padding:14px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center;
+  justify-content:space-between; font-weight:650; font-size:14px;
+}
+.modal-close { background:none; border:none; font-size:18px; line-height:1; color:var(--sub); cursor:pointer; padding:2px 6px; border-radius:4px; }
+.modal-close:hover { background:var(--bg); color:var(--txt); }
+.modal-body { padding:18px; font-size:13.5px; line-height:1.5; color:var(--txt); }
+.modal-foot { padding:12px 18px; border-top:1px solid var(--line); background:var(--bg); display:flex; justify-content:flex-end; gap:8px; }
+
+/* ---- 我的补档配额指示条 ---- */
+.quota-card {
+  padding:14px 18px; border:1px solid var(--line); border-radius:8px; background:var(--panel);
+  margin-bottom:18px; display:flex; flex-direction:column; gap:8px;
+}
+.quota-header { display:flex; justify-content:space-between; align-items:center; font-size:13px; }
+.quota-bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; }
+.quota-bar i { display:block; height:100%; background:var(--accent); border-radius:3px; transition:width .4s ease; }
+.quota-bar.warn i { background:var(--warn); }
+.quota-bar.full i { background:var(--err); }
+.quota-sub { font-size:12px; color:var(--sub); display:flex; justify-content:space-between; }
+
 @media (max-width:900px){ .layout{grid-template-columns:1fr;} aside{position:static;height:auto;} main{padding:20px;} }
 </style>
 </head>
@@ -205,10 +301,18 @@ nav button.active .navbadge { background:var(--accent); }
     <button data-p="plugins">插件</button>
     <button data-p="settings">设置</button>
   </nav>
-  <div style="padding:14px 12px 0"><button class="btn" id="themeToggle" style="width:100%">🌙 深色模式</button></div>
+  <div style="padding:10px 12px 0"><button class="btn sm" id="themeToggle" style="width:100%">🌙 深色模式</button></div>
+  <div id="userPanel"></div>
 </aside>
 <main id="main"></main>
 <div id="toasts"></div>
+<div id="modalOverlay" class="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box" id="modalBox">
+    <div class="modal-head"><span id="modalTitle">提示</span><button class="modal-close" onclick="closeModal()">×</button></div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot" id="modalFoot"></div>
+  </div>
+</div>
 </div>
 <script>
 const $ = s => document.querySelector(s);
@@ -220,9 +324,55 @@ let page = 'dash', timer = null, recogSeq = 0;
 
 function toast(msg, type='info'){
   const t = document.createElement('div');
-  t.className = 'toast '+type; t.textContent = msg;
+  t.className = 'toast '+type;
+  const icons = {ok:'✓', err:'✕', warn:'⚠', info:'ℹ'};
+  t.innerHTML = `<span class="toast-icon">${icons[type]||'•'}</span><span>${esc(msg)}</span>`;
   document.getElementById('toasts').appendChild(t);
-  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(), 320); }, 3500);
+  setTimeout(()=>{ t.style.opacity='0'; t.style.transition='opacity .25s'; setTimeout(()=>t.remove(), 260); }, 3200);
+}
+
+function openModal({title, content, foot}){
+  document.getElementById('modalTitle').textContent = title || '提示';
+  const b = document.getElementById('modalBody');
+  if(typeof content === 'string') b.innerHTML = content; else { b.innerHTML = ''; b.appendChild(content); }
+  const f = document.getElementById('modalFoot');
+  f.innerHTML = '';
+  if(foot && foot.length) {
+    foot.forEach(btn => {
+      const el = document.createElement('button');
+      el.className = 'btn ' + (btn.type || '');
+      el.textContent = btn.text;
+      el.onclick = () => btn.onClick(closeModal);
+      f.appendChild(el);
+    });
+  } else {
+    const el = document.createElement('button');
+    el.className = 'btn';
+    el.textContent = '关闭';
+    el.onclick = closeModal;
+    f.appendChild(el);
+  }
+  document.getElementById('modalOverlay').classList.add('active');
+}
+function closeModal(){
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && document.getElementById('modalOverlay').classList.contains('active')){
+    closeModal();
+  }
+});
+function appConfirm(msg, title='确认操作', isDanger=false){
+  return new Promise(resolve => {
+    openModal({
+      title: title,
+      content: `<p style="margin:0">${esc(msg)}</p>`,
+      foot: [
+        {text: '取消', type: '', onClick: (close)=>{ close(); resolve(false); }},
+        {text: '确定', type: isDanger ? 'primary danger' : 'primary', onClick: (close)=>{ close(); resolve(true); }}
+      ]
+    });
+  });
 }
 const fmtB = n => { n=+n||0; if(n<1024) return n+' B/s';
   if(n<1024*1024) return (n/1024).toFixed(1)+' KB/s';
@@ -1595,225 +1745,653 @@ window.saveSettings = async () => {
   }catch(e){ toast('保存失败：'+e,'err'); }
 };
 
-/* ============ 多用户：登录门 / 我的补档 / 用户管理 ============ */
+/* ============ 多用户：登录门 / 侧栏用户态 / 我的补档 / 用户管理 ============ */
 function bindNavBtn(b){
   b.onclick = () => {
+    if(window.__stGuard && !confirm('设置页有未保存的修改，离开将丢失。确定离开吗？')) return;
+    window.__stGuard = false;
     document.querySelectorAll('#nav button').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active'); page=b.dataset.p; clearInterval(timer); render();
+    b.classList.add('active'); page=b.dataset.p; clearInterval(timer);
+    if(page==='mine') renderMine(document.getElementById('main'));
+    else if(page==='users') renderUsers(document.getElementById('main'));
+    else render();
   };
 }
+
 function buildNav(){
-  const me=window.ME||{role:'anon'};
-  const nav=document.getElementById('nav');
+  const me = window.ME || {role:'anon'};
+  const nav = document.getElementById('nav');
+  const layout = document.querySelector('.layout');
   if(!nav) return;
-  if(me.role==='admin' && !document.querySelector('[data-p=users]')){
-    const b=document.createElement('button');
-    b.dataset.p='users'; b.textContent='用户管理';
-    bindNavBtn(b); document.querySelector('#nav').appendChild(b);
+  if(layout) layout.classList.remove('auth-state');
+
+  // 管理员用户管理入口
+  if(me.role === 'admin' && !document.querySelector('[data-p=users]')){
+    const b = document.createElement('button');
+    b.dataset.p = 'users'; b.textContent = '用户管理';
+    bindNavBtn(b); nav.appendChild(b);
   }
-  if(me.role==='user'){
-    document.querySelectorAll('#nav button').forEach(b=>{ if(b.dataset.p!=='mine') b.style.display='none'; });
+
+  // 普通用户角色修剪侧栏
+  if(me.role === 'user'){
+    nav.querySelectorAll('.sec').forEach(s => s.style.display = 'none');
+    nav.querySelectorAll('button').forEach(b => { if(b.dataset.p !== 'mine') b.style.display = 'none'; });
     if(!document.querySelector('[data-p=mine]')){
-      const b=document.createElement('button');
-      b.dataset.p='mine'; b.className='active'; b.textContent='我的补档';
-      bindNavBtn(b); nav.insertBefore(b, nav.firstChild.nextSibling);
+      const b = document.createElement('button');
+      b.dataset.p = 'mine'; b.className = 'active'; b.textContent = '我的补档';
+      bindNavBtn(b); nav.insertBefore(b, nav.firstChild);
     }
-    document.querySelectorAll('#nav button').forEach(b=>{ b.style.display = b.dataset.p==='mine'?'':'none'; });
+    nav.querySelectorAll('button').forEach(b => { b.style.display = b.dataset.p === 'mine' ? '' : 'none'; });
+  } else {
+    nav.querySelectorAll('.sec').forEach(s => s.style.display = '');
+    nav.querySelectorAll('button').forEach(b => { if(b.dataset.p !== 'mine') b.style.display = ''; });
   }
-  if(me.role!=='anon' && !document.getElementById('logoutBtn')){
-    const btn=document.createElement('button');
-    btn.id='logoutBtn'; btn.textContent='退出登录（'+(me.username||'')+'）';
-    btn.style.margin='16px 20px 0'; btn.style.width='calc(100% - 40px)'; btn.style.textAlign='left';
-    btn.onclick=async()=>{ await fetch('/api/v1/auth/logout',{method:'POST'}); location.reload(); };
-    nav.after(btn);
+
+  // 侧栏底部用户状态面板
+  const panel = document.getElementById('userPanel');
+  if(panel && me.role !== 'anon'){
+    const roleBadge = me.role === 'admin' 
+      ? '<span class="user-badge admin">管理员</span>' 
+      : `<span class="user-badge user">${esc(me.tier_name || '普通用户')}</span>`;
+    const initial = (me.username || 'U')[0].toUpperCase();
+    panel.innerHTML = `
+      <div class="user-panel">
+        <div class="user-avatar" title="${esc(me.username)}">${initial}</div>
+        <div class="user-info">
+          <div class="user-name" title="${esc(me.username)}">${esc(me.username)}</div>
+          <div class="user-tier" style="margin-top:2px">${roleBadge} <span style="color:var(--faint)">·</span> ${me.role==='admin' ? '主控制台' : `今日 ${me.today_adds||0}/${me.max_daily_adds??'—'}`}</div>
+        </div>
+        <div class="user-actions">
+          <button class="user-btn" id="navLogoutBtn" title="退出登录">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+          </button>
+        </div>
+      </div>`;
+    const logoutBtn = document.getElementById('navLogoutBtn');
+    if(logoutBtn){
+      logoutBtn.onclick = async () => {
+        const ok = await appConfirm('确定退出当前登录的账号吗？', '退出登录');
+        if(ok){
+          await fetch('/api/v1/auth/logout', {method:'POST'});
+          location.reload();
+        }
+      };
+    }
+  } else if(panel){
+    panel.innerHTML = '';
   }
 }
+
 function renderLoginView(m){
-  document.getElementById('nav').style.display='none';
-  m.innerHTML=`
-  <div style="max-width:340px;margin:12vh auto 0;border:1px solid var(--line);border-radius:10px;padding:28px;background:var(--panel)">
-    <h1 style="font-size:18px;margin-bottom:4px"><span style="color:var(--accent)">bili</span>-saver 补档器</h1>
-    <p class="meta-note" style="margin-bottom:18px">请登录后使用（初始管理员 admin / bili-saver，登录后可在用户管理修改密码）</p>
+  const layout = document.querySelector('.layout');
+  if(layout) layout.classList.add('auth-state');
+  m.innerHTML = `
+  <div class="auth-card">
+    <button class="auth-theme-btn" id="authThemeBtn" title="切换深浅主题">🌙</button>
+    <div class="auth-brand"><span>bili</span>-saver</div>
+    <div class="auth-desc">媒体归档与多用户控制台</div>
     <form onsubmit="return false">
-      <div class="field"><label>用户名</label><input type="text" id="lgUser" autocomplete="username"></div>
-      <div class="field"><label>密码</label><input type="password" id="lgPass" autocomplete="current-password"></div>
-      <div class="actions" style="margin-top:14px"><button class="btn primary" id="lgGo" style="width:100%">登 录</button></div>
-      <p id="lgErr" class="meta-note" style="color:var(--err);margin-top:10px"></p>
+      <div class="field" style="margin-bottom:12px">
+        <label>用户名</label>
+        <input type="text" id="lgUser" autocomplete="username" placeholder="请输入用户名" spellcheck="false">
+      </div>
+      <div class="field" style="margin-bottom:16px">
+        <label>密码</label>
+        <div class="pwd-wrap">
+          <input type="password" id="lgPass" autocomplete="current-password" placeholder="请输入密码">
+          <button type="button" class="pwd-toggle" id="pwdToggle" title="显示/隐藏密码">👁</button>
+        </div>
+      </div>
+      <button class="btn primary" id="lgGo" style="width:100%;padding:9px;font-size:14px;font-weight:550">登 录</button>
+      <div id="lgErr" class="auth-err"><span>⚠</span><span id="lgErrMsg"></span></div>
     </form>
+    <div class="auth-note">
+      默认管理员：<a onclick="document.getElementById('lgUser').value='admin';document.getElementById('lgPass').value='bili-saver';">admin / bili-saver</a>
+    </div>
   </div>`;
-  document.getElementById('lgGo').onclick=async()=>{
-    const errEl=document.getElementById('lgErr');
-    errEl.textContent='';
-    try{
-      const r=await fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({username:document.getElementById('lgUser').value.trim(),password:document.getElementById('lgPass').value})});
-      if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||('HTTP '+r.status)); }
-      location.reload();
-    }catch(e){ errEl.textContent='登录失败：'+e.message; }
+
+  const curTh = document.documentElement.dataset.theme;
+  const thBtn = document.getElementById('authThemeBtn');
+  if(thBtn) thBtn.textContent = curTh === 'dark' ? '☀️' : '🌙';
+  if(thBtn) thBtn.onclick = () => {
+    const isD = document.documentElement.dataset.theme === 'dark';
+    applyTheme(isD ? null : 'dark');
+    thBtn.textContent = isD ? '🌙' : '☀️';
+    localStorage.setItem('bili-theme', isD ? 'light' : 'dark');
   };
-  document.getElementById('lgPass').onkeydown=e=>{ if(e.key==='Enter') document.getElementById('lgGo').click(); };
+
+  const pwdInput = document.getElementById('lgPass');
+  const pwdToggle = document.getElementById('pwdToggle');
+  if(pwdToggle && pwdInput){
+    pwdToggle.onclick = () => {
+      const isPwd = pwdInput.type === 'password';
+      pwdInput.type = isPwd ? 'text' : 'password';
+      pwdToggle.style.color = isPwd ? 'var(--accent)' : 'var(--sub)';
+    };
+  }
+
+  ['lgUser', 'lgPass'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.oninput = () => { document.getElementById('lgErr').style.display = 'none'; };
+  });
+
+  const doLogin = async () => {
+    const u = document.getElementById('lgUser').value.trim();
+    const p = document.getElementById('lgPass').value;
+    const btn = document.getElementById('lgGo');
+    const errEl = document.getElementById('lgErr');
+    const errMsg = document.getElementById('lgErrMsg');
+    if(!u || !p){
+      errMsg.textContent = '请输入用户名和密码';
+      errEl.style.display = 'flex';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = '登录中…';
+    errEl.style.display = 'none';
+    try {
+      const r = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({username: u, password: p})
+      });
+      if(!r.ok){
+        const e = await r.json().catch(()=>({}));
+        throw new Error(e.error || ('HTTP ' + r.status));
+      }
+      location.reload();
+    } catch(e) {
+      errMsg.textContent = '登录失败：' + e.message;
+      errEl.style.display = 'flex';
+      btn.disabled = false;
+      btn.textContent = '登 录';
+    }
+  };
+
+  document.getElementById('lgGo').onclick = doLogin;
+  ['lgUser', 'lgPass'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.onkeydown = e => { if(e.key === 'Enter') doLogin(); };
+  });
+  setTimeout(() => document.getElementById('lgUser')?.focus(), 50);
 }
-let mineEditId=null;
+
+let mineEditId = null;
 async function renderMine(m){
-  const [me,srcs]=await Promise.all([
+  const [me, srcs] = await Promise.all([
     api('/auth/me').catch(()=>({})),
     api('/sources').catch(()=>[])
   ]);
-  const floor=me.min_interval_minutes||60;
-  const editing=mineEditId&&((srcs||[]).find(x=>x.id===mineEditId));
-  m.innerHTML=`
-  <div class="pagehead"><h1>我的补档</h1><span class="desc">等级「${esc(me.tier_name||'—')}」 · 今日已添加 ${me.today_adds||0}/${me.max_daily_adds??'—'} · 检查频率不低于 ${floor} 分钟</span></div>
+  const floor = me.min_interval_minutes || 60;
+  const editing = mineEditId && ((srcs||[]).find(x=>x.id===mineEditId));
+  const maxAdds = me.max_daily_adds ?? 10;
+  const todayAdds = me.today_adds || 0;
+  const pct = maxAdds > 0 ? Math.min(100, Math.round((todayAdds / maxAdds) * 100)) : 0;
+  const isFull = maxAdds > 0 && todayAdds >= maxAdds;
+
+  const presetIntervals = [
+    {min: 60, label: '1 小时'},
+    {min: 120, label: '2 小时'},
+    {min: 360, label: '6 小时'},
+    {min: 720, label: '12 小时'},
+    {min: 1440, label: '1 天'}
+  ].filter(p => p.min >= floor);
+
+  m.innerHTML = `
+  <div class="pagehead">
+    <h1>我的补档</h1>
+    <span class="desc">个人专属归档与订阅列表</span>
+  </div>
+
+  <div class="quota-card">
+    <div class="quota-header">
+      <span style="font-weight:600">今日添加配额：${todayAdds} / ${maxAdds}</span>
+      <span class="st"><span class="dot ${isFull?'warn':'ok'}"></span>${isFull?'今日配额已用尽':'正常可用'}</span>
+    </div>
+    <div class="quota-bar ${isFull?'full':(pct>=80?'warn':'')}">
+      <i style="width:${pct}%"></i>
+    </div>
+    <div class="quota-sub">
+      <span>当前等级：<b>${esc(me.tier_name||'默认')}</b></span>
+      <span>监控检查频率下限：<b>${floor} 分钟</b></span>
+    </div>
+  </div>
+
   <div class="sect">
+    <h2>${editing ? '编辑补档 #' + editing.id : '添加新补档'}</h2>
     <form onsubmit="return false">
-      <div class="field"><label>${editing?'编辑补档 #'+editing.id+'（'+esc(editing.title)+'）':'添加补档'}</label>
-        <input type="text" id="mInp" ${editing?'disabled':''} placeholder="视频链接 / BV号 / UP主主页 / 收藏夹 / 合集链接（推荐粘贴完整链接）"></div>
-      <div class="inline">
-        <div class="field"><label>检查频率（分钟）</label>
-          <input type="number" id="mIv" min="${floor}" value="${editing?(editing.sync_interval_minutes||360):360}">
-          <span class="hint">不得低于等级下限 ${floor} 分钟；新投稿/新收藏会自动补档</span></div>
-        <label class="check" style="align-self:end;margin-bottom:14px"><input type="checkbox" id="mWatch" ${(!editing||editing.watch)?'checked':''}> 开启监控</label>
+      <div class="fgrid">
+        <div class="field wide">
+          <label>补档目标</label>
+          <input type="text" id="mInp" ${editing?'disabled':''} placeholder="粘贴视频链接 / BV号 / UP主主页 / 收藏夹 / 合集链接" value="${editing?esc(editing.title||editing.ext_id):''}">
+          <span class="hint">${editing?'已创建的补档目标不可更改，如需更改请重新添加':'支持 B 站各类公开视频与列表链接'}</span>
+        </div>
+        <div class="field wide">
+          <label>检查频率（分钟）</label>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <div class="chips" id="mIvChips">
+              ${presetIntervals.map(p => `<button type="button" class="chip" data-min="${p.min}">${p.label}</button>`).join('')}
+            </div>
+            <div class="combo" style="width:140px">
+              <input type="number" id="mIv" min="${floor}" value="${editing?(editing.sync_interval_minutes||360):Math.max(360, floor)}" style="text-align:center">
+              <span class="unit">分</span>
+            </div>
+          </div>
+          <span class="hint">不得低于当前等级下限 ${floor} 分钟；监控源新投稿/新收藏将自动归档</span>
+        </div>
+        <div class="field wide">
+          <label>监控状态</label>
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+            <label class="switch">
+              <input type="checkbox" id="mWatch" ${(!editing||editing.watch)?'checked':''}>
+              <i></i>
+            </label>
+            <span class="st" id="mWatchLabel">${(!editing||editing.watch)?'已开启自动监控':'已暂停监控'}</span>
+          </div>
+        </div>
       </div>
-      <div class="actions">
-        ${editing?`<button class="btn primary" onclick="mineSave()">保存修改</button><button class="btn" onclick="mineCancelEdit()">取消</button>`
-                 :`<button class="btn primary" onclick="mineAdd()">添加补档</button>`}
+      <div class="actions" style="margin-top:14px">
+        ${editing
+          ? `<button class="btn primary" id="mSubmitBtn" onclick="mineSave()">保存修改</button><button class="btn" onclick="mineCancelEdit()">取消</button>`
+          : `<button class="btn primary" id="mSubmitBtn" ${isFull?'disabled':''} onclick="mineAdd()">${isFull?'今日配额已满':'添加补档'}</button>`}
       </div>
-      <p></p><div class="pre" id="mOut" style="display:none"></div>
+      <div class="auth-err" id="mOut" style="margin-top:10px"></div>
     </form>
   </div>
+
   <div class="sect">
-    ${(srcs&&srcs.length)?`<table><thead><tr><th>补档</th><th>类型</th><th>状态</th><th>检查频率</th><th>最后同步</th><th></th></tr></thead><tbody>`+
-    srcs.map(x=>{
-      const dot=x.watch?'ok':'off';
-      const st=x.watch?'监控中':'已暂停';
-      const tn={video:'单视频',space:'UP主',favlist:'收藏夹',season:'合集',series:'系列'}[x.type]||x.type;
-      return `<tr><td><b style="font-weight:500">${esc(x.title)}</b><div class="cell-sub">${esc(x.ext_id)}</div></td>
-      <td class="st">${tn}</td>
-      <td class="st"><span class="dot ${dot}"></span>${st}</td>
-      <td class="st">${x.sync_interval_minutes?x.sync_interval_minutes+' 分钟':'默认（360 分钟）'}</td>
-      <td class="st">${x.last_sync_at?fmtT(x.last_sync_at):'待首次同步'}</td>
-      <td><div class="actions"><button class="btn sm" onclick="mineEdit(${x.id})">编辑</button>
-      <button class="btn sm danger" onclick="mineDel(${x.id})">删除</button></div></td></tr>`;
-    }).join('')+'</tbody></table>':'<div class="empty">还没有补档，在上面粘贴链接添加吧</div>'}
+    <h2>我的补档列表 (${(srcs&&srcs.length)||0})</h2>
+    ${(srcs&&srcs.length) ? `
+    <table>
+      <thead>
+        <tr><th>补档项目</th><th>类型</th><th>状态</th><th>检查频率</th><th>最后同步</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+      ${srcs.map(x=>{
+        const dot = x.watch ? 'ok' : 'off';
+        const st = x.watch ? '监控中' : '已暂停';
+        const tn = {video:'单视频',space:'UP主',favlist:'收藏夹',season:'合集',series:'系列'}[x.type] || x.type;
+        return `<tr>
+          <td><b style="font-weight:550">${esc(x.title||x.ext_id)}</b><div class="cell-sub">${esc(x.ext_id)}</div></td>
+          <td class="st"><span class="chip" style="font-size:11px;padding:2px 6px;cursor:default">${tn}</span></td>
+          <td class="st"><span class="dot ${dot}"></span>${st}</td>
+          <td class="st">${x.sync_interval_minutes ? x.sync_interval_minutes + ' 分钟' : '默认 (360 分)'}</td>
+          <td class="st">${x.last_sync_at ? fmtT(x.last_sync_at) : '待首次同步'}</td>
+          <td>
+            <div class="actions">
+              <button class="btn sm" onclick="mineEdit(${x.id})">编辑</button>
+              <button class="btn sm danger" onclick="mineDel(${x.id})">删除</button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>` : `<div class="empty">还没有任何补档记录，在上方粘贴链接开启首次归档吧</div>`}
   </div>`;
+
+  const watchInput = document.getElementById('mWatch');
+  if(watchInput){
+    watchInput.onchange = () => {
+      document.getElementById('mWatchLabel').textContent = watchInput.checked ? '已开启自动监控' : '已暂停监控';
+    };
+  }
+
+  const ivInput = document.getElementById('mIv');
+  const syncChips = () => {
+    const cur = +(ivInput.value) || 0;
+    document.querySelectorAll('#mIvChips .chip').forEach(c => {
+      if(+(c.dataset.min) === cur) c.classList.add('active'); else c.classList.remove('active');
+    });
+  };
+  document.querySelectorAll('#mIvChips .chip').forEach(c => {
+    c.onclick = () => {
+      ivInput.value = c.dataset.min;
+      syncChips();
+    };
+  });
+  if(ivInput){
+    ivInput.oninput = syncChips;
+    syncChips();
+  }
 }
+
 async function mineAdd(){
-  const v=document.getElementById('mInp').value.trim(); if(!v) return;
-  const out=document.getElementById('mOut'); out.style.display='block'; out.textContent='提交中…';
-  try{
-    const r=await api('/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      input:v, watch:document.getElementById('mWatch').checked, sync_mode:'interval',
-      interval_minutes:+(document.getElementById('mIv').value)||0})});
-    toast('补档已添加，即将开始首次归档','ok');
-    renderMine($('#main'));
-  }catch(e){ out.textContent='失败：'+e; }
+  const inp = document.getElementById('mInp');
+  const v = inp.value.trim(); if(!v) return;
+  const out = document.getElementById('mOut');
+  const btn = document.getElementById('mSubmitBtn');
+  out.style.display = 'none';
+  btn.disabled = true; btn.textContent = '提交中…';
+  try {
+    await api('/add', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        input: v,
+        watch: document.getElementById('mWatch').checked,
+        sync_mode: 'interval',
+        interval_minutes: +(document.getElementById('mIv').value) || 0
+      })
+    });
+    toast('补档已添加，系统即将开始抓取', 'ok');
+    inp.value = '';
+    renderMine(document.getElementById('main'));
+  } catch(e) {
+    out.style.display = 'flex';
+    out.innerHTML = `<span>⚠</span><span>添加失败：${esc(e)}</span>`;
+    btn.disabled = false; btn.textContent = '添加补档';
+  }
 }
-function mineEdit(id){ mineEditId=id; renderMine($('#main')); }
-function mineCancelEdit(){ mineEditId=null; renderMine($('#main')); }
+function mineEdit(id){ mineEditId = id; renderMine(document.getElementById('main')); }
+function mineCancelEdit(){ mineEditId = null; renderMine(document.getElementById('main')); }
 async function mineSave(){
   if(!mineEditId) return;
-  try{
-    await api('/sources/'+mineEditId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      watch:document.getElementById('mWatch').checked, interval_minutes:+(document.getElementById('mIv').value)||0})});
-    toast('已保存','ok'); mineEditId=null; renderMine($('#main'));
-  }catch(e){ toast('保存失败：'+e,'err'); }
+  const btn = document.getElementById('mSubmitBtn');
+  btn.disabled = true; btn.textContent = '保存中…';
+  try {
+    await api('/sources/' + mineEditId, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        watch: document.getElementById('mWatch').checked,
+        interval_minutes: +(document.getElementById('mIv').value) || 0
+      })
+    });
+    toast('已保存修改', 'ok');
+    mineEditId = null;
+    renderMine(document.getElementById('main'));
+  } catch(e) {
+    toast('保存失败：' + e, 'err');
+    btn.disabled = false; btn.textContent = '保存修改';
+  }
 }
 async function mineDel(id){
-  if(!confirm('删除该补档？已归档的数据不受影响')) return;
-  try{ await api('/sources/'+id,{method:'DELETE'}); toast('已删除','ok'); renderMine($('#main')); }
-  catch(e){ toast('删除失败：'+e,'err'); }
+  const ok = await appConfirm('确定要删除该补档吗？已归档的内容不受影响。', '删除补档', true);
+  if(!ok) return;
+  try {
+    await api('/sources/' + id, {method:'DELETE'});
+    toast('已删除补档', 'ok');
+    renderMine(document.getElementById('main'));
+  } catch(e) {
+    toast('删除失败：' + e, 'err');
+  }
 }
+
 async function renderUsers(m){
-  const [us,ts]=await Promise.all([api('/users'),api('/tiers')]);
-  m.innerHTML=`
-  <div class="pagehead"><h1>用户管理</h1><span class="desc">等级决定每日可添加补档数与检查频率下限</span></div>
-  <div class="sect"><h2>等级</h2>
-    <table><thead><tr><th>ID</th><th>名称</th><th>每日可添加</th><th>检查频率下限（分）</th><th></th></tr></thead><tbody>
-    ${ts.map(x=>`<tr><td class="num">${x.id}</td>
-      <td><input type="text" id="tn${x.id}" value="${esc(x.name)}" style="width:120px;padding:4px 8px"></td>
-      <td><input type="number" id="td${x.id}" value="${x.max_daily_adds}" min="0" style="width:90px;padding:4px 8px"></td>
-      <td><input type="number" id="ti${x.id}" value="${x.min_interval_minutes}" min="0" style="width:90px;padding:4px 8px"></td>
-      <td><div class="actions"><button class="btn sm" onclick="saveTier(${x.id})">保存</button>
-      <button class="btn sm danger" onclick="delTier(${x.id})">删除</button></div></td></tr>`).join('')}
-    <tr><td class="num">+</td>
-      <td><input type="text" id="tnNew" placeholder="名称" style="width:120px;padding:4px 8px"></td>
-      <td><input type="number" id="tdNew" placeholder="10" min="0" style="width:90px;padding:4px 8px"></td>
-      <td><input type="number" id="tiNew" placeholder="60" min="0" style="width:90px;padding:4px 8px"></td>
-      <td><button class="btn sm" onclick="addTier()">新增等级</button></td></tr>
-    </tbody></table>
+  const [us, ts] = await Promise.all([api('/users'), api('/tiers')]);
+  m.innerHTML = `
+  <div class="pagehead">
+    <h1>用户与权限管理</h1>
+    <span class="desc">控制多用户访问权限、配额上限与检测频率下限</span>
   </div>
-  <div class="sect"><h2>用户</h2>
-    <div class="inline" style="margin-bottom:12px;align-items:end">
-      <div class="field"><label>新用户名</label><input type="text" id="nuName" style="width:140px"></div>
-      <div class="field"><label>初始密码</label><input type="text" id="nuPass" style="width:140px"></div>
-      <div class="field"><label>等级</label><select id="nuTier" style="width:140px">${ts.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>
-      <button class="btn primary sm" style="margin-bottom:2px" onclick="addUser()">添加用户</button>
+
+  <div class="sect">
+    <h2>用户等级配置</h2>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>等级名称</th><th>每日添加配额</th><th>检查频率下限（分钟）</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+      ${ts.map(x => `
+        <tr>
+          <td class="num">${x.id}</td>
+          <td><input type="text" id="tn${x.id}" value="${esc(x.name)}" style="width:130px;padding:5px 8px"></td>
+          <td><input type="number" id="td${x.id}" value="${x.max_daily_adds}" min="0" style="width:90px;padding:5px 8px"></td>
+          <td><input type="number" id="ti${x.id}" value="${x.min_interval_minutes}" min="0" style="width:100px;padding:5px 8px"></td>
+          <td>
+            <div class="actions">
+              <button class="btn sm primary" onclick="saveTier(${x.id})">保存</button>
+              <button class="btn sm danger" onclick="delTier(${x.id})">删除</button>
+            </div>
+          </td>
+        </tr>
+      `).join('')}
+      <tr>
+        <td class="num">+</td>
+        <td><input type="text" id="tnNew" placeholder="新等级名" style="width:130px;padding:5px 8px"></td>
+        <td><input type="number" id="tdNew" placeholder="配额 (例 10)" min="0" style="width:90px;padding:5px 8px"></td>
+        <td><input type="number" id="tiNew" placeholder="下限 (例 60)" min="0" style="width:100px;padding:5px 8px"></td>
+        <td><button class="btn sm" onclick="addTier()">新增等级</button></td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="sect">
+    <h2>系统用户列表</h2>
+    <div style="padding:14px 18px;border:1px solid var(--line);border-radius:8px;background:var(--panel);margin-bottom:14px">
+      <div style="font-weight:600;font-size:13px;margin-bottom:10px">添加新用户</div>
+      <div class="inline" style="align-items:end">
+        <div class="field" style="max-width:180px">
+          <label>用户名</label>
+          <input type="text" id="nuName" placeholder="至少 2 位" style="padding:5px 8px">
+        </div>
+        <div class="field" style="max-width:180px">
+          <label>初始密码</label>
+          <input type="text" id="nuPass" placeholder="至少 4 位" style="padding:5px 8px">
+        </div>
+        <div class="field" style="max-width:160px">
+          <label>分配等级</label>
+          <select id="nuTier" style="padding:5px 8px">
+            ${ts.map(x=>`<option value="${x.id}">${esc(x.name)} (配额 ${x.max_daily_adds}/天)</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn primary sm" style="margin-bottom:2px" onclick="addUser()">添加用户</button>
+      </div>
     </div>
-    <table><thead><tr><th>用户名</th><th>等级</th><th>今日添加</th><th>启用</th><th>创建时间</th><th></th></tr></thead><tbody>
-    ${us.map(x=>`<tr><td><b style="font-weight:500">${esc(x.username)}</b>${x.role==='admin'?' <span class="meta-note">(管理员)</span>':''}</td>
-      <td>${x.role==='admin'?'—':`<select id="ut${x.id}" style="padding:4px 8px">${ts.map(y=>`<option value="${y.id}" ${x.tier_id===y.id?'selected':''}>${esc(y.name)}</option>`).join('')}</select>`}</td>
-      <td class="num">${x.today_adds??'—'}</td>
-      <td>${x.role==='admin'?'<span class="dot ok"></span>':'<input type="checkbox" id="ue'+x.id+'" '+(x.enabled?'checked':'')+'>'}</td>
-      <td class="st">${fmtT(x.created_at)}</td>
-      <td><div class="actions">
-        ${x.role==='admin'?'':`<button class="btn sm" onclick="saveUser(${x.id})">保存</button>
-        <button class="btn sm" onclick="resetPw(${x.id})">改密</button>
-        <button class="btn sm danger" onclick="delUser(${x.id})">删除</button>`}
-      </div></td></tr>`).join('')}
-    </tbody></table>
+
+    <table>
+      <thead>
+        <tr><th>用户</th><th>角色</th><th>等级</th><th>今日已用</th><th>状态</th><th>注册时间</th><th>操作</th></tr>
+      </thead>
+      <tbody>
+      ${us.map(x => `
+        <tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="user-avatar" style="width:26px;height:26px;font-size:11px">${(x.username||'U')[0].toUpperCase()}</div>
+              <b>${esc(x.username)}</b>
+            </div>
+          </td>
+          <td>${x.role==='admin'?'<span class="user-badge admin">管理员</span>':'<span class="user-badge user">普通用户</span>'}</td>
+          <td>${x.role==='admin'?'—':`
+            <select id="ut${x.id}" style="padding:4px 8px;width:130px">
+              ${ts.map(y=>`<option value="${y.id}" ${x.tier_id===y.id?'selected':''}>${esc(y.name)}</option>`).join('')}
+            </select>`}
+          </td>
+          <td class="num">${x.today_adds ?? 0}</td>
+          <td>
+            ${x.role==='admin'?'<span class="dot ok"></span>正常':`
+            <label class="switch" style="vertical-align:middle">
+              <input type="checkbox" id="ue${x.id}" ${x.enabled?'checked':''} onchange="toggleUserEnable(${x.id})">
+              <i></i>
+            </label>`}
+          </td>
+          <td class="st">${fmtT(x.created_at)}</td>
+          <td>
+            <div class="actions">
+              ${x.role==='admin'?'<span class="st" style="color:var(--faint)">内置主账号</span>':`
+                <button class="btn sm" onclick="saveUser(${x.id})">保存</button>
+                <button class="btn sm" onclick="resetPwModal(${x.id},'${esc(x.username)}')">改密</button>
+                <button class="btn sm danger" onclick="delUser(${x.id})">删除</button>
+              `}
+            </div>
+          </td>
+        </tr>
+      `).join('')}
+      </tbody>
+    </table>
   </div>`;
 }
+
+async function toggleUserEnable(id){
+  const el = document.getElementById('ue' + id);
+  const en = el.checked;
+  try {
+    await api('/users/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({enabled: en})
+    });
+    toast(en ? '用户已启用' : '用户已停用', 'ok');
+  } catch(e) {
+    el.checked = !en;
+    toast('操作失败：' + e, 'err');
+  }
+}
+
+function resetPwModal(id, uname){
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <p style="margin-bottom:14px">为用户 <b>${esc(uname)}</b> 设置新登录密码：</p>
+    <div class="field" style="margin-bottom:14px">
+      <label>新密码</label>
+      <div class="pwd-wrap">
+        <input type="password" id="mResetPw" placeholder="至少 4 位" style="padding-right:36px">
+        <button type="button" class="pwd-toggle" onclick="const p=document.getElementById('mResetPw');p.type=p.type==='password'?'text':'password'">👁</button>
+      </div>
+    </div>
+    <div class="auth-err" id="mResetErr"></div>`;
+  
+  openModal({
+    title: '重置用户密码',
+    content: wrap,
+    foot: [
+      {text: '取消', type: '', onClick: (c)=>c()},
+      {
+        text: '保存新密码',
+        type: 'primary',
+        onClick: async (c) => {
+          const pw = document.getElementById('mResetPw').value;
+          const errEl = document.getElementById('mResetErr');
+          if(!pw || pw.length < 4){
+            errEl.style.display = 'flex';
+            errEl.innerHTML = '<span>⚠</span><span>新密码至少 4 位</span>';
+            return;
+          }
+          try {
+            await api('/users/' + id, {
+              method: 'PATCH',
+              headers: {'Content-Type':'application/json'},
+              body: JSON.stringify({password: pw})
+            });
+            toast('密码已成功重置', 'ok');
+            c();
+          } catch(e) {
+            errEl.style.display = 'flex';
+            errEl.innerHTML = '<span>⚠</span><span>重置失败：' + esc(e) + '</span>';
+          }
+        }
+      }
+    ]
+  });
+  setTimeout(() => document.getElementById('mResetPw')?.focus(), 100);
+}
+
 async function saveTier(id){
-  try{ await api('/tiers/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    name:document.getElementById('tn'+id).value.trim(), max_daily_adds:+document.getElementById('td'+id).value||0,
-    min_interval_minutes:+document.getElementById('ti'+id).value||0})});
-    toast('等级已保存','ok'); renderUsers($('#main'));
-  }catch(e){ toast('失败：'+e,'err'); }
+  try {
+    await api('/tiers/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name: document.getElementById('tn'+id).value.trim(),
+        max_daily_adds: +document.getElementById('td'+id).value || 0,
+        min_interval_minutes: +document.getElementById('ti'+id).value || 0
+      })
+    });
+    toast('等级配置已更新', 'ok');
+    renderUsers(document.getElementById('main'));
+  } catch(e) {
+    toast('保存失败：' + e, 'err');
+  }
 }
+
 async function addTier(){
-  try{ await api('/tiers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    name:document.getElementById('tnNew').value.trim(), max_daily_adds:+document.getElementById('tdNew').value||0,
-    min_interval_minutes:+document.getElementById('tiNew').value||0})});
-    toast('等级已新增','ok'); renderUsers($('#main'));
-  }catch(e){ toast('失败：'+e,'err'); }
+  const name = document.getElementById('tnNew').value.trim();
+  if(!name){ toast('请输入等级名称', 'warn'); return; }
+  try {
+    await api('/tiers', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        name: name,
+        max_daily_adds: +document.getElementById('tdNew').value || 0,
+        min_interval_minutes: +document.getElementById('tiNew').value || 0
+      })
+    });
+    toast('新等级已添加', 'ok');
+    renderUsers(document.getElementById('main'));
+  } catch(e) {
+    toast('添加失败：' + e, 'err');
+  }
 }
+
 async function delTier(id){
-  if(!confirm('删除该等级？')) return;
-  try{ await api('/tiers/'+id,{method:'DELETE'}); toast('已删除','ok'); renderUsers($('#main')); }
-  catch(e){ toast('失败：'+e,'err'); }
+  const ok = await appConfirm('确定删除该等级配置？在用该等级的用户将无法使用其配额。', '删除等级', true);
+  if(!ok) return;
+  try {
+    await api('/tiers/' + id, {method:'DELETE'});
+    toast('等级已删除', 'ok');
+    renderUsers(document.getElementById('main'));
+  } catch(e) {
+    toast('删除失败：' + e, 'err');
+  }
 }
+
 async function addUser(){
-  try{ await api('/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    username:document.getElementById('nuName').value.trim(), password:document.getElementById('nuPass').value,
-    tier_id:+document.getElementById('nuTier').value||0})});
-    toast('用户已添加','ok'); renderUsers($('#main'));
-  }catch(e){ toast('失败：'+e,'err'); }
+  const u = document.getElementById('nuName').value.trim();
+  const p = document.getElementById('nuPass').value;
+  const tid = +document.getElementById('nuTier').value || 0;
+  if(!u || !p){ toast('请填写用户名和初始密码', 'warn'); return; }
+  try {
+    await api('/users', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({username: u, password: p, tier_id: tid})
+    });
+    toast('用户添加成功', 'ok');
+    renderUsers(document.getElementById('main'));
+  } catch(e) {
+    toast('添加失败：' + e, 'err');
+  }
 }
+
 async function saveUser(id){
-  try{ await api('/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-    tier_id:+document.getElementById('ut'+id).value||0, enabled:document.getElementById('ue'+id).checked})});
-    toast('已保存','ok'); renderUsers($('#main'));
-  }catch(e){ toast('失败：'+e,'err'); }
+  try {
+    await api('/users/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        tier_id: +document.getElementById('ut'+id).value || 0
+      })
+    });
+    toast('用户信息已保存', 'ok');
+    renderUsers(document.getElementById('main'));
+  } catch(e) {
+    toast('保存失败：' + e, 'err');
+  }
 }
-async function resetPw(id){
-  const pw=prompt('为用户 #'+id+' 设置新密码（至少 4 位）'); if(pw===null) return;
-  try{ await api('/users/'+id,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});
-    toast('密码已重置','ok');
-  }catch(e){ toast('失败：'+e,'err'); }
-}
+
 async function delUser(id){
-  if(!confirm('删除该用户？其名下补档将转归管理员')) return;
-  try{ await api('/users/'+id,{method:'DELETE'}); toast('已删除','ok'); renderUsers($('#main')); }
-  catch(e){ toast('失败：'+e,'err'); }
+  const ok = await appConfirm('确定删除该用户？删除后其名下的所有监控源将自动转归管理员。', '删除用户', true);
+  if(!ok) return;
+  try {
+    await api('/users/' + id, {method:'DELETE'});
+    toast('用户已删除', 'ok');
+    renderUsers(document.getElementById('main'));
+  } catch(e) {
+    toast('删除失败：' + e, 'err');
+  }
 }
 
 (async ()=>{
   try{
-    const r=await fetch('/api/v1/auth/me');
+    const r = await fetch('/api/v1/auth/me');
     window.ME = r.ok ? await r.json() : {role:'anon'};
-  }catch(e){ window.ME={role:'anon'}; }
+  }catch(e){ window.ME = {role:'anon'}; }
   buildNav();
-  if(window.ME.role==='anon'){ renderLoginView(document.getElementById('main')); return; }
-  if(window.ME.role==='user'){ switchPage('mine'); return; }
+  if(window.ME.role === 'anon'){ renderLoginView(document.getElementById('main')); return; }
+  if(window.ME.role === 'user'){ page = 'mine'; renderMine(document.getElementById('main')); return; }
   render();
 })();
 
