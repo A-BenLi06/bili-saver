@@ -14,7 +14,7 @@
 >
 > **Skill 同步（coord-agent 每次更新水位时执行）**：跨项目的模式类经验须增量同步进可移植技能 `~/.agents/skills/multi-agent-saas-dev/`（SKILL.md 铁律表 + references/pitfall-patterns.md 模式表，编号顺延）——按该 skill 的"增量更新协议"：只增改不重写、剥离项目专名、不确定不入、更新后改其文末维护水位。同轮顺手即可，不必单独开轮。
 >
-> 水位：已消化 PITFALLS P-001~P-013（P-009 已修复：coord §2 接管交付，done-review 待抽查；P-010/P-011 巡检流程坑；P-012 停滞检查→E4；P-001 诊断修正→E1；P-013→E11）+ 2026-09-09/10 共十四轮巡检实践。coord-agent 巡检发现新坑后提炼增量，更新此行。**Skill 已初始同步（2026-09-11）：E1-E11+P 模式已入 multi-agent-saas-dev，水位对齐 P-013。**
+> 水位：已消化 PITFALLS P-001~P-014（P-009 已修复：coord §2 接管交付；P-010/P-011 巡检流程坑；P-012 停滞检查→E4；P-001 诊断修正→E1；P-013→E11；**P-014 分页边界测试→已同步 skill**）+ 2026-09-09/15 多轮巡检实践。coord-agent 巡检发现新坑后提炼增量，更新此行。**Skill 已初始同步（2026-09-11）：E1-E11+P 模式已入 multi-agent-saas-dev；2026-09-15 增量：P-014 分页边界模式已入 skill 模式表。**
 
 ---
 
