@@ -250,7 +250,7 @@
 - 涉及：internal/server/static/index.html。
 - 验证：JS 双 script 块 node --check 0 error；go vet 零告警、20 包全绿；重编译重启；Chrome DevTools 真实截屏 4 个 Tab 及深浅色，实测子页签切换与跨 Tab 脏状态跟踪（改值出 ● 与计数、放弃全还原）。
 
-### 复审修复：评论分页 panic + media 双锁 + 口径回退 — core-agent（2026-09-14T17:41:00Z，done）
+### 复审修复：评论分页 panic + media 双锁 + 口径回退 — core-agent（2026-09-14T17:41:00Z，done）（已提交 81147d4）
 - 背景：人类"再审一遍，先不要改"→复审发现 1 红洞 2 缺口；人类"都修了"后全部修复。
 - ① commentGet 第 2 页起越界 panic（页内切片被全局下标索引）改 j=i-bLo，新增 comments_paging_test.go（offset=20 第二页=修复前必崩用例、22+2 跨段边界、type=2 段序）；② media 重建改 rebuildMu+stateMu 双锁（去抖执行期持 rebuildMu，与管理端直接重建真互斥），RebuildAllDebounced 返回 error，app.go 恢复带 bvid 失败日志；③ videosByOwner likeSum 回退纯 B 站口径（LatestStats 保留提速）；④ teriteriadmin/card 的 ListStats 全量历史换 LatestStats；⑤ schema_meta→'10'；⑥ 沉淀 PITFALLS P-014（分页重写必带 offset>0/跨段用例）。
 - 涉及：adapter/teriteri/comments.go+comments_paging_test.go(新)、extras.go、teriteriadmin/adapter.go、card/card.go、media/media.go、app/app.go、store/store.go、PITFALLS、CLAIMS。

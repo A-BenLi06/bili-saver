@@ -193,6 +193,8 @@
 | 设置页全面重构降噪（人类交办“设置页面让人一看有点头皮发麻，选项太多，卡片也太多，优化”）：index.html 设置页子页签化（采集/下载/媒体/系统）+ 扁平设置列表行替代粗笨网格卡片 + 高级选项折叠收敛 + 预设组合紧凑扁平化，保持脏跟踪与保存逻辑 100% 兼容 | ui-agent | done-review 2026-09-14 | 2026-09-14 02:36 | 人类交办。错区声明：仅动 internal/server/static/index.html 中的 renderSettings 及其专用样式类，不改动 ST_FIELDS 映射与后端 Go 配置契约。先制定设计方案并呈批。 |
 | 全站核心体验硬伤系统性优化（人类交办“开始优化”）：index.html 轻量 Hash 路由与浏览器前进后退支持（#/videos, #/videos/BVxxx 等）+ 归档列表重构（标题 Clamp 2行、行悬停动作条降噪、增强型分页器支持快速跳页与页容量）+ 侧栏高度响应式与用户卡片贴底防溢出 + 全局快捷键 / 聚焦与动效细节 | ui-agent | active | 2026-09-15 00:36 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。严格遵守 SaaS 中性规范与自动化测试验收门。 |
 
+| 复审修复轮（人类"再审一遍，先不要改"复审后"都修了"）：🔴 teriteri commentGet 第 2 页起索引越界 panic（mains 页内切片被段内全局下标索引，offset≥20 必崩；改页内下标 j=i-bLo）+ 回归测试（25 主楼第二页/22 B站+2 站内跨段边界/type=2 段序，comments_paging_test.go 新文件避开并行 WIP 的 adapter_test.go）；🟡 media 重建单飞洞（RebuildAllDebounced 执行期不持锁、与管理端直接重建仍可并发 → rebuildMu+stateMu 双锁全程互斥，去抖改返回 error 恢复 app.go 带 bvid 日志）；🟡 videosByOwner likeSum 回退纯 B 站口径（上一轮误混入站内赞，改 LatestStats 保持提速）；🟢 ListStats 扫尾（teriteriadmin card、card.go gather）+ schema_meta '9'→'10'（v10 已落地）；PITFALLS 新增 P-014（分页重写必带 offset>0 与跨段用例） | core-agent | done 2026-09-15 | 2026-09-15 01:4x | 复审确认其余改动站得住（批事务失败路径×消失防御交互、Prune 子查询、TopTags/CountFavItems 等价性等）。顺带：comments.go 导入序 gofmt（teriteri-agent 弹幕色/模式 WIP 的 fmt 未排序，纯格式代修；其 adapter_test.go/site.go 在途告警未动）。全量门 build+vet+20 包 test 绿（gofmt 余 2 文件属 teriteri-agent WIP）。hot 排序临时 B-tree 与 HealCommentsFTS 每 job 一扫维持原判（不紧急，评审已留待办） |
+
 > 新 claim 追加在表格末尾；状态变更原地更新；done/done-review 保留供追溯。
 
 ## 留言区
