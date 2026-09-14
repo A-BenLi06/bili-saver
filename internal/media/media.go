@@ -30,9 +30,14 @@ type Bridge struct {
 	Cfg *config.Config
 	Log *slog.Logger
 
-	// 重建单飞与合并去抖状态（RebuildAll/RebuildAllDebounced 使用）
+	// 重建并发控制（两把锁，职责不同，都不嵌套）：
+	// rebuildMu 串行化实际重建（直接 RebuildAll 与去抖轮互斥，
+	// 消除 linkFile 检查-删除-重建窗口的并发竞争）；
+	// stateMu 保护 running/dirty 标记，让下载完成回调能在重建进行中
+	// 即刻置脏并返回（合并批量下载的 N 次触发）。
 	rebuildMu    sync.Mutex
-	rebuilding   bool
+	stateMu      sync.Mutex
+	rebuildBusy  bool
 	rebuildDirty bool
 }
 
@@ -67,30 +72,40 @@ func (b *Bridge) RebuildAll() (*Result, error) {
 }
 
 // RebuildAllDebounced 下载完成后的异步重建入口：批量下载时每个完成都触发一次
-// 全量重建，N 个新视频就是 N 遍全库遍历。这里做并发合并——已有重建在跑则只置
-// 脏标记，由在跑轮次结束后补跑一次；空闲则立即执行。失败只记日志（异步路径）。
-func (b *Bridge) RebuildAllDebounced() {
-	b.rebuildMu.Lock()
-	if b.rebuilding {
+// 全量重建，N 个新视频就是 N 遍全库遍历。这里做合并——重建进行中时触发只置脏
+// 标记并立即返回，由在跑轮次结束后补跑一次（一轮触发风暴 ≈ 两次重建）。
+// 全程与 RebuildAll 经 rebuildMu 互斥。返回最后一轮重建的错误（无重建需要跑
+// 或补跑成功时为 nil）；日志由调用方带上下文记录。
+func (b *Bridge) RebuildAllDebounced() error {
+	b.stateMu.Lock()
+	if b.rebuildBusy {
 		b.rebuildDirty = true
-		b.rebuildMu.Unlock()
-		return
+		b.stateMu.Unlock()
+		return nil
 	}
-	b.rebuilding = true
-	b.rebuildMu.Unlock()
+	b.rebuildBusy = true
+	b.stateMu.Unlock()
+
+	var lastErr error
 	for {
-		if _, err := b.rebuildAllLocked(); err != nil {
-			b.logger().Warn("媒体库重建失败", "err", err)
-		}
 		b.rebuildMu.Lock()
+		_, err := b.rebuildAllLocked()
+		b.rebuildMu.Unlock()
+		lastErr = err
+
+		b.stateMu.Lock()
 		if !b.rebuildDirty {
-			b.rebuilding = false
-			b.rebuildMu.Unlock()
-			return
+			b.rebuildBusy = false
+			b.stateMu.Unlock()
+			break
 		}
 		b.rebuildDirty = false
-		b.rebuildMu.Unlock()
+		b.stateMu.Unlock()
 	}
+	if lastErr != nil {
+		b.logger().Warn("媒体库去抖重建失败", "err", lastErr)
+	}
+	return lastErr
 }
 
 func (b *Bridge) logger() *slog.Logger {

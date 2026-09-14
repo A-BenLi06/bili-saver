@@ -255,8 +255,8 @@ func (s *Store) migrate() error {
 		}
 	}
 	// 仅信息展示（无代码读取）：真实 schema 版本靠上面的幂等基线 + ensureColumn
-	// 增量补列保证，此值与 §5 迁移历史人工同步（当前 v9）。
-	_, err = s.DB.Exec(`INSERT INTO schema_meta(k,v) VALUES('schema','9') ON CONFLICT(k) DO UPDATE SET v='9'`)
+	// 增量补列保证，此值与 §5 迁移历史人工同步（当前 v10：分区/横竖屏 + space_posts）。
+	_, err = s.DB.Exec(`INSERT INTO schema_meta(k,v) VALUES('schema','10') ON CONFLICT(k) DO UPDATE SET v='10'`)
 	return err
 }
 

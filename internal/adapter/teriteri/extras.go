@@ -104,10 +104,13 @@ func (a *Adapter) videosByOwner(mid int64) ([]*store.Video, int, int) {
 	}
 	playSum, likeSum := 0, 0
 	for _, v := range videos {
-		// statsOf 的 good 即最新快照点赞数，直接复用（原实现每视频再全量拉一遍历史）
-		play, _, like, _, _, _, _ := a.statsOf(v.Bvid)
+		play, _, _, _, _, _, _ := a.statsOf(v.Bvid)
 		playSum += play
-		likeSum += like
+		// likeSum 口径保持纯 B 站快照点赞（与 2026-09-11 之前一致）：
+		// statsOf.good 已叠加站内点赞，不在此复用
+		if last, err := a.St.LatestStats(v.Bvid); err == nil {
+			likeSum += last.Like
+		}
 	}
 	return videos, playSum, likeSum
 }

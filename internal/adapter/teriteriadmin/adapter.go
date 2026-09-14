@@ -137,8 +137,7 @@ func reviewStatus(v *store.Video) int {
 // card 审核列表行：视频卡片 + 整型 status + 分区。
 func (a *Adapter) card(v *store.Video) map[string]any {
 	play, danmu := 0, 0
-	if hist, err := a.St.ListStats(v.Bvid); err == nil && len(hist) > 0 {
-		last := hist[len(hist)-1]
+	if last, err := a.St.LatestStats(v.Bvid); err == nil {
 		play, danmu = last.View, last.Danmaku
 	}
 	return map[string]any{

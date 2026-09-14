@@ -204,10 +204,14 @@ func (a *App) jobArchive(ctx context.Context, j *store.Job, progress jobs.Progre
 		if serr := a.St.TrackSetState(res.Bvid, "done", "", store.Now()); serr != nil {
 			a.Log.Warn("跟踪状态回写失败", "bvid", res.Bvid, "err", serr)
 		}
-		// 新内容落库后异步刷新媒体库软链接（幂等，失败不影响任务）；
-		// 去抖合并：批量下载时 N 次完成只触发实际重建一轮+补跑，不再 N 遍全库遍历
+		// 新内容落库后异步刷新媒体库软链接（幂等）；去抖合并：批量下载的
+		// N 次完成合并为实际一轮重建+补跑，不再 N 遍全库遍历
 		if a.Cfg.Media.Enabled {
-			go a.Med.RebuildAllDebounced()
+			go func() {
+				if err := a.Med.RebuildAllDebounced(); err != nil {
+					a.Log.Warn("下载后媒体库刷新失败", "bvid", res.Bvid, "err", err)
+				}
+			}()
 		}
 	}
 	progress(1, "完成")

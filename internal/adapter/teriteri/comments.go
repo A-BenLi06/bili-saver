@@ -5,6 +5,7 @@ package teriteri
 import (
 	"crypto/sha1"
 	"encoding/base64"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -31,17 +32,34 @@ func shuffle(n int) []int {
 }
 
 // danmuItem 对齐 teriteri-client 的弹幕对象字段。
+// Color 必须是 #rrggbb 字符串（前端直接写进 CSS var(--color)，整数是非法值
+// 会回退成继承色——全屏“黑紫”弹幕的根因）；Mode 是前端语义（1滚动/2顶部/3底部）。
 type danmuItem struct {
 	ID         int64  `json:"id"`
 	UID        int64  `json:"uid"`
 	TimePoint  int    `json:"timePoint"`
 	Mode       int    `json:"mode"`
 	Fontsize   int    `json:"fontsize"`
-	Color      int64  `json:"color"`
+	Color      string `json:"color"`
 	Content    string `json:"content"`
 	CreateDate string `json:"createDate"`
 	State      int    `json:"state"`
 	Active     bool   `json:"active"`
+}
+
+// dmColorHex B站颜色整数 → #rrggbb。
+func dmColorHex(c int64) string { return fmt.Sprintf("#%06x", c&0xFFFFFF) }
+
+// dmModeNorm B站模式（1-3滚动/4底部/5顶部/6逆向/7高级）→ 前端语义（1滚动/2顶部/3底部）。
+func dmModeNorm(mode int) int {
+	switch mode {
+	case 1, 2, 3:
+		return 1
+	case 5, 6:
+		return 2
+	default:
+		return 3
+	}
 }
 
 func (a *Adapter) danmuList(w http.ResponseWriter, r *http.Request, _ int64) {
@@ -69,7 +87,7 @@ func (a *Adapter) danmuList(w http.ResponseWriter, r *http.Request, _ int64) {
 		out = append(out, danmuItem{
 			ID: d.Dmid, UID: 0,
 			TimePoint: d.Timepoint / 1000, // teriteri 前端按秒计算
-			Mode:      d.Mode, Fontsize: d.Fontsize, Color: d.Color,
+			Mode:      dmModeNorm(d.Mode), Fontsize: d.Fontsize, Color: dmColorHex(d.Color),
 			Content: d.Content, CreateDate: isoDate(d.Ctime), State: 0, Active: true,
 		})
 	}
@@ -78,7 +96,7 @@ func (a *Adapter) danmuList(w http.ResponseWriter, r *http.Request, _ int64) {
 		for _, d := range site {
 			out = append(out, danmuItem{
 				ID: d.ID, UID: d.UID, TimePoint: d.TimePoint,
-				Mode: d.Mode, Fontsize: d.Fontsize, Color: d.Color,
+				Mode: dmModeNorm(d.Mode), Fontsize: d.Fontsize, Color: dmColorHex(d.Color),
 				Content: d.Content, CreateDate: isoDate(d.Ctime), State: 0, Active: true,
 			})
 		}
@@ -256,9 +274,12 @@ func (a *Adapter) commentGet(w http.ResponseWriter, r *http.Request, _ int64) {
 	}
 
 	pageComments := []TComment{}
+	// buildBili 的 i 是 B 站段内全局下标（∈[bLo,bHi)），mains 是从 bLo 起的
+	// 页内切片——必须换算成页内下标 j=i-bLo（此前直接 mains[i]，第 2 页起越界 panic）
 	buildBili := func(i int) TComment {
-		tc := a.toTComment(mains[i], subs)
-		for _, sub := range siteByRoot[mains[i].Rpid] {
+		j := i - bLo
+		tc := a.toTComment(mains[j], subs)
+		for _, sub := range siteByRoot[mains[j].Rpid] {
 			tc.Replies = append(tc.Replies, a.siteCommentToT(sub))
 		}
 		tc.Count = len(tc.Replies)

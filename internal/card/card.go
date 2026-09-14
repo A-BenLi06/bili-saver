@@ -125,9 +125,9 @@ func (g *Generator) loadData(ctx context.Context, bvid string) (*cardData, error
 	}
 	d := &cardData{Video: v, GeneratedAt: store.Now()}
 
-	// 最新统计（ListStats 按 ts 升序，取末条）
-	if stats, err := g.St.ListStats(bvid); err == nil && len(stats) > 0 {
-		d.Stats = stats[len(stats)-1]
+	// 最新统计（单条查询取末条，不为一条记录加载全量历史）
+	if stats, err := g.St.LatestStats(bvid); err == nil {
+		d.Stats = stats
 	}
 	// B 站原生标签
 	if tags, err := g.St.VideoTags(bvid); err == nil {

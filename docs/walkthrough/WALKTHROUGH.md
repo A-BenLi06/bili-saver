@@ -1,7 +1,7 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-13T19:00:45Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）
+> 水位：2026-09-14T17:41:00Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）
 > 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
 > - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已归纳；
 > - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，已归纳；
@@ -249,6 +249,12 @@
 - ① 子页签导航分流：20+ 配置项按心智模型拆到「采集与同步」「下载与流媒体」「媒体库与站点」「系统环境」4 个轻量 Tab（面板纯 CSS 显隐，输入项 ID 与 ST_FIELDS 映射 100% 保持，脏跟踪与保存零破坏）；② 扁平细线列表行（.st-list/.st-row）替代 .fgrid 边框盒子与卡片感，左主标题+辅助灰字、右控件精准对齐；③ 预设组合芯片内嵌扁平化（.st-ctrl-combo 极简微灰底，与数字框同行平直）；④ 布尔开关行左文右开关、画质/音频标签柔和高亮去边框；⑤ 高级参数折叠收敛（.st-advanced 收纳热门阈值、限流间隔等冷门项，默认收起，开屏仅 4~6 个核心项）。
 - 涉及：internal/server/static/index.html。
 - 验证：JS 双 script 块 node --check 0 error；go vet 零告警、20 包全绿；重编译重启；Chrome DevTools 真实截屏 4 个 Tab 及深浅色，实测子页签切换与跨 Tab 脏状态跟踪（改值出 ● 与计数、放弃全还原）。
+
+### 复审修复：评论分页 panic + media 双锁 + 口径回退 — core-agent（2026-09-14T17:41:00Z，done）
+- 背景：人类"再审一遍，先不要改"→复审发现 1 红洞 2 缺口；人类"都修了"后全部修复。
+- ① commentGet 第 2 页起越界 panic（页内切片被全局下标索引）改 j=i-bLo，新增 comments_paging_test.go（offset=20 第二页=修复前必崩用例、22+2 跨段边界、type=2 段序）；② media 重建改 rebuildMu+stateMu 双锁（去抖执行期持 rebuildMu，与管理端直接重建真互斥），RebuildAllDebounced 返回 error，app.go 恢复带 bvid 失败日志；③ videosByOwner likeSum 回退纯 B 站口径（LatestStats 保留提速）；④ teriteriadmin/card 的 ListStats 全量历史换 LatestStats；⑤ schema_meta→'10'；⑥ 沉淀 PITFALLS P-014（分页重写必带 offset>0/跨段用例）。
+- 涉及：adapter/teriteri/comments.go+comments_paging_test.go(新)、extras.go、teriteriadmin/adapter.go、card/card.go、media/media.go、app/app.go、store/store.go、PITFALLS、CLAIMS。
+- 验证：build+vet+全量 20 包 test 绿。gofmt 余 adapter_test.go/site.go 两文件属 teriteri-agent 在途 WIP 未代改（comments.go 导入序已顺手代修）。
 
 ## 待补时间戳
 
