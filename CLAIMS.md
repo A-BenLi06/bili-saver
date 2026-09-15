@@ -6,6 +6,33 @@
 
 > 格式：`### M月D日 owner` + 完成了什么 / 验证方式与证据（自动验证替代人工确认）/ done-review 建议抽查项 / 挂起项（@human 需要裁决什么）/ 服务与测试状态。**最新的追加在最上面**。
 
+### 9月16日 02:50 ui-agent（日志页 UI/UX 深度重构，done-review）
+- **完成**：承接人类核心交办“优化日志页”，针对此前控制台粗糙无语法结构、无搜索过滤、无行号复制、无法平滑回溯等缺陷，完成全方位专业级开发者控制台重塑：
+  1. **专业控制台容器与顶栏设计**：构建 `.log-card` 与 `.log-toolbar`，包含等宽高性能暗色视口（`.log-viewport`）、自适应滚动条、左侧行号槽（`.log-gutter`，等宽数字对齐）与时间戳；
+  2. **智能 Slog 结构化语法解析与高亮 (`parseSlogLine`)**：彻底告别 `msg="xxx"` 裸文本乱象，精确提取 `msg` 文本作为主标题加粗呈现，将 `key=value` 属性拆解为独立优雅的 Token 徽章标签（`.log-attr-token`），针对 `bvid` 自动提供橙色高亮与直链跳转；
+  3. **实时关键词过滤检索与文本高亮 (`highlightLogText`)**：在控制台顶栏内嵌实时搜索过滤框，支持即时匹配过滤，并对匹配关键词应用高亮标记（`.log-mark`），搜索 key 或 value 均可精准命中；
+  4. **动态等级 Tab 数量透视**：Tab 显示当前内存环形缓冲中的分类计数（全部、信息、警告、错误），错误日志标红预警，点击等级即时切换无刷新；
+  5. **悬停单行复制与一键复制当前日志**：每行日志悬停即刻出现微型复制按钮（`.log-row-copy`），点击复制整行原始文本到剪贴板；顶栏增加「复制可见」一键导出当前过滤视角下的所有日志；
+  6. **智能回溯监听与「回到最新」浮动胶囊**：用户向上滚动排查历史时自动暂停滚动，视口底部平滑浮动展示 `↓ 有新日志 · 点击回到最新` 胶囊，点击或滚回底部自动恢复自动尾随；
+  7. **预设化导出面板**：提供「今天」、「近 3 天」、「近 7 天」、「全部」快捷日期预设填充，告别手工选择日期的繁琐。
+- **验证（自动化阶梯 4/4 级）**：
+  1. `check_js.py` 双 `<script>` 块 `node --check` 0 error，JS 语法严格合规；
+  2. `go vet ./...` 零告警，全量 20 包单元测试 `go test -count=1 ./internal/...` 全部通过（0 FAIL）；
+  3. 编译最新二进制并重启后台常驻服务 `bili-saver.exe -config config.yaml serve`（task-1744，监听 :8080, :8081, :8082 正常）；
+  4. Chrome DevTools 自动化实测全量通过：
+     - **Slog 语法拆解与渲染**：行号、时间戳、等级徽章、主消息与属性 Token 解析 100% 正确；
+     - **关键词过滤与高亮**：输入 `site` 与 `TeriTeri`，过滤后分别精确返回匹配行，`<mark>` 高亮节点精准生成；
+     - **复制交互实测**：单行复制与「复制可见」成功调用 `copyText` 并弹出 Toast 提示；
+     - **导出范围预设实测**：点击“近 3 天”、“今天”、“全部”按钮，日期输入框精准填入对应区间；
+     - **视觉确认**：导出最新截图 `logs_console_optimized.jpg`，符合专业开发者控制台品质标准。
+- **done-review 建议抽查**：
+  1. 打开 `http://127.0.0.1:8080/#/logs`，体验专业控制台的高质感排版与 Slog 结构化属性徽章；
+  2. 在顶栏搜索框中输入任意关键词（如 `bili`、`site`、`dist`），体验无延迟过滤与关键词粉色高亮标记；
+  3. 鼠标悬停任意行，点击右侧出现的复制图标测试单行复制；或点击右上角「复制可见」；
+  4. 点击底部的快捷范围按钮（今天/近 3 天/近 7 天），观察日期自动联动。
+- **服务与测试状态**：服务正常运行中（task-1744，监听 :8080, :8081, :8082），全量 20 包测试通过。
+- **挂起**：无。
+
 ### 9月16日 01:50 ui-agent（任务页 UI/UX 深度重构，done-review）
 - **完成**：承接人类核心交办“优化‘任务’页的ui ux，先构建plan”，根据用户提供的真实问题截图，对任务监控控制台实施系统性重塑与体验升维：
   1. **彻底根治文字溢出穿透涂抹右侧单元格的恶性 Bug**：查明原生 `table` 缺少 `table-layout: fixed` 导致 `max-width` 仅约束盒模型而内联文本 `overflow: visible` 物理穿透后续所有列。全面引入 `.job-table` 定宽布局、`.job-title-wrap` 弹性文本容器与 `.job-title` / `.job-source-sub` 严格截断（带完整 `title` 提示），彻底实现零穿透零重叠；
@@ -278,7 +305,7 @@
 | 设置页全面重构降噪（人类交办“设置页面让人一看有点头皮发麻，选项太多，卡片也太多，优化”）：index.html 设置页子页签化（采集/下载/媒体/系统）+ 扁平设置列表行替代粗笨网格卡片 + 高级选项折叠收敛 + 预设组合紧凑扁平化，保持脏跟踪与保存逻辑 100% 兼容 | ui-agent | done-review 2026-09-14 | 2026-09-14 02:36 | 人类交办。错区声明：仅动 internal/server/static/index.html 中的 renderSettings 及其专用样式类，不改动 ST_FIELDS 映射与后端 Go 配置契约。先制定设计方案并呈批。 |
 | 全站深度体验打磨第二阶段（人类交办“继续优化，把你发现的不足项目全都修了”）：index.html 骨架屏加载过渡（替代粗暴加载中文本）+ 跟踪列表增强型分页与排版 + 视频详情 BV 号一键复制与评论审计体验 + 空状态组件化 + 任务轮询局部渲染防闪烁 + 表单控件细节精修 | ui-agent | done-review 2026-09-15 | 2026-09-15 21:16 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证（node 检查 0 报错、vet 零告警、20 包 test 全绿、DevTools 自动化断言全过）。详见晨间交接 9月15日 21:16。 |
 | 任务页 UI/UX 深度重构（人类交办“优化‘任务’页的ui ux，先构建plan”）：index.html renderJobs 重写 + 彻底根治文字溢出穿透重叠 + 终态进度视觉降噪（耗时替代满格绿条）+ 任务类型 Badge 语义色系 + 状态 Tab 数量徽章与概览卡片 + 增强型分页器与快速刷新 | ui-agent | done-review 2026-09-16 | 2026-09-16 01:50 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证：check_js 语法 0 报错、go vet 零告警、全量 20 包单测全绿、服务重启实测、Chrome DevTools 自动化实测（0 列重叠断言、Tabs 徽章、50条分页与跳页、BV 复制交互、视觉截图验证）。详见晨间交接 9月16日 01:50。 |
-| 日志页 UI/UX 深度重构（人类交办“优化日志页”）：index.html renderLogs 重写 + 控制台终端容器 + Slog 结构化语法高亮 + 实时关键词过滤/高亮 + 行号与悬停复制 + 回溯浮动恢复栏 + 等级数量徽章 + 预设化日志导出 | ui-agent | active | 2026-09-16 02:30 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。先制定计划呈批。 |
+| 日志页 UI/UX 深度重构（人类交办“优化日志页”）：index.html renderLogs 重写 + 控制台终端容器 + Slog 结构化语法高亮 + 实时关键词过滤/高亮 + 行号与悬停复制 + 回溯浮动恢复栏 + 等级数量徽章 + 预设化日志导出 | ui-agent | done-review 2026-09-16 | 2026-09-16 02:50 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证：check_js 语法 0 报错、go vet 零告警、全量 20 包单测全绿、服务重启实测、Chrome DevTools 自动化实测（Slog 结构化高亮、实时关键词过滤与 mark 高亮、行号与单行/整屏复制交互、导出快捷预设、高清截图验证）。详见晨间交接 9月16日 02:50。 |
 
 | 复审修复轮（人类"再审一遍，先不要改"复审后"都修了"）：🔴 teriteri commentGet 第 2 页起索引越界 panic（mains 页内切片被段内全局下标索引，offset≥20 必崩；改页内下标 j=i-bLo）+ 回归测试（25 主楼第二页/22 B站+2 站内跨段边界/type=2 段序，comments_paging_test.go 新文件避开并行 WIP 的 adapter_test.go）；🟡 media 重建单飞洞（RebuildAllDebounced 执行期不持锁、与管理端直接重建仍可并发 → rebuildMu+stateMu 双锁全程互斥，去抖改返回 error 恢复 app.go 带 bvid 日志）；🟡 videosByOwner likeSum 回退纯 B 站口径（上一轮误混入站内赞，改 LatestStats 保持提速）；🟢 ListStats 扫尾（teriteriadmin card、card.go gather）+ schema_meta '9'→'10'（v10 已落地）；PITFALLS 新增 P-014（分页重写必带 offset>0 与跨段用例） | core-agent | done 2026-09-15 | 2026-09-15 01:4x | 复审确认其余改动站得住（批事务失败路径×消失防御交互、Prune 子查询、TopTags/CountFavItems 等价性等）。顺带：comments.go 导入序 gofmt（teriteri-agent 弹幕色/模式 WIP 的 fmt 未排序，纯格式代修；其 adapter_test.go/site.go 在途告警未动）。全量门 build+vet+20 包 test 绿（gofmt 余 2 文件属 teriteri-agent WIP）。hot 排序临时 B-tree 与 HealCommentsFTS 每 job 一扫维持原判（不紧急，评审已留待办） |
 
