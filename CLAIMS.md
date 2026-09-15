@@ -6,6 +6,34 @@
 
 > 格式：`### M月D日 owner` + 完成了什么 / 验证方式与证据（自动验证替代人工确认）/ done-review 建议抽查项 / 挂起项（@human 需要裁决什么）/ 服务与测试状态。**最新的追加在最上面**。
 
+### 9月16日 01:50 ui-agent（任务页 UI/UX 深度重构，done-review）
+- **完成**：承接人类核心交办“优化‘任务’页的ui ux，先构建plan”，根据用户提供的真实问题截图，对任务监控控制台实施系统性重塑与体验升维：
+  1. **彻底根治文字溢出穿透涂抹右侧单元格的恶性 Bug**：查明原生 `table` 缺少 `table-layout: fixed` 导致 `max-width` 仅约束盒模型而内联文本 `overflow: visible` 物理穿透后续所有列。全面引入 `.job-table` 定宽布局、`.job-title-wrap` 弹性文本容器与 `.job-title` / `.job-source-sub` 严格截断（带完整 `title` 提示），彻底实现零穿透零重叠；
+  2. **双行层次化排版与 BV 号直达快捷链**：任务来源拆解为主任务标题（清晰大字加粗）与细分来源副文本（如“来自 视频 BVxxx”或“来自 收藏夹”）；提取 payload 中的 `bvid` 生成高识别度直链徽标（可一键跳转详情）与集成复制图标；
+  3. **终态进度视觉降噪（消灭满屏绿色条形码）**：将已完成终态任务的无意义 100% 满格粗绿条升级为精致的执行耗时提示（如 `✓ 耗时 38s`、`✓ 耗时 1m 34s`），活动任务赋予高辨识度脉动流光动效（`.job-prog-bar.active`），大幅提升控制台信息吞吐效率与呼吸感；
+  4. **任务类型 Badge 语义色系**：将裸露文本重构为中性 SaaS 语义徽章（源同步·天蓝、归档·紫罗兰、视频下载·青绿、补档·琥珀黄、统计·中性灰）；
+  5. **全局指标看板与 Tab 数量动态透视**：在表格上方新增 4 格指标总览（执行中、排队中、已完成、异常失败）；状态选项卡集成动态数量徽标；新增右上角「⟳ 刷新」手动快速触发器；
+  6. **标准两端式分页器（`.pgn.pgn-bar`）**：支持 `20 / 50 / 100 条/页` 容量切换、上一页/下一页控制及输入页码回车精准直达。
+- **验证（自动化阶梯 4/4 级）**：
+  1. `check_js.py` 双 `<script>` 块 `node --check` 0 error，JS 语法严格通过；
+  2. `go vet ./...` 零告警，全量 20 包单元测试 `go test -count=1 ./internal/...` 全部通过（0 FAIL）；
+  3. 编译最新二进制并重启后台常驻服务 `bili-saver.exe -config config.yaml serve`（task-1522，监听 :8080, :8081, :8082 正常）；
+  4. Chrome DevTools 自动化实测全量通过：
+     - **零重叠几何断言**：计算全部 20 行标题单元格与状态/进度/详情单元格的 `getBoundingClientRect()`，断言重叠数为 0；
+     - **Tabs 徽标与指标看板**：实测渲染正常，Tab 徽标展示“全部 100”、“执行中 0”、“排队中 0”、“已完成 99”、“失败 1”；
+     - **分页器与容量切换**：实测下一页平滑过渡至第 2、3 页；50 条/页容量切换精准展示 50 行并正确更新总页数；
+     - **失败任务过滤**：筛选“失败”Tab 展示 1 行中断任务，包含报错详情与“重试”按钮；
+     - **BV 号复制交互**：点击复制图标触发 `copyText`，产生元素变绿与右上角 Toast 反馈；
+     - **视觉确认**：导出最新界面截图 `jobs_board_optimized.jpg` 与旧版对比，视觉质量完全达到现代化 SaaS 级标准。
+- **done-review 建议抽查**：
+  1. 打开 `http://127.0.0.1:8080/#/jobs`，感受顶部指标看板与彻底根治后的无重叠清晰表格；
+  2. 观察已完成任务的耗时文本（如 `耗时 38s`），不再有满屏绿色进度条的视觉轰炸；
+  3. 点击任意任务来源中的 BV 号一键跳转视频详情，或点击复制小图标测试剪贴板写入；
+  4. 切换状态选项卡（全部/已完成/失败），观察 Tab 徽标与数据联动；
+  5. 在表格底部尝试切换为 50 条/页或输入页码跳转。
+- **服务与测试状态**：服务正常运行中（task-1522，监听 :8080, :8081, :8082），全量 20 包测试通过。
+- **挂起**：无。
+
 ### 9月15日 21:16 ui-agent（全站深度体验打磨第二阶段，done-review）
 - **完成**：承接人类核心指令“继续优化，把你发现的不足项目全都修了”，对全站剩余深度体验缺陷实施全面打磨与交互升维：
   1. **骨架屏流光渐变加载过渡（Skeleton Pulse Screens）**：在归档列表、跟踪列表、搜索中态以及视频详情的评论审计区，彻底消灭生硬粗暴的“加载中…”纯文本；构建 `.skeleton` 脉动流光动效与 `.skel-thumb`、`.skel-line`，在异步加载期间平滑预占位，彻底消除内容跳动与闪烁；
@@ -249,7 +277,7 @@
 | 多用户与登录态 UI/UX 精致化打磨（人类交办“根据已有的风格精致化并精细化，作为一个资深设计师，UX UI专家，打磨体验细节”）：index.html 登录门全屏流线重塑 + 侧栏用户卡片/登出交互 + 我的补档配额进度条/栅格/预设芯片 + 用户管理模态改密/开关/确认弹窗机械 + 全局模态与 Toast 微动效 | ui-agent | done-review 2026-09-14 | 2026-09-14 02:07 | 人类交办。错区声明：仅动 internal/server/static/index.html 对应 CSS 变量块、登录视图 renderLoginView、导航构建 buildNav、我的补档 renderMine、用户管理 renderUsers 与新增 modal/confirm 交互机械，不碰后端 Go 代码与其它既有页面函数。严格遵守 SaaS 中性风格，全量自动化阶梯验证。 |
 | 设置页全面重构降噪（人类交办“设置页面让人一看有点头皮发麻，选项太多，卡片也太多，优化”）：index.html 设置页子页签化（采集/下载/媒体/系统）+ 扁平设置列表行替代粗笨网格卡片 + 高级选项折叠收敛 + 预设组合紧凑扁平化，保持脏跟踪与保存逻辑 100% 兼容 | ui-agent | done-review 2026-09-14 | 2026-09-14 02:36 | 人类交办。错区声明：仅动 internal/server/static/index.html 中的 renderSettings 及其专用样式类，不改动 ST_FIELDS 映射与后端 Go 配置契约。先制定设计方案并呈批。 |
 | 全站深度体验打磨第二阶段（人类交办“继续优化，把你发现的不足项目全都修了”）：index.html 骨架屏加载过渡（替代粗暴加载中文本）+ 跟踪列表增强型分页与排版 + 视频详情 BV 号一键复制与评论审计体验 + 空状态组件化 + 任务轮询局部渲染防闪烁 + 表单控件细节精修 | ui-agent | done-review 2026-09-15 | 2026-09-15 21:16 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证（node 检查 0 报错、vet 零告警、20 包 test 全绿、DevTools 自动化断言全过）。详见晨间交接 9月15日 21:16。 |
-| 任务页 UI/UX 深度重构（人类交办“优化‘任务’页的ui ux，先构建plan”）：index.html renderJobs 重写 + 修复文字溢出重叠 + 终态进度视觉降噪 + 类型 Badge 语义化 + 状态 Tab 数量透视 + 增强型分页与刷新控制 | ui-agent | active | 2026-09-16 01:00 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证。 |
+| 任务页 UI/UX 深度重构（人类交办“优化‘任务’页的ui ux，先构建plan”）：index.html renderJobs 重写 + 彻底根治文字溢出穿透重叠 + 终态进度视觉降噪（耗时替代满格绿条）+ 任务类型 Badge 语义色系 + 状态 Tab 数量徽章与概览卡片 + 增强型分页器与快速刷新 | ui-agent | done-review 2026-09-16 | 2026-09-16 01:50 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证：check_js 语法 0 报错、go vet 零告警、全量 20 包单测全绿、服务重启实测、Chrome DevTools 自动化实测（0 列重叠断言、Tabs 徽章、50条分页与跳页、BV 复制交互、视觉截图验证）。详见晨间交接 9月16日 01:50。 |
 
 | 复审修复轮（人类"再审一遍，先不要改"复审后"都修了"）：🔴 teriteri commentGet 第 2 页起索引越界 panic（mains 页内切片被段内全局下标索引，offset≥20 必崩；改页内下标 j=i-bLo）+ 回归测试（25 主楼第二页/22 B站+2 站内跨段边界/type=2 段序，comments_paging_test.go 新文件避开并行 WIP 的 adapter_test.go）；🟡 media 重建单飞洞（RebuildAllDebounced 执行期不持锁、与管理端直接重建仍可并发 → rebuildMu+stateMu 双锁全程互斥，去抖改返回 error 恢复 app.go 带 bvid 日志）；🟡 videosByOwner likeSum 回退纯 B 站口径（上一轮误混入站内赞，改 LatestStats 保持提速）；🟢 ListStats 扫尾（teriteriadmin card、card.go gather）+ schema_meta '9'→'10'（v10 已落地）；PITFALLS 新增 P-014（分页重写必带 offset>0 与跨段用例） | core-agent | done 2026-09-15 | 2026-09-15 01:4x | 复审确认其余改动站得住（批事务失败路径×消失防御交互、Prune 子查询、TopTags/CountFavItems 等价性等）。顺带：comments.go 导入序 gofmt（teriteri-agent 弹幕色/模式 WIP 的 fmt 未排序，纯格式代修；其 adapter_test.go/site.go 在途告警未动）。全量门 build+vet+20 包 test 绿（gofmt 余 2 文件属 teriteri-agent WIP）。hot 排序临时 B-tree 与 HealCommentsFTS 每 job 一扫维持原判（不紧急，评审已留待办） |
 
