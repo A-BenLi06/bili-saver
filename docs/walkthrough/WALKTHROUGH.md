@@ -1,8 +1,7 @@
 # Walkthrough 汇总
 
 > 素材来源：[`raw/`](raw/) 原始记录（对汇总方只读、永不改动）。本文件由 walkthrough-agent 的每小时后台自动化整理归纳，其他 agent 请把记录写进 raw/。
-> 水位：2026-09-14T17:41:00Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）
-> 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
+> 水位：2026-09-15T13:00:42Z（= 上轮处理时刻的真实 UTC。**水位不用条目自报时间戳**：部分 agent 时钟偏快或把本地时间误标 UTC（coord-agent 坑台账 P-001），自报时间仅作排序参考；每轮以「自报时间戳晚于水位、且不在下方异常登记中」为准收集条目，处理完把水位推进到本轮处理时刻；另需兜底检查「上轮水位之后 mtime 有变化、但自报时间戳早于水位」的 raw 文件——已多次靠此抓到新追加条目）> 时间戳异常登记（已归纳，勿因自报时间戳晚于水位而重复归纳）：
 > - core-agent-20260908.md「热门视频补档二次确认」自报 2026-09-09T02:10:00Z，实写约 2026-09-08T17:06Z，已归纳；
 > - core-agent-20260908.md「总览页第三方媒体库在线状态」自报 2026-09-09T02:55:00Z，实写约 2026-09-08T18:49Z，已归纳；
 > - ui-agent-20260908.md「跟踪列表 UI/UX 优化」自报 2026-09-08T19:15:00Z，实写约 2026-09-08T18:42Z，已归纳；
@@ -255,6 +254,12 @@
 - ① commentGet 第 2 页起越界 panic（页内切片被全局下标索引）改 j=i-bLo，新增 comments_paging_test.go（offset=20 第二页=修复前必崩用例、22+2 跨段边界、type=2 段序）；② media 重建改 rebuildMu+stateMu 双锁（去抖执行期持 rebuildMu，与管理端直接重建真互斥），RebuildAllDebounced 返回 error，app.go 恢复带 bvid 失败日志；③ videosByOwner likeSum 回退纯 B 站口径（LatestStats 保留提速）；④ teriteriadmin/card 的 ListStats 全量历史换 LatestStats；⑤ schema_meta→'10'；⑥ 沉淀 PITFALLS P-014（分页重写必带 offset>0/跨段用例）。
 - 涉及：adapter/teriteri/comments.go+comments_paging_test.go(新)、extras.go、teriteriadmin/adapter.go、card/card.go、media/media.go、app/app.go、store/store.go、PITFALLS、CLAIMS。
 - 验证：build+vet+全量 20 包 test 绿。gofmt 余 adapter_test.go/site.go 两文件属 teriteri-agent 在途 WIP 未代改（comments.go 导入序已顺手代修）。
+
+### 全站核心体验硬伤系统性优化 — ui-agent（自报 2026-09-14T17:15:00Z，实为 09-15T13:00Z 前新追加，done-review）
+- 人类以"picky 和 strict"标准审阅后发出核心指令"开始优化"，针对 5 项核心体验硬伤系统性解决：
+- ① 轻量原生 Hash 路由体系（handleRoute/switchPage/openArchive）：支持 #/videos、#/videos/:bvid、#/settings 等；详情页独立直链，浏览器前进/后退、地址栏直开、分享与刷新；返回链接优先 history.back() 保真还原筛选/搜索/滚动位置；路由切换集成脏配置二次确认拦截。② 归档列表降噪与行悬停动作条：标题 line-clamp:2 严整行高+完整 title tooltip；操作列 .row-actions 默认透明收敛、悬停/聚焦优雅浮现（60 个重复灰色按钮视觉污染归零），@media(hover:none) 触屏保底全显。③ 增强型分页器：每页条数动态切换（20/50/100）服务端联动、跳转页码输入（回车/失焦平滑跳转带钳制）、左右两端式排版。④ 侧栏自适应防溢出：nav 容器 flex:1+min-height:0+内部滚动细线滚动条，底部 controls 收拢 .aside-foot 强力贴底（修复小屏用户面板/主题切换被滚出视口）。⑤ 全局快捷键 `/` 非输入态秒级聚焦当前视图搜索框。
+- 涉及：internal/server/static/index.html。
+- 验证（自动化阶梯 4/4）：双 script 块 node --check 0 error；go vet 零告警 + 20 包全绿；编译起服务（:8080/:8081/:8082）；Chrome DevTools 实测全过——列表 2 行 Clamp、动作条静默/悬停浮现、详情独立 URL 与后退保状态、地址栏直达、分页跳页、50 条/页、`/` 聚焦搜索、小屏侧栏贴底。
 
 ## 待补时间戳
 
