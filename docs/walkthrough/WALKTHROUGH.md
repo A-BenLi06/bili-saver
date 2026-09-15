@@ -255,7 +255,7 @@
 - 涉及：adapter/teriteri/comments.go+comments_paging_test.go(新)、extras.go、teriteriadmin/adapter.go、card/card.go、media/media.go、app/app.go、store/store.go、PITFALLS、CLAIMS。
 - 验证：build+vet+全量 20 包 test 绿。gofmt 余 adapter_test.go/site.go 两文件属 teriteri-agent 在途 WIP 未代改（comments.go 导入序已顺手代修）。
 
-### 全站核心体验硬伤系统性优化 — ui-agent（自报 2026-09-14T17:15:00Z，实为 09-15T13:00Z 前新追加，done-review）
+### 全站核心体验硬伤系统性优化 — ui-agent（自报 2026-09-14T17:15:00Z，实为 09-15T13:00Z 前新追加，done-review）（已提交 f2b09b7）
 - 人类以"picky 和 strict"标准审阅后发出核心指令"开始优化"，针对 5 项核心体验硬伤系统性解决：
 - ① 轻量原生 Hash 路由体系（handleRoute/switchPage/openArchive）：支持 #/videos、#/videos/:bvid、#/settings 等；详情页独立直链，浏览器前进/后退、地址栏直开、分享与刷新；返回链接优先 history.back() 保真还原筛选/搜索/滚动位置；路由切换集成脏配置二次确认拦截。② 归档列表降噪与行悬停动作条：标题 line-clamp:2 严整行高+完整 title tooltip；操作列 .row-actions 默认透明收敛、悬停/聚焦优雅浮现（60 个重复灰色按钮视觉污染归零），@media(hover:none) 触屏保底全显。③ 增强型分页器：每页条数动态切换（20/50/100）服务端联动、跳转页码输入（回车/失焦平滑跳转带钳制）、左右两端式排版。④ 侧栏自适应防溢出：nav 容器 flex:1+min-height:0+内部滚动细线滚动条，底部 controls 收拢 .aside-foot 强力贴底（修复小屏用户面板/主题切换被滚出视口）。⑤ 全局快捷键 `/` 非输入态秒级聚焦当前视图搜索框。
 - 涉及：internal/server/static/index.html。

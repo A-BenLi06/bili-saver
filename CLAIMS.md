@@ -6,6 +6,35 @@
 
 > 格式：`### M月D日 owner` + 完成了什么 / 验证方式与证据（自动验证替代人工确认）/ done-review 建议抽查项 / 挂起项（@human 需要裁决什么）/ 服务与测试状态。**最新的追加在最上面**。
 
+### 9月15日 02:20 ui-agent（全站核心体验硬伤系统性优化，done-review）
+- **完成**：人类以“picky和strict”严格眼光审阅后发出核心指令“开始优化”。针对此前评估确认的 5 项核心体验硬伤，全量交付系统性优化：
+  1. **轻量原生 Hash 路由体系**：实现统一的轻量 Hash 路由调度器（支持 `#/videos`, `#/videos/:bvid`, `#/settings`, `#/sources` 等全站视图）；视频详情升级为独立直链 `#/videos/:bvid`，支持浏览器“前进/后退”键、直接刷新与复制直链；返回链接优先调用 `history.back()`，保真还原上一页的筛选、搜索与滚动位置；路由切换无缝集成 `__stGuard` 脏配置离开二次确认拦截；
+  2. **归档项目列表排版降噪与行悬停动作条**：标题引入 `.video-title`，限制 `line-clamp: 2` 保持列表行高严格整齐均一，超出平滑省略并带原生完整 title tooltip；操作列重构为现代高级 SaaS 风格的 **行 Hover 动作条（Row Hover Actions）**：默认完全透明收敛，鼠标悬停行或键盘聚焦时平滑显现，将一整屏 60 个重复灰色按钮的视觉污染骤降为 0；触屏通过 `@media (hover: none)` 保底全显；
+  3. **增强型分页器**：原生支持每页条数动态切换（`20 / 50 / 100 条/页`），与服务端 `limit`/`offset` 原生联动；增加跳转页码输入框（Jump-to-page），回车或失焦即刻平滑跳转，带输入上下限钳制；左右两端式极简 SaaS 排版；
+  4. **侧栏自适应防溢出与用户面板强贴底**：修复小屏/笔记本屏幕下侧栏高度被撑爆、底部 `userPanel` 和主题切换按钮被滚出视口的布局硬伤；`nav` 容器配置 `flex: 1 1 0; min-height: 0; overflow-y: auto;` 并添加精致细线滚动条；底部 controls 收拢至 `.aside-foot`，使用 `flex-shrink: 0; margin-top: auto` 强力贴底，全屏幕高度下始终清晰可见；
+  5. **全局微交互增强**：全局按 `/` 快捷聚焦当前激活视图的搜索框（`#q`、`#sq` 等）。
+- **验证（自动化阶梯 4/4 级）**：
+  1. `scratch/check_js.py` 双 script 块 `node --check` 0 error，JS 语法严格通过；
+  2. `go vet ./internal/...` 零告警，全量 20 包 `go test -count=1 ./internal/...` 全部绿通过（0 FAIL）；
+  3. 编译并拉起后台服务 `bili-saver.exe -config config.yaml serve`（task-766，监听 :8080, :8081, :8082 正常）；
+  4. Chrome DevTools 真实操作与截屏全量通过：
+     - `#/videos` 列表页标题 2 行 Clamp 整齐排布；
+     - 操作列 60 个按钮默认静默降噪，鼠标悬浮/聚焦某行时该行动作条优雅浮现；
+     - 点击标题进入 `#/videos/BV1sXYv68EUe` 独立 URL 详情页，点击浏览器“后退”键完美退回列表页并保持状态；
+     - 地址栏直接输入 `#/videos/BV1sXYv68EUe` 与 `#/settings` 刷新直达；
+     - 分页器跳至第 2 页实测；
+     - 每页容量切换为 50 条/页并实测返回 50 条数据；
+     - 按键盘 `/` 键成功触发 `#q` 搜索框聚焦；
+     - 小屏高度下侧栏用户面板与浅色模式切换按钮始终贴底。
+- **done-review 建议抽查**：
+  1. 打开 `http://127.0.0.1:8080/#/videos`，感受一整屏 60 个按钮消除后的高呼吸感数据表格；
+  2. 鼠标悬停任意行，观察动作按钮平滑浮现；
+  3. 点击任意视频标题进入详情，观察 URL 变为 `#/videos/BVxxx`；然后点击浏览器左上角的“后退”箭头（或 Alt+Left），观察能否无缝返回列表页；
+  4. 体验底部增强型分页器的“跳至 [ ] 页”与“条/页”下拉框；
+  5. 在任意非输入状态下按键盘上的 `/` 键，观察搜索框是否自动聚焦。
+- **服务与测试状态**：服务运行中（task-766，监听 :8080、:8081、:8082），全量 20 包绿（0 FAIL）。
+- **挂起**：无。
+
 ### 9月14日 02:46 ui-agent（设置页重构降噪与子页签化，done-review）
 - **完成**：人类交办“设置页面让人一看有点头皮发麻，选项太多，卡片也太多，优化”。针对旧版全量堆叠 20+ 项配置与碎片卡片密布的视觉负荷，完成体系化降噪：
   1. **子页签导航分流**：按用户心智模型将所有参数划分为「采集与同步」、「下载与流媒体」、「媒体库与站点」、「系统环境」4 个轻量 Tab；采用经典 `.tabs` 下划线极简风格；纯 CSS 显隐切换，所有控件 ID 与 `ST_FIELDS` 映射 100% 保持，脏数据跟踪与保存逻辑零破坏；
@@ -191,7 +220,8 @@
 | 全站 UI 精修（人类交办“不少地方 UI 糙了，以 SaaS 为要求、参考侧栏标准”）：index.html 监控源/媒体库编辑表单栅格化+开关/分段器、采集页开关化、控件助手提升模块级+全局事件委托、alert 清零 | ui-agent | done-review 2026-09-12 | 2026-09-12 03:0x | 精修范围：① swF/segF/comboF/stepF 从 renderSettings 提升模块级 + segVal/segSet，chips/stepper/seg 委托从 #stWrap 提升为 document 级（设置页行为不变，监控源/媒体库复用）；② 监控源编辑：fgrid 栅格、监控开关、模式/触发器分段器（动态 hint 联动）、seHints/editSrc/saveSrc 适配；③ 媒体库编辑：fgrid、布局/链接/元数据三分段器、启用开关、newLib/editLib/saveLib 适配；④ 采集页 baseOpts 开关化；⑤ alert 清零（插件重载/媒体库必填校验/teriteri 安装失败 → toast）。后端零改动。**自检修复回归**：重构时漏渲染 seModeHint 致 seHints 抛错、编辑表单永不显示——包装 seHints 捕获栈定位后补元素。验证：双 script 块 node --check、构建绿、服务重启、浏览器断言（源编辑可见+栅格+开关+双分段器+提示联动；媒体库三分段器+STRM 切换+开关；采集双开关；深色截图与侧栏观感一致）。置 done-review |
 | 多用户与登录态 UI/UX 精致化打磨（人类交办“根据已有的风格精致化并精细化，作为一个资深设计师，UX UI专家，打磨体验细节”）：index.html 登录门全屏流线重塑 + 侧栏用户卡片/登出交互 + 我的补档配额进度条/栅格/预设芯片 + 用户管理模态改密/开关/确认弹窗机械 + 全局模态与 Toast 微动效 | ui-agent | done-review 2026-09-14 | 2026-09-14 02:07 | 人类交办。错区声明：仅动 internal/server/static/index.html 对应 CSS 变量块、登录视图 renderLoginView、导航构建 buildNav、我的补档 renderMine、用户管理 renderUsers 与新增 modal/confirm 交互机械，不碰后端 Go 代码与其它既有页面函数。严格遵守 SaaS 中性风格，全量自动化阶梯验证。 |
 | 设置页全面重构降噪（人类交办“设置页面让人一看有点头皮发麻，选项太多，卡片也太多，优化”）：index.html 设置页子页签化（采集/下载/媒体/系统）+ 扁平设置列表行替代粗笨网格卡片 + 高级选项折叠收敛 + 预设组合紧凑扁平化，保持脏跟踪与保存逻辑 100% 兼容 | ui-agent | done-review 2026-09-14 | 2026-09-14 02:36 | 人类交办。错区声明：仅动 internal/server/static/index.html 中的 renderSettings 及其专用样式类，不改动 ST_FIELDS 映射与后端 Go 配置契约。先制定设计方案并呈批。 |
-| 全站核心体验硬伤系统性优化（人类交办“开始优化”）：index.html 轻量 Hash 路由与浏览器前进后退支持（#/videos, #/videos/BVxxx 等）+ 归档列表重构（标题 Clamp 2行、行悬停动作条降噪、增强型分页器支持快速跳页与页容量）+ 侧栏高度响应式与用户卡片贴底防溢出 + 全局快捷键 / 聚焦与动效细节 | ui-agent | active | 2026-09-15 00:36 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。严格遵守 SaaS 中性规范与自动化测试验收门。 |
+| 全站核心体验硬伤系统性优化（人类交办“开始优化”）：index.html 轻量 Hash 路由与浏览器前进后退支持（#/videos, #/videos/BVxxx 等）+ 归档列表重构（标题 Clamp 2行、行悬停动作条降噪、增强型分页器支持快速跳页与页容量）+ 侧栏高度响应式与用户卡片贴底防溢出 + 全局快捷键 / 聚焦与动效细节 | ui-agent | done-review 2026-09-15 | 2026-09-15 00:36 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。自动化验收门 4/4 级全量通过，详见晨间交接 9月15日。 |
+| 全站深度体验打磨第二阶段（人类交办“继续优化，把你发现的不足项目全都修了”）：index.html 骨架屏加载过渡（替代粗暴加载中文本）+ 跟踪列表增强型分页与排版 + 视频详情 BV 号一键复制与评论审计体验 + 空状态组件化 + 任务轮询局部渲染防闪烁 + 表单控件细节精修 | ui-agent | active | 2026-09-15 02:45 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证。 |
 
 | 复审修复轮（人类"再审一遍，先不要改"复审后"都修了"）：🔴 teriteri commentGet 第 2 页起索引越界 panic（mains 页内切片被段内全局下标索引，offset≥20 必崩；改页内下标 j=i-bLo）+ 回归测试（25 主楼第二页/22 B站+2 站内跨段边界/type=2 段序，comments_paging_test.go 新文件避开并行 WIP 的 adapter_test.go）；🟡 media 重建单飞洞（RebuildAllDebounced 执行期不持锁、与管理端直接重建仍可并发 → rebuildMu+stateMu 双锁全程互斥，去抖改返回 error 恢复 app.go 带 bvid 日志）；🟡 videosByOwner likeSum 回退纯 B 站口径（上一轮误混入站内赞，改 LatestStats 保持提速）；🟢 ListStats 扫尾（teriteriadmin card、card.go gather）+ schema_meta '9'→'10'（v10 已落地）；PITFALLS 新增 P-014（分页重写必带 offset>0 与跨段用例） | core-agent | done 2026-09-15 | 2026-09-15 01:4x | 复审确认其余改动站得住（批事务失败路径×消失防御交互、Prune 子查询、TopTags/CountFavItems 等价性等）。顺带：comments.go 导入序 gofmt（teriteri-agent 弹幕色/模式 WIP 的 fmt 未排序，纯格式代修；其 adapter_test.go/site.go 在途告警未动）。全量门 build+vet+20 包 test 绿（gofmt 余 2 文件属 teriteri-agent WIP）。hot 排序临时 B-tree 与 HealCommentsFTS 每 job 一扫维持原判（不紧急，评审已留待办） |
 
