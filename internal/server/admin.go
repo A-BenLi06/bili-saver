@@ -3,6 +3,8 @@ package server
 // 管理 REST API（/api/v1/*）。
 
 import (
+	"archive/zip"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,6 +19,7 @@ import (
 	"bili-saver/internal/collector"
 	"bili-saver/internal/config"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1458,8 +1461,9 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"latest": latest, "lines": lines})
 }
 
-// handleLogsExport 导出按日服务日志（可选时间段与级别），文本附件下载。
-// 时间格式：YYYY-MM-DDTHH:MM（datetime-local）或 YYYY-MM-DD；两端均可省略。
+// handleLogsExport 打包下载持久化日志文件：zip 流式输出，不在服务端拼出巨型文本。
+// from/to 按文件名日期筛选（run 文件名含启动日期，跨天 run 用相邻天兜底）。
+// level 过滤仅适用于页面实时尾随，文件级导出不按行过滤。
 func (s *Server) handleLogsExport(w http.ResponseWriter, r *http.Request) {
 	dir := logging.LogsDir()
 	if dir == "" {
@@ -1467,67 +1471,93 @@ func (s *Server) handleLogsExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	level := strings.ToUpper(q.Get("level"))
-	var from, to time.Time
-	var haveFrom, haveTo bool
+	var fromDate, toDate time.Time
 	if t, err := time.ParseInLocation("2006-01-02T15:04", q.Get("from"), time.Local); err == nil {
-		from, haveFrom = t, true
+		fromDate = t
 	} else if t, err := time.ParseInLocation("2006-01-02", q.Get("from"), time.Local); err == nil {
-		from, haveFrom = t, true
+		fromDate = t
 	}
 	if t, err := time.ParseInLocation("2006-01-02T15:04", q.Get("to"), time.Local); err == nil {
-		to, haveTo = t.Add(time.Minute), true // 含端点分钟
+		toDate = t
 	} else if t, err := time.ParseInLocation("2006-01-02", q.Get("to"), time.Local); err == nil {
-		to, haveTo = t.AddDate(0, 0, 1), true
+		toDate = t.AddDate(0, 0, 1)
 	}
-	files, _ := filepath.Glob(filepath.Join(dir, "service-*.log"))
-	sort.Strings(files)
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Content-Disposition", `attachment; filename="bili-saver-logs.txt"`)
-	for _, f := range files {
-		data, err := os.ReadFile(f)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	type candidate struct {
+		name string
+		mod  time.Time
+	}
+	var cands []candidate
+	active := logging.ActiveLogFile()
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || (!strings.HasSuffix(name, ".log") && !strings.HasSuffix(name, ".log.gz")) {
+			continue
+		}
+		day := logFileDay(name)
+		if (!fromDate.IsZero() && day.Before(fromDate)) || (!toDate.IsZero() && day.After(toDate)) {
+			continue
+		}
+		mod, _ := e.Info()
+		var modT time.Time
+		if mod != nil {
+			modT = mod.ModTime()
+		}
+		if name != active && modT.IsZero() {
+			continue
+		}
+		cands = append(cands, candidate{name, modT})
+	}
+	if len(cands) == 0 {
+		errJSON(w, 404, errStr("所选范围内没有日志文件"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf(`attachment; filename="bili-saver-logs-%s.zip"`, time.Now().Format("20060102-150405")))
+	zw := zip.NewWriter(w)
+	for _, c := range cands {
+		full := filepath.Join(dir, c.name)
+		f, err := os.Open(full)
 		if err != nil {
 			continue
 		}
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.TrimSpace(line) == "" {
+		var rd io.Reader = f
+		var gz *gzip.Reader
+		if strings.HasSuffix(c.name, ".gz") {
+			gz, err = gzip.NewReader(f)
+			if err != nil {
+				f.Close()
 				continue
 			}
-			if level != "" && !strings.Contains(line, "level="+level) {
-				continue
-			}
-			if haveFrom || haveTo {
-				ts := extractLogTime(line)
-				if ts.IsZero() {
-					continue
-				}
-				if haveFrom && ts.Before(from) {
-					continue
-				}
-				if haveTo && ts.After(to) {
-					continue
-				}
-			}
-			_, _ = io.WriteString(w, line+"\n")
+			rd = gz
 		}
+		hdr := &zip.FileHeader{Name: strings.TrimSuffix(c.name, ".gz"), Modified: c.mod}
+		hdr.Method = zip.Deflate
+		if entry, err := zw.CreateHeader(hdr); err == nil {
+			_, _ = io.Copy(entry, rd)
+		}
+		if gz != nil {
+			gz.Close()
+		}
+		f.Close()
 	}
+	_ = zw.Close()
 }
 
-// extractLogTime 从 slog 文本行提取秒级时间（time=2026-09-11T01:02:03.…）。
-func extractLogTime(line string) time.Time {
-	i := strings.Index(line, "time=")
-	if i < 0 {
-		return time.Time{}
+// logFileDay 从日志文件名提取日期（service-YYYYMMDD-HHMMSS…），取不到返回零值。
+func logFileDay(name string) time.Time {
+	if m := regexp.MustCompile(`(\d{8})`).FindStringSubmatch(name); m != nil {
+		t, err := time.ParseInLocation("20060102", m[1], time.Local)
+		if err == nil {
+			return t
+		}
 	}
-	rest := line[i+len("time="):]
-	if len(rest) < 19 {
-		return time.Time{}
-	}
-	t, err := time.ParseInLocation("2006-01-02T15:04:05", rest[:19], time.Local)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
+	return time.Time{}
 }
 
 // handleRouteTest 路由预览：给定 bvid（优先，读真实分区/类型/标签）或手动

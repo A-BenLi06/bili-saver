@@ -266,6 +266,330 @@ nav button { position:relative; }
   background:var(--accent); color:#fff; font-size:10px; border-radius:8px; padding:1px 5px; font-weight:600; }
 nav button.active .navbadge { background:var(--accent); }
 
+/* ---- 任务页专用样式 (Jobs Board) ---- */
+.job-summary-bar { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:16px; }
+.job-stat-card {
+  background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  padding:12px 16px; display:flex; flex-direction:column; gap:4px;
+}
+.job-stat-card .label { font-size:12px; color:var(--sub); display:flex; align-items:center; gap:6px; }
+.job-stat-card .val { font-size:20px; font-weight:650; font-family:var(--mono); color:var(--txt); line-height:1.2; font-variant-numeric:tabular-nums; }
+.job-stat-card.active-card { border-color:rgba(59,130,246,.35); background:linear-gradient(180deg, rgba(59,130,246,.04) 0%, var(--panel) 100%); }
+.job-stat-card.active-card .val { color:var(--info); }
+.job-stat-card.err-card .val { color:var(--err); }
+
+/* 任务选项卡增强 */
+.job-tabs-wrap { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:10px; }
+.job-tab-badge {
+  display:inline-flex; align-items:center; justify-content:center; min-width:18px; height:18px;
+  padding:0 5px; border-radius:9px; font-size:11px; font-family:var(--mono);
+  background:var(--line); color:var(--sub); margin-left:6px; font-weight:600; transition:background .15s, color .15s;
+}
+.tabs button.active .job-tab-badge { background:var(--accent); color:#fff; }
+.tabs button .job-tab-badge.has-active { background:var(--info); color:#fff; }
+
+/* 任务表格物理约束与防溢出 */
+.job-table { width:100%; table-layout:fixed; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.job-table th, .job-table td { overflow:hidden; text-overflow:ellipsis; vertical-align:middle; padding:10px 12px; }
+.job-table col.col-id { width:60px; }
+.job-table col.col-type { width:95px; }
+.job-table col.col-title { width:auto; }
+.job-table col.col-state { width:95px; }
+.job-table col.col-prog { width:130px; }
+.job-table col.col-detail { width:170px; }
+.job-table col.col-time { width:130px; }
+.job-table col.col-action { width:70px; }
+
+/* 任务双行层次排版 */
+.job-title-wrap { display:flex; flex-direction:column; gap:3px; min-width:0; max-width:100%; }
+.job-title { font-size:13.5px; font-weight:550; color:var(--txt); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.4; }
+.job-source-sub {
+  font-size:12px; color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  display:flex; align-items:center; gap:6px; line-height:1.3;
+}
+.job-bvid-pill {
+  display:inline-flex; align-items:center; font-family:var(--mono); font-size:11px;
+  color:var(--accent); background:var(--accent-soft); border:1px solid rgba(251,114,153,.25);
+  border-radius:4px; padding:0 4px; text-decoration:none; cursor:pointer; flex-shrink:0;
+}
+.job-bvid-pill:hover { text-decoration:underline; }
+
+/* 任务类型 Badge 样式（语义色系） */
+.job-badge {
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:2px 7px; border-radius:4px; font-size:11.5px; font-weight:500; white-space:nowrap; border:1px solid transparent;
+}
+.job-badge.badge-blue { background:rgba(59,130,246,.09); color:var(--info); border-color:rgba(59,130,246,.22); }
+.job-badge.badge-purple { background:rgba(147,51,234,.09); color:#9333ea; border-color:rgba(147,51,234,.22); }
+html[data-theme="dark"] .job-badge.badge-purple { color:#c084fc; }
+.job-badge.badge-teal { background:rgba(13,148,136,.09); color:#0d9488; border-color:rgba(13,148,136,.22); }
+html[data-theme="dark"] .job-badge.badge-teal { color:#2dd4bf; }
+.job-badge.badge-amber { background:rgba(217,119,6,.09); color:var(--warn); border-color:rgba(217,119,6,.22); }
+.job-badge.badge-gray { background:var(--bg); color:var(--sub); border-color:var(--line); }
+
+/* 状态与耗时/进度单元格 */
+.job-state-tag { display:inline-flex; align-items:center; font-size:12.5px; font-weight:500; white-space:nowrap; }
+.job-prog-cell { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.job-prog-bar { height:5px; background:var(--line); border-radius:3px; overflow:hidden; position:relative; width:100%; max-width:110px; }
+.job-prog-bar i { display:block; height:100%; background:var(--info); border-radius:3px; transition:width .3s ease; }
+.job-prog-bar.active i {
+  background:linear-gradient(90deg, var(--info) 0%, #93c5fd 50%, var(--info) 100%);
+  background-size:200% 100%;
+  animation:jobPulse 1.8s linear infinite;
+}
+@keyframes jobPulse { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+.job-done-text { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--sub); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.job-done-icon { width:12px; height:12px; stroke:var(--ok); stroke-width:2.2; fill:none; flex-shrink:0; }
+.job-detail-text { font-size:12px; color:var(--sub); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block; max-width:100%; }
+.job-detail-text.err { color:var(--err); }
+
+/* ---- 日志控制台专属样式 (Console Viewer) ---- */
+.log-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 控制台顶栏 */
+.log-toolbar {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.log-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.log-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 过滤搜索框 */
+.log-search-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 200px;
+  max-width: 280px;
+}
+.log-search-icon {
+  position: absolute;
+  left: 8px;
+  width: 13px;
+  height: 13px;
+  stroke: var(--faint);
+  pointer-events: none;
+}
+.log-search-input {
+  padding: 5px 24px 5px 26px !important;
+  font-size: 12.5px !important;
+  border-radius: 6px !important;
+  height: 28px;
+  width: 100%;
+}
+.log-search-clear {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 13px;
+  line-height: 1;
+  display: none;
+}
+.log-search-clear:hover { color: var(--txt); }
+
+/* 控制台核心显示窗口 */
+.log-viewport-wrap {
+  position: relative;
+  background: #0d1117;
+  color: #c9d1d9;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+html[data-theme="dark"] .log-viewport-wrap {
+  background: #090d13;
+}
+.log-viewport {
+  height: 560px;
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 8px 0;
+  scroll-behavior: smooth;
+}
+.log-viewport::-webkit-scrollbar { width: 6px; height: 6px; }
+.log-viewport::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
+.log-viewport::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.28); }
+
+/* 单行日志 */
+.log-row {
+  display: flex;
+  align-items: flex-start;
+  padding: 2px 14px;
+  min-width: max-content;
+  width: 100%;
+  position: relative;
+  transition: background .08s;
+  user-select: text;
+}
+.log-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.log-gutter {
+  width: 44px;
+  color: #484f58;
+  text-align: right;
+  padding-right: 12px;
+  flex-shrink: 0;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+.log-time {
+  color: #6e7681;
+  flex-shrink: 0;
+  margin-right: 10px;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+.log-lvl {
+  padding: 0 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 10.5px;
+  margin-right: 10px;
+  flex-shrink: 0;
+  line-height: 1.4;
+  text-align: center;
+  min-width: 44px;
+}
+.log-lvl.INFO { color: #58a6ff; background: rgba(56, 139, 253, 0.12); border: 1px solid rgba(56, 139, 253, 0.25); }
+.log-lvl.WARN { color: #d29922; background: rgba(210, 153, 34, 0.12); border: 1px solid rgba(210, 153, 34, 0.25); }
+.log-lvl.ERROR { color: #f85149; background: rgba(248, 81, 73, 0.12); border: 1px solid rgba(248, 81, 73, 0.25); }
+.log-lvl.DEBUG { color: #8b949e; background: rgba(139, 148, 158, 0.12); border: 1px solid rgba(139, 148, 158, 0.25); }
+
+.log-content {
+  flex: 1;
+  word-break: break-all;
+  white-space: pre-wrap;
+  color: #e6edf3;
+}
+.log-main-msg {
+  font-weight: 550;
+  color: #f0f6fc;
+  margin-right: 8px;
+}
+.log-attr-token {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(110, 118, 129, 0.15);
+  border: 1px solid rgba(110, 118, 129, 0.2);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 11px;
+  margin: 1px 3px;
+  line-height: 1.4;
+}
+.log-attr-key { color: #8b949e; }
+.log-attr-sep { color: #6e7681; }
+.log-attr-val { color: #7ee787; }
+.log-attr-val.val-bvid { color: #ffa657; font-weight: 500; cursor: pointer; text-decoration: underline; }
+
+.log-mark {
+  background: rgba(251, 114, 153, 0.35);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* 悬停复制单行按钮 */
+.log-row-copy {
+  margin-left: auto;
+  opacity: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: #8b949e;
+  padding: 0 4px;
+  font-size: 11px;
+  transition: opacity .12s, color .12s;
+  flex-shrink: 0;
+}
+.log-row:hover .log-row-copy { opacity: 0.8; }
+.log-row-copy:hover { color: #f0f6fc; opacity: 1; }
+
+/* 回到最新浮动提示条 */
+.log-scroll-resume {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(22, 27, 34, 0.92);
+  border: 1px solid rgba(56, 139, 253, 0.4);
+  color: #58a6ff;
+  padding: 5px 14px;
+  border-radius: 20px;
+  font-size: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+  transition: background .15s, transform .1s;
+}
+.log-scroll-resume:hover {
+  background: rgba(30, 36, 45, 0.98);
+  border-color: #58a6ff;
+  transform: translateX(-50%) translateY(-1px);
+}
+
+/* 控制台底部状态栏与导出区 */
+.log-foot-bar {
+  padding: 10px 16px;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.log-export-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.log-preset-btn {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  color: var(--sub);
+  cursor: pointer;
+}
+.log-preset-btn:hover { background: var(--bg); color: var(--txt); }
+
 /* ---- 登录门 & 全屏认证布局 ---- */
 .layout.auth-state { display:flex; justify-content:center; align-items:center; min-height:100vh; background:var(--bg); }
 .layout.auth-state aside { display:none !important; }
@@ -1675,54 +1999,273 @@ window.testRoute = async () => {
 window.delLib = async id => { if(confirm('删除该媒体库配置？（不删除已输出的文件）')){ await api(`/libraries/${id}`,{method:'DELETE'}); renderLibraries($('#main')); } };
 
 /* ============ 任务 ============ */
-const JOB_TYPE_CN={sync_source:'源同步',archive:'归档',download:'视频下载',touch_stats:'统计刷新',sync_stats_all:'全库统计',fetch_images:'图片补档',fetch_levels:'等级补档'};
-const JOB_STATE_CN={queued:'排队中',running:'执行中',done:'已完成',failed:'失败'};
-let jobFilter='';
+const JOB_TYPE_CONFIG = {
+  sync_source: { name: '源同步', cls: 'badge-blue' },
+  archive: { name: '归档', cls: 'badge-purple' },
+  download: { name: '视频下载', cls: 'badge-teal' },
+  touch_stats: { name: '统计刷新', cls: 'badge-gray' },
+  sync_stats_all: { name: '全库统计', cls: 'badge-gray' },
+  fetch_images: { name: '图片补档', cls: 'badge-amber' },
+  fetch_levels: { name: '等级补档', cls: 'badge-amber' }
+};
+const JOB_STATE_CN = { queued: '排队中', running: '执行中', done: '已完成', failed: '失败' };
+let jobFilter = '';
+let jobPage = 1;
+let jobLimit = 20;
+
+function parseJobSource(j) {
+  let bvid = '', sourceId = null;
+  if(j.payload_json){
+    try {
+      const p = typeof j.payload_json === 'string' ? JSON.parse(j.payload_json) : j.payload_json;
+      if(p.bvid) bvid = p.bvid;
+      if(p.source_id) sourceId = p.source_id;
+    } catch(e){}
+  }
+
+  const raw = j.source || '系统任务';
+  let title = raw;
+  let sub = '';
+
+  if(raw.includes(' · 来自 ')){
+    const parts = raw.split(' · 来自 ');
+    title = parts[0];
+    sub = '来自 ' + parts[1];
+  } else if(/^(UP主|收藏夹|合集|系列|单视频)：/.test(raw)){
+    const idx = raw.indexOf('：');
+    sub = raw.slice(0, idx);
+    title = raw.slice(idx + 1);
+  } else if(raw === '全部监控源' || raw === '全库统计' || raw === '全库图片补档' || raw === '全库等级补档'){
+    title = raw;
+    sub = '系统调度';
+  }
+
+  if(title.startsWith('视频：')){
+    title = title.slice(3);
+    if(!sub) sub = '单视频归档';
+  }
+
+  return { bvid, sourceId, title, sub, raw };
+}
+
+function fmtJobDuration(j) {
+  if(!j.created_at || !j.updated_at || j.updated_at < j.created_at) return '';
+  const s = Math.max(0, j.updated_at - j.created_at);
+  if(s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m + 'm ' + (r ? r + 's' : '');
+}
+
 async function renderJobs(m, isPoll = false){
   const js = await api('/jobs?limit=100');
-  const shown = (js||[]).filter(j => !jobFilter || j.state===jobFilter);
-  const tabs = [['','全部'],['running','执行中'],['queued','排队中'],['done','已完成'],['failed','失败']];
+  const allJobs = js || [];
+  const statCounts = {
+    all: allJobs.length,
+    running: allJobs.filter(j => j.state === 'running').length,
+    queued: allJobs.filter(j => j.state === 'queued').length,
+    done: allJobs.filter(j => j.state === 'done').length,
+    failed: allJobs.filter(j => j.state === 'failed').length,
+  };
 
-  const tableHtml = shown.length ? `<table><thead><tr><th class="num">#</th><th>类型</th><th>任务来源</th><th>状态</th><th style="min-width:110px">进度</th><th>详情</th><th>时间</th><th></th></tr></thead><tbody id="jobTbody">` +
-    shown.map(j=>{
-      const dot = {done:'ok',failed:'err',running:'run',queued:'queued'}[j.state]||'off';
-      const ts = (j.state==='running'||j.state==='queued')&&j.updated_at ? j.updated_at : j.created_at;
-      const src = j.source||'系统任务';
-      return `<tr><td class="num">${j.id}</td>
-      <td class="st">${JOB_TYPE_CN[j.type]||esc(j.type)}</td>
-      <td class="st" style="max-width:260px" title="${esc(src)}">${esc(src)}</td>
-      <td class="st"><span class="dot ${dot}"></span>${JOB_STATE_CN[j.state]||j.state}</td>
-      <td><div class="pbar ${j.state==='done'?'done':''}"><i style="width:${Math.max(2,Math.round(j.progress*100))}%"></i></div><span class="meta-note">${Math.round(j.progress*100)}%</span></td>
-      <td class="st" style="max-width:200px">${esc(j.detail||j.error).slice(0,60)}</td>
-      <td class="st">${fmtT(ts)}</td>
-      <td>${j.state==='failed'?`<button class="btn sm" onclick="retryJob(${j.id})">重试</button>`:''}</td></tr>`;
-    }).join('') + `</tbody></table>` : renderEmpty({
-      title: '暂无任务',
-      desc: jobFilter ? `当前筛选「${JOB_STATE_CN[jobFilter]||jobFilter}」状态下暂无任务` : '队列中暂无运行、排队或历史任务',
-      actionText: jobFilter ? '查看全部任务' : '',
-      actionClick: 'clearJobFilter()'
-    });
+  const filtered = allJobs.filter(j => !jobFilter || j.state === jobFilter);
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / jobLimit));
+  if(jobPage > totalPages) jobPage = totalPages;
+  if(jobPage < 1) jobPage = 1;
+  const pagedJobs = filtered.slice((jobPage - 1) * jobLimit, jobPage * jobLimit);
+
+  const tabs = [
+    ['', '全部', statCounts.all],
+    ['running', '执行中', statCounts.running],
+    ['queued', '排队中', statCounts.queued],
+    ['done', '已完成', statCounts.done],
+    ['failed', '失败', statCounts.failed]
+  ];
+
+  const summaryHtml = `
+    <div class="job-summary-bar">
+      <div class="job-stat-card ${statCounts.running > 0 ? 'active-card' : ''}">
+        <div class="label"><span class="dot run"></span>执行中任务</div>
+        <div class="val">${statCounts.running}</div>
+      </div>
+      <div class="job-stat-card">
+        <div class="label"><span class="dot queued"></span>排队待处理</div>
+        <div class="val">${statCounts.queued}</div>
+      </div>
+      <div class="job-stat-card">
+        <div class="label"><span class="dot ok"></span>已完成任务</div>
+        <div class="val">${statCounts.done}</div>
+      </div>
+      <div class="job-stat-card ${statCounts.failed > 0 ? 'err-card' : ''}">
+        <div class="label"><span class="dot err"></span>异常失败</div>
+        <div class="val">${statCounts.failed}</div>
+      </div>
+    </div>`;
+
+  const tableHtml = pagedJobs.length ? `
+    <table class="job-table">
+      <colgroup>
+        <col class="col-id">
+        <col class="col-type">
+        <col class="col-title">
+        <col class="col-state">
+        <col class="col-prog">
+        <col class="col-detail">
+        <col class="col-time">
+        <col class="col-action">
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="num">#</th>
+          <th>类型</th>
+          <th>任务内容与来源</th>
+          <th>状态</th>
+          <th>进度 / 耗时</th>
+          <th>详情</th>
+          <th>时间</th>
+          <th style="text-align:right">操作</th>
+        </tr>
+      </thead>
+      <tbody id="jobTbody">
+      ${pagedJobs.map(j => {
+        const typeCfg = JOB_TYPE_CONFIG[j.type] || { name: j.type, cls: 'badge-gray' };
+        const dot = {done:'ok',failed:'err',running:'run',queued:'queued'}[j.state]||'off';
+        const ts = (j.state==='running'||j.state==='queued')&&j.updated_at ? j.updated_at : (j.updated_at || j.created_at);
+        const info = parseJobSource(j);
+        const dur = fmtJobDuration(j);
+        const percent = Math.max(0, Math.min(100, Math.round((j.progress||0)*100)));
+
+        let progHtml = '';
+        if(j.state === 'running'){
+          progHtml = `<div class="job-prog-cell">
+            <div class="job-prog-bar active"><i style="width:${Math.max(4, percent)}%"></i></div>
+            <span class="meta-note" style="font-size:11.5px;font-variant-numeric:tabular-nums">${percent}% 执行中</span>
+          </div>`;
+        } else if(j.state === 'queued'){
+          progHtml = `<span class="meta-note" style="font-size:12px;color:var(--faint)">等待调度</span>`;
+        } else if(j.state === 'done'){
+          progHtml = `<div class="job-done-text" title="总耗时 ${dur||'瞬时完成'}">
+            <svg class="job-done-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            <span>${dur ? '耗时 ' + dur : '已完成'}</span>
+          </div>`;
+        } else if(j.state === 'failed'){
+          progHtml = `<span style="color:var(--err);font-size:12px;font-weight:500">执行中断</span>`;
+        } else {
+          progHtml = `<span class="meta-note">${percent}%</span>`;
+        }
+
+        const detailText = j.error ? j.error : (j.detail || '—');
+        const isErr = !!j.error;
+
+        return `<tr>
+          <td class="num">${j.id}</td>
+          <td><span class="job-badge ${typeCfg.cls}">${esc(typeCfg.name)}</span></td>
+          <td>
+            <div class="job-title-wrap">
+              <div class="job-title" title="${esc(info.raw)}">${esc(info.title)}</div>
+              <div class="job-source-sub" title="${esc(info.sub)}">
+                <span>${esc(info.sub || '系统任务')}</span>
+                ${info.bvid ? `
+                  <a class="job-bvid-pill" href="#/videos/${esc(info.bvid)}" title="跳转查看视频详情" onclick="event.stopPropagation()">${esc(info.bvid)}</a>
+                  <span class="copyable" style="font-size:11px;color:var(--faint);cursor:pointer;" title="复制 BV 号" onclick="copyText('${esc(info.bvid)}', this);event.stopPropagation()">
+                    <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  </span>
+                ` : ''}
+              </div>
+            </div>
+          </td>
+          <td><span class="job-state-tag"><span class="dot ${dot}"></span>${JOB_STATE_CN[j.state]||j.state}</span></td>
+          <td>${progHtml}</td>
+          <td><span class="job-detail-text ${isErr?'err':''}" title="${esc(detailText)}">${esc(detailText)}</span></td>
+          <td class="st">${fmtT(ts)}</td>
+          <td style="text-align:right">
+            ${j.state==='failed'?`<button class="btn sm" onclick="retryJob(${j.id})">重试</button>`:''}
+          </td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+    <div class="pgn pgn-bar" style="display:flex;">
+      <div class="pgn-info">
+        <span>共 <b>${total}</b> 个任务</span>
+        <span class="pgn-sep">·</span>
+        <label class="pgn-limit-wrap">
+          <select id="jobLimitSel" class="pgn-select">
+            <option value="20" ${jobLimit===20?'selected':''}>20 条/页</option>
+            <option value="50" ${jobLimit===50?'selected':''}>50 条/页</option>
+            <option value="100" ${jobLimit===100?'selected':''}>100 条/页</option>
+          </select>
+        </label>
+      </div>
+      <div class="pgn-ctrls">
+        <button class="btn sm" id="jobPrevBtn" ${jobPage<=1?'disabled':''}>上一页</button>
+        <span class="pgn-cur">第 <b>${jobPage}</b> / ${totalPages} 页</span>
+        <button class="btn sm" id="jobNextBtn" ${jobPage>=totalPages?'disabled':''}>下一页</button>
+        <div class="pgn-jump">
+          <span>跳至</span>
+          <input type="number" id="jobJumpInput" min="1" max="${totalPages}" value="${jobPage}">
+          <span>页</span>
+        </div>
+      </div>
+    </div>
+  ` : renderEmpty({
+    title: '暂无任务',
+    desc: jobFilter ? `当前筛选「${JOB_STATE_CN[jobFilter]||jobFilter}」分类下暂无任务` : '队列中暂无运行、排队或历史任务',
+    actionText: jobFilter ? '查看全部任务' : '',
+    actionClick: 'clearJobFilter()'
+  });
 
   const box = document.getElementById('jobListBox');
+  const summaryBox = document.getElementById('jobSummaryBox');
+
   if(isPoll && box && page === 'jobs'){
+    if(summaryBox) summaryBox.innerHTML = summaryHtml;
+    document.querySelectorAll('#jobTabs button').forEach(b => {
+      const st = b.dataset.st;
+      const cnt = st === '' ? statCounts.all : (statCounts[st] || 0);
+      const badge = b.querySelector('.job-tab-badge');
+      if(badge) badge.textContent = cnt;
+    });
     box.innerHTML = tableHtml;
+    bindJobEvents(m);
   } else {
     m.innerHTML = `
-    <div class="pagehead"><h1>任务</h1><span class="desc">队列与执行状态</span>
-      <span class="spacer"></span><button class="btn" onclick="syncNow()">全部同步</button></div>
+    <div class="pagehead">
+      <h1>任务</h1>
+      <span class="desc">队列与执行状态实时看板</span>
+      <span class="spacer"></span>
+      <div class="actions">
+        <button class="btn" id="jobRefreshBtn" onclick="refreshJobsNow(this)">⟳ 刷新</button>
+        <button class="btn primary" onclick="syncNow()">全部同步</button>
+      </div>
+    </div>
     <div class="sect">
-      <div class="tabs" style="margin-bottom:12px" id="jobTabs">
-        ${tabs.map(([v,t])=>`<button data-st="${v}" class="${jobFilter===v?'active':''}">${t}</button>`).join('')}
+      <div id="jobSummaryBox">${summaryHtml}</div>
+      <div class="job-tabs-wrap">
+        <div class="tabs" id="jobTabs">
+          ${tabs.map(([v, t, count]) => `
+            <button data-st="${v}" class="${jobFilter===v?'active':''}">
+              ${t}<span class="job-tab-badge ${(v==='running'||v==='queued')&&count>0?'has-active':''}">${count}</span>
+            </button>
+          `).join('')}
+        </div>
       </div>
       <div id="jobListBox">${tableHtml}</div>
     </div>`;
+
     document.querySelectorAll('#jobTabs button').forEach(b => {
-      b.onclick = () => { jobFilter=b.dataset.st; renderJobs(m); };
+      b.onclick = () => {
+        jobFilter = b.dataset.st;
+        jobPage = 1;
+        renderJobs(m);
+      };
     });
+    bindJobEvents(m);
   }
 
   clearInterval(timer);
-  const hasActive = (js||[]).some(j => j.state==='running' || j.state==='queued');
+  const hasActive = allJobs.some(j => j.state === 'running' || j.state === 'queued');
   if(hasActive){
     timer = setInterval(async () => {
       if(page !== 'jobs'){ clearInterval(timer); return; }
@@ -1730,73 +2273,392 @@ async function renderJobs(m, isPoll = false){
     }, 3000);
   }
 }
+
+function bindJobEvents(m) {
+  const prevBtn = document.getElementById('jobPrevBtn');
+  const nextBtn = document.getElementById('jobNextBtn');
+  const limitSel = document.getElementById('jobLimitSel');
+  const jumpInput = document.getElementById('jobJumpInput');
+
+  if(prevBtn) prevBtn.onclick = () => { jobPage--; renderJobs(m); };
+  if(nextBtn) nextBtn.onclick = () => { jobPage++; renderJobs(m); };
+  if(limitSel) limitSel.onchange = e => {
+    jobLimit = +e.target.value || 20;
+    jobPage = 1;
+    renderJobs(m);
+  };
+  if(jumpInput){
+    const doJump = () => {
+      const val = +jumpInput.value;
+      if(val && val !== jobPage){
+        jobPage = val;
+        renderJobs(m);
+      }
+    };
+    jumpInput.onchange = doJump;
+    jumpInput.onkeydown = e => { if(e.key === 'Enter') doJump(); };
+  }
+}
+
+window.refreshJobsNow = async btn => {
+  if(btn){
+    btn.disabled = true;
+    btn.textContent = '刷新中…';
+  }
+  try {
+    await renderJobs($('#main'));
+    toast('任务列表已更新', 'ok');
+  } catch(e) {
+    toast('刷新失败：' + e, 'err');
+  } finally {
+    if(btn){
+      btn.disabled = false;
+      btn.textContent = '⟳ 刷新';
+    }
+  }
+};
+
 window.retryJob = async id => { try{ await api(`/jobs/${id}/retry`,{method:'POST'}); toast('任务 #'+id+' 已重新入队','ok'); renderJobs($('#main')); }catch(e){ toast('重试失败：'+e,'err'); } };
 window.syncNow = async () => { try{ const r=await api('/sync-now',{method:'POST'}); toast('已排队 '+r.queued+' 个源','ok'); renderJobs($('#main')); }catch(e){ toast('失败：'+e,'err'); } };
-window.clearJobFilter = () => { jobFilter=''; renderJobs($('#main')); };
+window.clearJobFilter = () => { jobFilter=''; jobPage=1; renderJobs($('#main')); };
 
 /* ============ 日志 ============ */
-let logLastSeq=0, logLevel='', logTimer=null;
-async function renderLogs(m){
-  m.innerHTML=`
-  <div class="pagehead"><h1>日志</h1><span class="desc">服务运行日志（内存保留最近约 4000 行；按日全量落盘 data/logs/，可导出）</span>
-    <span class="spacer"></span><label class="check"><input type="checkbox" id="logFollow" checked> 实时刷新</label></div>
-  <div class="sect">
-    <div class="actions" style="margin-bottom:10px;align-items:center">
-      <div class="tabs" id="logTabs">
-        <button data-lv="" class="active">全部</button>
-        <button data-lv="INFO">信息</button>
-        <button data-lv="WARN">警告</button>
-        <button data-lv="ERROR">错误</button>
-      </div>
-      <span class="meta-note">导出范围</span>
-      <input type="date" id="logFrom" style="padding:5px 8px;border:1px solid var(--line-strong);border-radius:6px">
-      <span class="meta-note">至</span>
-      <input type="date" id="logTo" style="padding:5px 8px;border:1px solid var(--line-strong);border-radius:6px">
-      <button class="btn sm" onclick="exportLogs()">导出日志</button>
-    </div>
-    <div id="logBox" style="background:#111827;color:#d1d5db;font-family:var(--mono);font-size:12px;line-height:1.55;border-radius:8px;padding:10px 12px;height:560px;overflow:auto;white-space:pre-wrap;word-break:break-all"><div class="empty" style="color:#64748b">加载中…</div></div>
+let logLastSeq = 0, logLevel = '', logKeyword = '', logTimer = null;
+let logFollow = true, isUserScrollingLogs = false;
+let allReceivedLogs = [];
+
+function parseSlogLine(text) {
+  const lvMatch = text.match(/level=(\w+)/);
+  const level = lvMatch ? lvMatch[1].toUpperCase() : 'INFO';
+
+  let rest = text.replace(/^time=[^ ]+ /, '').replace(/^level=\w+ /, '');
+
+  let msg = '';
+  const msgQuoted = rest.match(/^msg="([^"]*)"(?:\s+(.*))?$/);
+  const msgUnquoted = rest.match(/^msg=([^\s]+)(?:\s+(.*))?$/);
+
+  let attrsStr = '';
+  if (msgQuoted) {
+    msg = msgQuoted[1];
+    attrsStr = msgQuoted[2] || '';
+  } else if (msgUnquoted) {
+    msg = msgUnquoted[1];
+    attrsStr = msgUnquoted[2] || '';
+  } else {
+    msg = rest;
+  }
+
+  const attrs = [];
+  if (attrsStr) {
+    const attrRegex = /([a-zA-Z0-9_\u4e00-\u9fa5]+)=(?:"([^"]*)"|([^\s]+))/g;
+    let m;
+    while ((m = attrRegex.exec(attrsStr)) !== null) {
+      const key = m[1];
+      const val = m[2] !== undefined ? m[2] : m[3];
+      attrs.push({ key, val });
+    }
+  }
+
+  return { level, msg, attrs, raw: text };
+}
+
+function highlightLogText(text, keyword) {
+  if (!text) return '';
+  if (!keyword) return esc(text);
+  const kw = keyword.trim();
+  if (!kw) return esc(text);
+  const regex = new RegExp('(' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  const parts = text.split(regex);
+  return parts.map(part => {
+    if (part.toLowerCase() === kw.toLowerCase()) {
+      return `<mark class="log-mark">${esc(part)}</mark>`;
+    }
+    return esc(part);
+  }).join('');
+}
+
+function buildLogRowHtml(l, idx, kw) {
+  const p = parseSlogLine(l.text);
+  const timeStr = l.ts || '';
+  const seqStr = String(idx + 1);
+
+  let contentHtml = `<span class="log-main-msg">${highlightLogText(p.msg, kw)}</span>`;
+  if (p.attrs.length > 0) {
+    contentHtml += p.attrs.map(a => {
+      const isBvid = a.key === 'bvid' && /^BV[a-zA-Z0-9]+$/.test(a.val);
+      const valHtml = isBvid
+        ? `<span class="log-attr-val val-bvid" title="在新标签页查看视频详情" onclick="event.stopPropagation();window.open('#/videos/${esc(a.val)}','_blank')">${highlightLogText(a.val, kw)}</span>`
+        : `<span class="log-attr-val">${highlightLogText(a.val, kw)}</span>`;
+      return `<span class="log-attr-token"><span class="log-attr-key">${highlightLogText(a.key, kw)}</span><span class="log-attr-sep">=</span>${valHtml}</span>`;
+    }).join(' ');
+  }
+
+  return `<div class="log-row" data-seq="${l.seq}" data-lv="${esc(p.level)}">
+    <div class="log-gutter">${seqStr}</div>
+    <div class="log-time">${esc(timeStr)}</div>
+    <div class="log-lvl ${esc(p.level)}">[${esc(p.level)}]</div>
+    <div class="log-content">${contentHtml}</div>
+    <button class="log-row-copy" title="复制此行日志" onclick="copyLogRow(${l.seq}, this);event.stopPropagation()">
+      <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+    </button>
   </div>`;
-  logLastSeq=0; logLevel='';
-  document.querySelectorAll('#logTabs button').forEach(b=>b.onclick=()=>{
-    document.querySelectorAll('#logTabs button').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active'); logLevel=b.dataset.lv;
-    logLastSeq=0; document.getElementById('logBox').innerHTML='<div class="empty" style="color:#64748b">加载中…</div>';
-    pollLogs();
+}
+
+function getFilteredLogs() {
+  const kw = (logKeyword || '').trim().toLowerCase();
+  return allReceivedLogs.filter(l => {
+    if (logLevel && !l.text.includes('level=' + logLevel)) return false;
+    if (kw && !l.text.toLowerCase().includes(kw)) return false;
+    return true;
   });
-  document.getElementById('logFollow').onchange=e=>{ if(e.target.checked) pollLogs(); };
+}
+
+function updateLogTabBadges() {
+  const counts = {
+    '': allReceivedLogs.length,
+    'INFO': allReceivedLogs.filter(l => l.text.includes('level=INFO')).length,
+    'WARN': allReceivedLogs.filter(l => l.text.includes('level=WARN')).length,
+    'ERROR': allReceivedLogs.filter(l => l.text.includes('level=ERROR')).length
+  };
+  document.querySelectorAll('#logTabs button').forEach(b => {
+    const lv = b.dataset.lv || '';
+    const badge = b.querySelector('.job-tab-badge');
+    if (badge) {
+      const c = counts[lv] || 0;
+      badge.textContent = c;
+      if (lv === 'ERROR' && c > 0) {
+        badge.style.background = 'var(--err)';
+        badge.style.color = '#fff';
+      } else {
+        badge.style.background = '';
+        badge.style.color = '';
+      }
+    }
+  });
+}
+
+function refreshLogDisplay() {
+  const box = document.getElementById('logViewport');
+  if (!box) return;
+
+  const filtered = getFilteredLogs();
+  const kw = (logKeyword || '').trim();
+
+  const countEl = document.getElementById('logCountInfo');
+  if (countEl) countEl.textContent = `显示 ${filtered.length} 行 / 内存共 ${allReceivedLogs.length} 行`;
+
+  updateLogTabBadges();
+
+  if (filtered.length === 0) {
+    box.innerHTML = `<div class="empty" style="color:#64748b;padding:40px 0;text-align:center;">${allReceivedLogs.length === 0 ? '暂无日志记录' : '无符合当前筛选条件的日志'}</div>`;
+    return;
+  }
+
+  box.innerHTML = filtered.map((l, idx) => buildLogRowHtml(l, idx, kw)).join('');
+
+  if (logFollow && !isUserScrollingLogs) {
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
+async function renderLogs(m){
+  m.innerHTML = `
+  <div class="pagehead">
+    <h1>日志</h1>
+    <span class="desc">服务运行实时日志（内存环形保留最近约 4000 行；按日全量落盘 data/logs/，支持多维过滤与导出）</span>
+    <span class="spacer"></span>
+    <div class="actions">
+      <button class="btn sm" onclick="pollLogs(); toast('日志已同步最新', 'ok')">⟳ 刷新</button>
+    </div>
+  </div>
+  <div class="sect">
+    <div class="log-card">
+      <div class="log-toolbar">
+        <div class="log-toolbar-left">
+          <div class="tabs" id="logTabs">
+            <button data-lv="" class="${logLevel===''?'active':''}">全部<span class="job-tab-badge">0</span></button>
+            <button data-lv="INFO" class="${logLevel==='INFO'?'active':''}">信息<span class="job-tab-badge">0</span></button>
+            <button data-lv="WARN" class="${logLevel==='WARN'?'active':''}">警告<span class="job-tab-badge">0</span></button>
+            <button data-lv="ERROR" class="${logLevel==='ERROR'?'active':''}">错误<span class="job-tab-badge">0</span></button>
+          </div>
+          <div class="log-search-wrap">
+            <svg class="log-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="logKeywordInput" class="log-search-input" placeholder="搜索关键词 / BV / 模块..." value="${esc(logKeyword)}">
+            <button id="logSearchClear" class="log-search-clear" onclick="clearLogKeyword()">×</button>
+          </div>
+        </div>
+        <div class="log-toolbar-right">
+          <label class="check" style="font-size:12.5px;user-select:none">
+            <input type="checkbox" id="logFollow" ${logFollow?'checked':''}> 自动滚动
+          </label>
+          <span class="pgn-sep">|</span>
+          <button class="btn sm" onclick="copyAllVisibleLogs(this)" title="复制当前过滤展示的所有日志">复制可见</button>
+          <button class="btn sm" onclick="clearLogConsole()" title="清空当前前端视图缓存">清屏</button>
+        </div>
+      </div>
+      <div class="log-viewport-wrap">
+        <div id="logViewport" class="log-viewport">
+          <div class="empty" style="color:#64748b;padding:40px 0;text-align:center;">加载中…</div>
+        </div>
+        <button id="logScrollResume" class="log-scroll-resume" onclick="resumeLogScroll()">
+          <span>↓ 有新日志 · 点击回到最新</span>
+        </button>
+      </div>
+      <div class="log-foot-bar">
+        <span class="meta-note" id="logCountInfo" style="font-variant-numeric:tabular-nums">加载中…</span>
+        <div class="log-export-group">
+          <span class="meta-note">快捷范围:</span>
+          <button class="log-preset-btn" onclick="setLogExportRange(0)">今天</button>
+          <button class="log-preset-btn" onclick="setLogExportRange(3)">近 3 天</button>
+          <button class="log-preset-btn" onclick="setLogExportRange(7)">近 7 天</button>
+          <button class="log-preset-btn" onclick="setLogExportRange(-1)">全部</button>
+          <span class="pgn-sep">·</span>
+          <input type="date" id="logFrom" style="padding:3px 6px;border:1px solid var(--line-strong);border-radius:6px;font-size:12px;background:var(--panel);color:var(--txt)">
+          <span class="meta-note">至</span>
+          <input type="date" id="logTo" style="padding:3px 6px;border:1px solid var(--line-strong);border-radius:6px;font-size:12px;background:var(--panel);color:var(--txt)">
+          <button class="btn sm primary" onclick="exportLogs()">导出日志（zip 打包）</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  bindLogEvents();
   clearInterval(logTimer);
-  logTimer=setInterval(async()=>{ if(page!=='logs'){clearInterval(logTimer);return;}
-    if(document.getElementById('logFollow')?.checked) pollLogs(); },2000);
+  logTimer = setInterval(async () => {
+    if (page !== 'logs') { clearInterval(logTimer); return; }
+    if (logFollow) await pollLogs();
+  }, 2000);
+
   await pollLogs();
 }
-async function pollLogs(){
-  const box=document.getElementById('logBox'); if(!box) return;
-  try{
-    const d=await api('/logs?after='+logLastSeq+'&level='+(logLevel||''));
-    if(box.querySelector('.empty')) box.innerHTML='';
-    if(d.lines&&d.lines.length){
-      const frag=document.createDocumentFragment();
-      for(const l of d.lines){
-        const div=document.createElement('div');
-        const lv=(l.text.match(/level=(\w+)/)||[])[1]||'INFO';
-        const col={WARN:'#fbbf24',ERROR:'#f87171',DEBUG:'#94a3b8'}[lv]||'#93c5fd';
-        const msg=l.text.replace(/^time=[^ ]+ /,'').replace(/^level=\w+ /,'').replace(/ level=\w+ /g,' ');
-        div.innerHTML='<span style="color:#64748b">'+esc(l.ts)+'</span> <span style="color:'+col+';font-weight:600">['+lv+']</span> '+esc(msg);
-        frag.appendChild(div);
+
+function bindLogEvents() {
+  document.querySelectorAll('#logTabs button').forEach(b => {
+    b.onclick = () => {
+      document.querySelectorAll('#logTabs button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      logLevel = b.dataset.lv || '';
+      refreshLogDisplay();
+    };
+  });
+
+  const kwInput = document.getElementById('logKeywordInput');
+  const clearBtn = document.getElementById('logSearchClear');
+  if (kwInput) {
+    kwInput.oninput = (e) => {
+      logKeyword = e.target.value;
+      if (clearBtn) clearBtn.style.display = logKeyword ? 'block' : 'none';
+      refreshLogDisplay();
+    };
+    if (clearBtn) clearBtn.style.display = logKeyword ? 'block' : 'none';
+  }
+
+  const followCb = document.getElementById('logFollow');
+  if (followCb) {
+    followCb.onchange = (e) => {
+      logFollow = e.target.checked;
+      if (logFollow) {
+        isUserScrollingLogs = false;
+        const box = document.getElementById('logViewport');
+        if (box) box.scrollTop = box.scrollHeight;
+        const btn = document.getElementById('logScrollResume');
+        if (btn) btn.style.display = 'none';
       }
-      box.appendChild(frag);
-      while(box.childNodes.length>1200) box.removeChild(box.firstChild);
-      if(document.getElementById('logFollow')?.checked) box.scrollTop=box.scrollHeight;
-    }else if(logLastSeq===0){
-      box.innerHTML='<div class="empty" style="color:#64748b">暂无日志</div>';
-    }
-    logLastSeq=d.latest||logLastSeq;
-  }catch(e){}
+    };
+  }
+
+  const vp = document.getElementById('logViewport');
+  if (vp) {
+    vp.onscroll = () => {
+      const distFromBottom = vp.scrollHeight - vp.scrollTop - vp.clientHeight;
+      const resumeBtn = document.getElementById('logScrollResume');
+      if (distFromBottom > 45) {
+        isUserScrollingLogs = true;
+        if (resumeBtn) resumeBtn.style.display = 'flex';
+      } else {
+        isUserScrollingLogs = false;
+        if (resumeBtn) resumeBtn.style.display = 'none';
+      }
+    };
+  }
 }
-function exportLogs(){
-  const f=document.getElementById('logFrom')?.value||'';
-  const t=document.getElementById('logTo')?.value||'';
-  window.open('/api/v1/logs/export?from='+encodeURIComponent(f)+'&to='+encodeURIComponent(t)+'&level='+encodeURIComponent(logLevel||''));
+
+async function pollLogs() {
+  const box = document.getElementById('logViewport');
+  if (!box || page !== 'logs') return;
+
+  try {
+    const d = await api('/logs?after=' + logLastSeq);
+    if (d.lines && d.lines.length) {
+      allReceivedLogs.push(...d.lines);
+      if (allReceivedLogs.length > 4000) {
+        allReceivedLogs = allReceivedLogs.slice(allReceivedLogs.length - 4000);
+      }
+      logLastSeq = d.latest || logLastSeq;
+      refreshLogDisplay();
+    } else if (allReceivedLogs.length === 0) {
+      box.innerHTML = '<div class="empty" style="color:#64748b;padding:40px 0;text-align:center;">暂无日志记录</div>';
+    }
+    logLastSeq = d.latest || logLastSeq;
+  } catch (e) {}
+}
+
+window.copyLogRow = (seq, btn) => {
+  const line = allReceivedLogs.find(x => x.seq === seq);
+  if (line) copyText(line.text, btn);
+};
+
+window.copyAllVisibleLogs = (btn) => {
+  const lines = getFilteredLogs();
+  if (!lines.length) { toast('当前没有可复制的日志', 'warn'); return; }
+  const text = lines.map(l => l.text).join('\n');
+  copyText(text, btn);
+  toast(`已复制 ${lines.length} 行日志`, 'ok');
+};
+
+window.clearLogConsole = () => {
+  allReceivedLogs = [];
+  refreshLogDisplay();
+  toast('控制台视图已清空', 'ok');
+};
+
+window.clearLogKeyword = () => {
+  logKeyword = '';
+  const kwInput = document.getElementById('logKeywordInput');
+  const clearBtn = document.getElementById('logSearchClear');
+  if (kwInput) kwInput.value = '';
+  if (clearBtn) clearBtn.style.display = 'none';
+  refreshLogDisplay();
+};
+
+window.resumeLogScroll = () => {
+  isUserScrollingLogs = false;
+  const vp = document.getElementById('logViewport');
+  if (vp) vp.scrollTop = vp.scrollHeight;
+  const resumeBtn = document.getElementById('logScrollResume');
+  if (resumeBtn) resumeBtn.style.display = 'none';
+};
+
+window.setLogExportRange = (days) => {
+  const now = new Date();
+  const toStr = now.toISOString().slice(0, 10);
+  let fromStr = '';
+  if (days === 0) {
+    fromStr = toStr;
+  } else if (days > 0) {
+    const fromDate = new Date(now.getTime() - days * 86400000);
+    fromStr = fromDate.toISOString().slice(0, 10);
+  }
+  const f = document.getElementById('logFrom');
+  const t = document.getElementById('logTo');
+  if (f) f.value = fromStr;
+  if (t) t.value = toStr;
+};
+
+function exportLogs() {
+  const f = document.getElementById('logFrom')?.value || '';
+  const t = document.getElementById('logTo')?.value || '';
+  window.open('/api/v1/logs/export?from=' + encodeURIComponent(f) + '&to=' + encodeURIComponent(t) + '&level=' + encodeURIComponent(logLevel || ''));
 }
 
 /* ============ 账号 ============ */
