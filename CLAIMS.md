@@ -308,6 +308,8 @@
 | 日志页 UI/UX 深度重构（人类交办“优化日志页”）：index.html renderLogs 重写 + 控制台终端容器 + Slog 结构化语法高亮 + 实时关键词过滤/高亮 + 行号与悬停复制 + 回溯浮动恢复栏 + 等级数量徽章 + 预设化日志导出 | ui-agent | done-review 2026-09-16 | 2026-09-16 02:50 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证：check_js 语法 0 报错、go vet 零告警、全量 20 包单测全绿、服务重启实测、Chrome DevTools 自动化实测（Slog 结构化高亮、实时关键词过滤与 mark 高亮、行号与单行/整屏复制交互、导出快捷预设、高清截图验证）。详见晨间交接 9月16日 02:50。 |
 
 | 复审修复轮（人类"再审一遍，先不要改"复审后"都修了"）：🔴 teriteri commentGet 第 2 页起索引越界 panic（mains 页内切片被段内全局下标索引，offset≥20 必崩；改页内下标 j=i-bLo）+ 回归测试（25 主楼第二页/22 B站+2 站内跨段边界/type=2 段序，comments_paging_test.go 新文件避开并行 WIP 的 adapter_test.go）；🟡 media 重建单飞洞（RebuildAllDebounced 执行期不持锁、与管理端直接重建仍可并发 → rebuildMu+stateMu 双锁全程互斥，去抖改返回 error 恢复 app.go 带 bvid 日志）；🟡 videosByOwner likeSum 回退纯 B 站口径（上一轮误混入站内赞，改 LatestStats 保持提速）；🟢 ListStats 扫尾（teriteriadmin card、card.go gather）+ schema_meta '9'→'10'（v10 已落地）；PITFALLS 新增 P-014（分页重写必带 offset>0 与跨段用例） | core-agent | done 2026-09-15 | 2026-09-15 01:4x | 复审确认其余改动站得住（批事务失败路径×消失防御交互、Prune 子查询、TopTags/CountFavItems 等价性等）。顺带：comments.go 导入序 gofmt（teriteri-agent 弹幕色/模式 WIP 的 fmt 未排序，纯格式代修；其 adapter_test.go/site.go 在途告警未动）。全量门 build+vet+20 包 test 绿（gofmt 余 2 文件属 teriteri-agent WIP）。hot 排序临时 B-tree 与 HealCommentsFTS 每 job 一扫维持原判（不紧急，评审已留待办） |
+| 日志存储升级：每次启动独立 run 文件（service-YYYYMMDD-HHMMSS.log）+ 启动/定时把非活动 .log 压缩为 .gz（分天归档）+ 导出改为 zip 打包持久化文件（流式，替代拼大文本）| session-agent | active | 2026-09-15 01:5x | 人类交办："本地文件分实时写入的 log、分天压缩、每次开启独立 log 文件；下载时直接打包持久化文件为压缩包，不要产生巨大文件"。dailyFileWriter→runFileWriter；CompressOldLogs（非活动 .log→.gz 删原文件）在启动与 6h 巡检执行；export 重写为 archive/zip 流式打包（.gz 解包为 .log 条目统一归档），级别过滤从导出移除（文件为单位）；UI 导出按钮文案微调 |
+
 
 > 新 claim 追加在表格末尾；状态变更原地更新；done/done-review 保留供追溯。
 
