@@ -268,7 +268,7 @@
 - 涉及：internal/server/static/index.html。
 - 验证（阶梯 4/4）：node --check 0 error；vet+20 包全绿；重编译起服务；DevTools 实测——跟踪列表左对齐/50 条每页/跳第 3 页精准、空状态一键复原 20 条、任务页外壳 3.6s 轮询常驻不销毁、评论搜索空态渲染与 100 条高亮结果、BV 号复制反馈、各页正常。
 
-### 日志存储升级（独立 run 文件 + 分次压缩 + zip 导出）— session-agent（自报 2026-09-18T01:15:00Z 未来戳，实写约 2026-09-17T17:3xZ，done-review）
+### 日志存储升级（独立 run 文件 + 分次压缩 + zip 导出）— session-agent（自报 2026-09-18T01:15:00Z 未来戳，实写约 2026-09-17T17:3xZ，done-review）（已提交 14b3984）
 - 人类交办"日志实时写入、分天压缩、每次开启独立 log 文件；下载直接打包持久化文件为压缩包，不要产生巨大文件"。
 - 交付：logging dailyFileWriter→runFileWriter（service-启动时间.log，实时追加）；CompressOldLogs（非活动 .log→.gz 删原文件，幂等 best-effort）在启动+每 6h 巡检执行；/logs/export 重写为 archive/zip 流式打包（.gz 解包统一为 .log 条目、Deflate、按文件名日期过滤 from/to），服务端不再拼巨型文本，zip 流式直出；level 过滤从导出移除（文件为单位，页面级过滤保留）。
 - 踩坑：①gofmt 对齐变量块导致锚点失配；②旧导出的 extractLogTime 成死代码顺手清理；③UI 按钮文案锚点因并行编辑含 class 变化失配。

@@ -71,6 +71,9 @@ internal/
             Domain 属性)、CachedLogin(5min 真实校验)、全局限流、弹幕 seg.so→list.so 回退
             (deflate XML 解析)、FlexInt 兼容字符串数字
   bilicats/  B站官方分区映射表（tid→分区现名/一级分区名；排行接口实测收割，宁缺毋滥）
+  logging/   slog 多路输出：stdout + 用户文件 + data/logs/ 每次启动独立 run 文件
+             （service-启动时间.log）+ 内存环形 4000 行（日志页实时尾随）；
+             启动/定时把非活动 .log 压缩为 .gz；/logs/export 打包 zip 下载
   resolver/  输入→源：URL/BV/av/UP主/收藏夹/合集/系列；b23 短链展开；Expand 展开视频清单
             （space 需登录，未登录返回明确引导错误）
   collector/ 归档编排：元数据/标签/官方AI小结/统计序列/评论(主楼+楼中楼全量翻页)/弹幕/
