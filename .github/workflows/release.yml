@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOPROXY: https://goproxy.cn,direct
+  GOFLAGS: -mod=readonly
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      go: ${{ steps.meta.outputs.go }}
+      image: ${{ steps.meta.outputs.image }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate release tag
+        id: meta
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          from release import validate_version
+          tag = os.environ['RELEASE_TAG']
+          version = validate_version(tag.removeprefix('v'))
+          image = 'ghcr.io/' + os.environ['GITHUB_REPOSITORY'].lower()
+          prerelease = '-' in version
+          tags = [f'{image}:{tag}']
+          if not prerelease:
+              tags.append(f'{image}:latest')
+          go = next(line.split()[1] for line in Path('go.mod').read_text().splitlines() if line.startswith('go '))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\nprerelease={str(prerelease).lower()}\ngo={go}\nimage={image}\n')
+              output.write('tags<<IMAGE_TAGS\n' + '\n'.join(tags) + '\nIMAGE_TAGS\n')
+          PY
+
+  validate:
+    needs: metadata
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  binaries:
+    needs: [metadata, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, darwin, windows]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build release archive
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: python scripts/release.py --version "$RELEASE_VERSION" --os "$TARGET_OS" --arch "$TARGET_ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binaries-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  image:
+    needs: [metadata, binaries]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish multi-platform image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ needs.metadata.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.metadata.outputs.version }}
+          build-args: |
+            GO_VERSION=${{ needs.metadata.outputs.go }}
+            VERSION=${{ needs.metadata.outputs.version }}
+          cache-from: type=gha,scope=core
+          cache-to: type=gha,mode=max,scope=core
+
+  publish:
+    needs: [metadata, binaries, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: binaries-*
+          path: dist
+          merge-multiple: true
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        run: |
+          cd dist
+          archives=( *.tar.gz *.zip )
+          test "${#archives[@]}" -eq 6
+          sha256sum "${archives[@]}" > checksums.txt
+          sha256sum --check checksums.txt
+          flags=(--latest=false)
+          if [[ "$PRERELEASE" == true ]]; then
+            flags+=(--prerelease)
+          else
+            flags=(--latest)
+          fi
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${archives[@]}" checksums.txt --clobber
+          else
+            gh release create "$RELEASE_TAG" "${archives[@]}" checksums.txt \
+              --verify-tag --draft --title "$RELEASE_TAG" --generate-notes \
+              --latest=false --prerelease="$PRERELEASE"
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false "${flags[@]}"

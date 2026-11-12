@@ -157,6 +157,10 @@ config: {key: value}          # 以事件 JSON 里的 config 传入
 
 ## 开发
 
+CI runs on branch pushes and pull requests. Version tags publish cross-platform
+GitHub Release archives and a multi-platform GHCR core image. See
+[CI/CD setup and release instructions](docs/ci-cd.md).
+
 ```bash
 go build ./...          # 编译
 go test ./internal/...  # 全部测试（含 mock B 站的端到端测试）
