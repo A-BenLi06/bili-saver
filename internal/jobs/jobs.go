@@ -6,10 +6,12 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"bili-saver/internal/config"
@@ -32,6 +34,8 @@ type pendingJob struct {
 // Manager 任务队列。worker 从优先级就绪队列取任务：
 // 优先级高者先执行（新添加补档插队），同优先级保持 FIFO。
 type Manager struct {
+	Fault          chan error
+	StallTimeout   time.Duration
 	St             *store.Store
 	Log            *slog.Logger
 	workers        int
@@ -63,7 +67,7 @@ func NewManager(st *store.Store, log *slog.Logger, workers int) *Manager {
 		log = slog.Default()
 	}
 	m := &Manager{
-		St: st, Log: log, workers: workers,
+		St: st, Log: log, workers: workers, Fault: make(chan error, 1), StallTimeout: 30 * time.Minute,
 		handlers: map[string]Handler{},
 	}
 	m.cond = sync.NewCond(&m.mu)
@@ -115,13 +119,12 @@ func (m *Manager) SubmitPrio(jobType string, payload any, priority int) (int64, 
 }
 
 // Start 启动 worker 与崩溃恢复；返回调度器 context。
-func (m *Manager) Start(ctx context.Context) {
+func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	if m.started {
 		m.mu.Unlock()
-		return
+		return nil
 	}
-	m.started = true
 	ctx2, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
 	// 取消 context 时也唤醒空闲 worker，避免 cond.Wait 永久等待。
@@ -133,10 +136,14 @@ func (m *Manager) Start(ctx context.Context) {
 
 	// 崩溃恢复：running→queued，按执行顺序（优先级降序、FIFO）装载就绪队列
 	if _, err := m.St.DB.Exec(`UPDATE jobs SET state='queued', updated_at=? WHERE state='running'`, store.Now()); err != nil {
-		m.Log.Warn("任务恢复失败", "err", err)
+		cancel()
+		m.mu.Unlock()
+		return fmt.Errorf("recover running jobs: %w", err)
 	}
 	if queued, err := m.St.QueuedJobs(); err != nil {
-		m.Log.Warn("任务恢复装载失败", "err", err)
+		cancel()
+		m.mu.Unlock()
+		return fmt.Errorf("load durable queue: %w", err)
 	} else {
 		// 数据库为恢复的唯一来源，包括 Start 前 Submit 的任务。
 		// 按 ID 升序进入各优先级 FIFO；只对优先级建堆，无需排序全部任务。
@@ -155,11 +162,13 @@ func (m *Manager) Start(ctx context.Context) {
 			m.pushPendingLocked(j.ID, j.Priority)
 		}
 	}
+	m.started = true
 	for i := 0; i < m.workers; i++ {
 		m.wg.Add(1)
 		go m.worker(ctx2)
 	}
 	m.mu.Unlock()
+	return nil
 }
 
 // Stop 停止 worker：唤醒等待者并退出；未执行任务留在 DB（下次启动恢复）。
@@ -203,22 +212,58 @@ func (m *Manager) worker(ctx context.Context) {
 }
 
 func (m *Manager) process(ctx context.Context, id int64) {
-	j, err := m.St.GetJob(id)
+	var j *store.Job
+	err := m.retry(ctx, func() error { var e error; j, e = m.St.GetJob(id); return e })
 	if err != nil {
+		if ctx.Err() == nil {
+			m.fail(err)
+		}
 		return
 	}
+	parentCtx := ctx
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	var touched atomic.Int64
+	touched.Store(time.Now().UnixNano())
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	if m.StallTimeout > 0 {
+		watchCtx := ctx
+		go func() {
+			tick := time.NewTicker(max(time.Millisecond, m.StallTimeout/4))
+			defer tick.Stop()
+			for {
+				select {
+				case <-watchDone:
+					return
+				case <-watchCtx.Done():
+					return
+				case <-tick.C:
+					if time.Since(time.Unix(0, touched.Load())) >= m.StallTimeout {
+						cancel(errJobStalled)
+						return
+					}
+				}
+			}
+		}()
+	}
+
 	m.mu.Lock()
 	h, ok := m.handlers[j.Type]
 	m.mu.Unlock()
 	if !ok {
-		_ = m.St.UpdateJobState(id, "failed", "", "未注册的任务类型 "+j.Type, 0)
+		m.saveState(parentCtx, id, "failed", "", "未注册的任务类型 "+j.Type, 0)
 		return
 	}
-	if err := m.St.UpdateJobState(id, "running", "", "", j.Progress); err != nil {
+	if err := m.retry(ctx, func() error { return m.St.UpdateJobState(id, "running", "", "", j.Progress) }); err != nil {
+		if parentCtx.Err() == nil {
+			m.fail(err)
+		}
 		m.Log.Error("任务启动状态写入失败", "job", id, "err", err)
 		return
 	}
 	reporter := &progressReporter{latest: j.Progress, write: func(f float64, detail string) {
+		touched.Store(time.Now().UnixNano())
 		if err := m.St.UpdateJobState(id, "running", detail, "", f); err != nil {
 			m.Log.Warn("任务进度保存失败", "job", id, "err", err)
 		}
@@ -228,7 +273,7 @@ func (m *Manager) process(ctx context.Context, id int64) {
 		f, detail := reporter.finish()
 		if r := recover(); r != nil {
 			m.Log.Error("任务处理器 panic", "job", id, "type", j.Type, "panic", r, "stack", string(debug.Stack()))
-			_ = m.St.UpdateJobState(id, "failed", detail, fmt.Sprintf("处理器 panic: %v", r), f)
+			m.saveState(parentCtx, id, "failed", detail, fmt.Sprintf("处理器 panic: %v", r), f)
 		}
 	}()
 	m.mu.Lock()
@@ -241,8 +286,12 @@ func (m *Manager) process(ctx context.Context, id int64) {
 	ctx = taskflow.WithHooks(ctx, reporter.report, yield)
 	err = h(ctx, j, reporter.report)
 	f, detail := reporter.finish()
+	if errors.Is(context.Cause(ctx), errJobStalled) {
+		m.saveState(parentCtx, id, "failed", detail, errJobStalled.Error(), f)
+		return
+	}
 	if ctx.Err() != nil {
-		_ = m.St.UpdateJobState(id, "queued", detail, "服务停止，任务重新排队", f)
+		m.saveState(parentCtx, id, "queued", detail, "服务停止，任务重新排队", f)
 		m.mu.Lock()
 		m.pending.push(id, j.Priority)
 		m.mu.Unlock()
@@ -250,10 +299,10 @@ func (m *Manager) process(ctx context.Context, id int64) {
 		return
 	}
 	if err != nil {
-		_ = m.St.UpdateJobState(id, "failed", detail, err.Error(), f)
+		m.saveState(parentCtx, id, "failed", detail, err.Error(), f)
 		return
 	}
-	_ = m.St.UpdateJobState(id, "done", detail, "", 1)
+	m.saveState(parentCtx, id, "done", detail, "", 1)
 }
 
 // Scheduler 定时把到期任务送入队列。
@@ -406,5 +455,45 @@ func (s *Scheduler) freshSweep() {
 		if id, err := s.Mgr.Submit("touch_stats", map[string]any{"bvid": bvid}); err == nil && id != 0 {
 			s.Log.Info("新发视频统计加速", "bvid", bvid)
 		}
+	}
+}
+
+var errJobStalled = errors.New("job stopped reporting progress; execution cancelled")
+
+func (m *Manager) retry(ctx context.Context, work func() error) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	delay := 50 * time.Millisecond
+	for {
+		err := work()
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("durable job state unavailable: %w", err)
+		case <-time.After(delay):
+		}
+		delay = min(time.Second, delay*2)
+	}
+}
+func (m *Manager) saveState(ctx context.Context, id int64, state, detail, msg string, f float64) {
+	if err := m.retry(context.WithoutCancel(ctx), func() error { return m.St.UpdateJobState(id, state, detail, msg, f) }); err != nil {
+		m.fail(err)
+	}
+}
+func (m *Manager) fail(err error) {
+	m.Log.Error("job manager stopped to preserve durable recovery", "err", err)
+	select {
+	case m.Fault <- err:
+	default:
+	}
+	m.mu.Lock()
+	cancel := m.cancel
+	m.stopped = true
+	m.cond.Broadcast()
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }

@@ -179,7 +179,9 @@ func fatal(err error) {
 func runServe(cfg *config.Config, a *app.App) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	a.Mgr.Start(ctx)
+	if err := a.Mgr.Start(ctx); err != nil {
+		fatal(err)
+	}
 	go (&jobs.Scheduler{
 		St: a.St, Mgr: a.Mgr, Log: a.Log,
 		Cfg: cfg, // 活读取：设置页保存后下一 tick 生效
@@ -251,6 +253,9 @@ func runAdd(a *app.App, inputs []string) {
 		fmt.Println()
 	}
 	// 短生命周期进程：等异步插件派发完成再退出
+	if err := a.DrainDeliveries(context.Background()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
 	a.Bus.Wait()
 }
 

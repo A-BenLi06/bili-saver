@@ -362,10 +362,9 @@ func (s *Store) GetAIConclusion(bvid string) (model, summary, outline string, er
 // ---- derived ----
 
 func (s *Store) AddSummary(sm *Summary) error {
-	_, err := s.DB.Exec(`INSERT INTO derived_summaries(bvid, origin, generator, model, prompt_ver, lang, content, created_at)
+	return s.execDerived(sm.DeliveryID, sm.OpIndex, `INSERT INTO derived_summaries(bvid, origin, generator, model, prompt_ver, lang, content, created_at)
 		VALUES(?,?,?,?,?,?,?,?)`,
 		sm.Bvid, sm.Origin, sm.Generator, sm.Model, sm.PromptVer, sm.Lang, sm.Content, Now())
-	return err
 }
 
 func (s *Store) ListSummaries(bvid string) ([]*Summary, error) {
@@ -387,10 +386,9 @@ func (s *Store) ListSummaries(bvid string) ([]*Summary, error) {
 }
 
 func (s *Store) AddRelation(r *Relation) error {
-	_, err := s.DB.Exec(`INSERT INTO derived_relations(src_type, src_id, dst_type, dst_id, relation, weight, origin, created_at)
+	return s.execDerived(r.DeliveryID, r.OpIndex, `INSERT INTO derived_relations(src_type, src_id, dst_type, dst_id, relation, weight, origin, created_at)
 		VALUES(?,?,?,?,?,?,?,?)`,
 		r.SrcType, r.SrcID, r.DstType, r.DstID, r.Relation, r.Weight, r.Origin, Now())
-	return err
 }
 
 func (s *Store) ListRelations(srcType, srcID string) ([]*Relation, error) {

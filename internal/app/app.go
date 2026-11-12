@@ -34,25 +34,29 @@ import (
 
 // App 持有全部组件引用。
 type App struct {
-	guard       *archiveguard.Lock
-	vault       *nodeauth.Vault
-	pluginToken string
-	closeOnce   sync.Once
-	closeError  error
-	Cfg         *config.Config
-	Log         *slog.Logger
-	St          *store.Store
-	API         *biliapi.Client
-	Col         *collector.Collector
-	Dl          *downloader.Downloader
-	Mgr         *jobs.Manager
-	Bus         *plugin.Bus
-	Med         *media.Bridge
-	Card        *card.Generator
-	Img         *images.Localizer
-	Lv          *levels.Backfiller
-	Srv         *server.Server
-	Teri        *teriteriweb.Web
+	guard          *archiveguard.Lock
+	vault          *nodeauth.Vault
+	pluginToken    string
+	deliveryOnce   sync.Once
+	deliveryCancel context.CancelFunc
+	deliveryWG     sync.WaitGroup
+	deliveryMu     sync.Mutex
+	closeOnce      sync.Once
+	closeError     error
+	Cfg            *config.Config
+	Log            *slog.Logger
+	St             *store.Store
+	API            *biliapi.Client
+	Col            *collector.Collector
+	Dl             *downloader.Downloader
+	Mgr            *jobs.Manager
+	Bus            *plugin.Bus
+	Med            *media.Bridge
+	Card           *card.Generator
+	Img            *images.Localizer
+	Lv             *levels.Backfiller
+	Srv            *server.Server
+	Teri           *teriteriweb.Web
 	// CfgPath 配置文件路径（serve 时由 CLI 注入）；非空时设置页 PATCH config 会写盘。
 	CfgPath string
 }
@@ -60,7 +64,7 @@ type App struct {
 // asyncEmitter 让业务事件不阻塞在插件执行上。
 type asyncEmitter struct{ b *plugin.Bus }
 
-func (a asyncEmitter) Emit(ev string, p map[string]any) { a.b.EmitAsync(ev, p) }
+func (a asyncEmitter) Emit(ev string, p map[string]any) {} // Persistent producers are drained by the delivery worker.
 
 // New 初始化全部组件（不开服务、不启动 worker）。
 func New(cfg *config.Config, log *slog.Logger) (*App, error) {
@@ -264,15 +268,7 @@ func (a *App) jobArchive(ctx context.Context, j *store.Job, progress jobs.Progre
 		if serr := a.St.TrackSetState(res.Bvid, "done", "", store.Now()); serr != nil {
 			a.Log.Warn("跟踪状态回写失败", "bvid", res.Bvid, "err", serr)
 		}
-		// 新内容落库后异步刷新媒体库软链接（幂等）；去抖合并：批量下载的
-		// N 次完成合并为实际一轮重建+补跑，不再 N 遍全库遍历
-		if a.Cfg.View().Media.Enabled {
-			go func() {
-				if err := a.Med.RebuildAllDebounced(); err != nil {
-					a.Log.Warn("下载后媒体库刷新失败", "bvid", res.Bvid, "err", err)
-				}
-			}()
-		}
+
 	}
 	if len(res.Warnings) > 0 {
 		return fmt.Errorf("archive saved with incomplete components: %v", res.Warnings)
@@ -667,7 +663,19 @@ func (a *App) HTTPHandler() http.Handler {
 
 // Serve 启动 HTTP 服务（阻塞）。TeriTeri 多端站点（已构建时）在二级端口一并托管。
 func (a *App) Serve(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	fault := make(chan error, 1)
+	go func() {
+		select {
+		case err := <-a.Mgr.Fault:
+			fault <- err
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	handler := a.HTTPHandler()
+	a.startDeliveries(ctx)
 	if a.Teri != nil {
 		a.Teri.Attach(handler)
 		a.Teri.StartSites() // dist 已存在则立即上线；否则待一键安装完成后自动拉起
@@ -694,6 +702,11 @@ func (a *App) Serve(ctx context.Context) error {
 	err := metrics.ListenAndServe(httpSrv)
 	if err == http.ErrServerClosed {
 		<-shutdownDone
+		select {
+		case failure := <-fault:
+			return failure
+		default:
+		}
 		return nil
 	}
 	return err
@@ -704,9 +717,13 @@ func (a *App) Close() error {
 		if a.Bus != nil {
 			a.Bus.Cancel()
 		}
+		if a.deliveryCancel != nil {
+			a.deliveryCancel()
+		}
 		if a.Mgr != nil {
 			a.Mgr.Stop()
 		}
+		a.deliveryWG.Wait()
 		if a.Teri != nil {
 			a.Teri.Close()
 		}

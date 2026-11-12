@@ -297,9 +297,11 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		}
 		has, _ := c.St.HasCCSubtitle(p.Cid)
 		if !has && subErr == nil {
-			c.Emitter.Emit("subtitle.missing", map[string]any{
+			if eventErr := c.emit("subtitle.missing", map[string]any{
 				"bvid": view.Bvid, "cid": p.Cid, "page": p.Page,
-			})
+			}); eventErr != nil {
+				return res, eventErr
+			}
 		}
 	}
 
@@ -381,11 +383,13 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		}
 	}
 	if res.CommentsDeleted > 0 || res.DanmakuDeleted > 0 {
-		c.Emitter.Emit("comments.resynced", map[string]any{
+		if eventErr := c.emit("comments.resynced", map[string]any{
 			"bvid":             view.Bvid,
 			"deleted_comments": res.CommentsDeleted,
 			"deleted_danmaku":  res.DanmakuDeleted,
-		})
+		}); eventErr != nil {
+			return res, eventErr
+		}
 	}
 
 	// 更新 FTS
@@ -398,9 +402,13 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		"title": view.Title, "description": view.Desc,
 		"owner_mid": view.OwnerOwner.Mid, "owner_name": view.OwnerOwner.Name,
 	}
-	c.Emitter.Emit("video.archived", evPayload)
+	if eventErr := c.emit("video.archived", evPayload); eventErr != nil {
+		return res, eventErr
+	}
 	if res.New {
-		c.Emitter.Emit("video.discovered", evPayload)
+		if eventErr := c.emit("video.discovered", evPayload); eventErr != nil {
+			return res, eventErr
+		}
 	}
 	return res, nil
 }
@@ -479,10 +487,20 @@ func (c *Collector) handleGone(bvid string, err error, res *Result) bool {
 		}
 		res.Gone = true
 		c.Log.Info("视频已不可见", "bvid", bvid, "code", apiErr.Code)
-		c.Emitter.Emit("video.gone", map[string]any{"bvid": bvid, "code": apiErr.Code})
+		if eventErr := c.emit("video.gone", map[string]any{"bvid": bvid, "code": apiErr.Code}); eventErr != nil {
+			res.Warnings = append(res.Warnings, eventErr.Error())
+		}
 		return true
 	}
 	return false
 }
 
 func jsonMarshal(v any) ([]byte, error) { return json.Marshal(v) }
+
+func (c *Collector) emit(event string, payload map[string]any) error {
+	if _, err := c.St.EnqueueEvent(event, payload); err != nil {
+		return err
+	}
+	c.Emitter.Emit(event, payload)
+	return nil
+}

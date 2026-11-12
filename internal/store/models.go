@@ -150,27 +150,31 @@ type Subtitle struct {
 }
 
 type Summary struct {
-	ID        int64  `json:"id"`
-	Bvid      string `json:"bvid"`
-	Origin    string `json:"origin"`
-	Generator string `json:"generator"`
-	Model     string `json:"model"`
-	PromptVer string `json:"prompt_ver"`
-	Lang      string `json:"lang"`
-	Content   string `json:"content"`
-	CreatedAt int64  `json:"created_at"`
+	DeliveryID int64  `json:"-"`
+	OpIndex    int    `json:"-"`
+	ID         int64  `json:"id"`
+	Bvid       string `json:"bvid"`
+	Origin     string `json:"origin"`
+	Generator  string `json:"generator"`
+	Model      string `json:"model"`
+	PromptVer  string `json:"prompt_ver"`
+	Lang       string `json:"lang"`
+	Content    string `json:"content"`
+	CreatedAt  int64  `json:"created_at"`
 }
 
 type Relation struct {
-	ID        int64   `json:"id"`
-	SrcType   string  `json:"src_type"`
-	SrcID     string  `json:"src_id"`
-	DstType   string  `json:"dst_type"`
-	DstID     string  `json:"dst_id"`
-	Relation  string  `json:"relation"`
-	Weight    float64 `json:"weight"`
-	Origin    string  `json:"origin"`
-	CreatedAt int64   `json:"created_at"`
+	DeliveryID int64   `json:"-"`
+	OpIndex    int     `json:"-"`
+	ID         int64   `json:"id"`
+	SrcType    string  `json:"src_type"`
+	SrcID      string  `json:"src_id"`
+	DstType    string  `json:"dst_type"`
+	DstID      string  `json:"dst_id"`
+	Relation   string  `json:"relation"`
+	Weight     float64 `json:"weight"`
+	Origin     string  `json:"origin"`
+	CreatedAt  int64   `json:"created_at"`
 }
 
 type Snapshot struct {

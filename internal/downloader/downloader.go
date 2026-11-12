@@ -278,9 +278,6 @@ func (d *Downloader) DownloadVideo(ctx context.Context, bvid string, progress Pr
 			firstLocal = local
 		}
 	}
-	if err := d.St.SetVideoDownloaded(bvid, firstLocal); err != nil {
-		return err
-	}
 	_ = coverPath
 	payload := map[string]any{
 		"bvid": bvid, "title": v.Title, "description": v.Description,
@@ -288,6 +285,9 @@ func (d *Downloader) DownloadVideo(ctx context.Context, bvid string, progress Pr
 	}
 	if tags, err := d.St.VideoTags(bvid); err == nil {
 		payload["tags"] = tags["bilibili"]
+	}
+	if err := d.St.CompleteDownload(bvid, firstLocal, payload); err != nil {
+		return err
 	}
 	d.Emitter.Emit("video.downloaded", payload)
 	progress(1, "完成")

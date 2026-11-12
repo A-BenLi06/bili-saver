@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -34,6 +35,7 @@ const (
 
 // Event 是派发给插件的事件载荷。
 type Event struct {
+	ID      int64          `json:"event_id,omitempty"`
 	Event   string         `json:"event"`
 	Payload map[string]any `json:"payload"`
 	Config  map[string]any `json:"config"`
@@ -233,7 +235,7 @@ func mergeConfig(defaults map[string]any, persistedJSON string) map[string]any {
 	return merged
 }
 
-func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any, cfg map[string]any) error {
+func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any, cfg map[string]any, delivery ...int64) error {
 	ctx, cancel := context.WithTimeout(b.lifecycle, time.Duration(m.TimeoutSec)*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, m.Entry[0], m.Entry[1:]...)
@@ -261,6 +263,9 @@ func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any, cfg 
 	}
 
 	ev := Event{Event: event, Payload: payload, Config: cfg, Context: b.ctx}
+	if len(delivery) > 1 {
+		ev.ID = delivery[1]
+	}
 	evJSON, _ := json.Marshal(ev)
 	if _, err := stdin.Write(append(evJSON, '\n')); err != nil {
 		_ = cmd.Process.Kill()
@@ -272,17 +277,25 @@ func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any, cfg 
 	// 逐行读 op
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 32*1024), 64*1024*1024)
+	var opErrors []error
+	opIndex := 0
 	for sc.Scan() {
+		opIndex++
 		line := sc.Bytes()
 		if len(line) == 0 {
 			continue
 		}
 		var o op
 		if err := json.Unmarshal(line, &o); err != nil {
-			b.log.Warn("插件输出无法解析", "plugin", m.ID, "line", string(line))
+			b.log.Warn("插件输出无法解析", "plugin", m.ID)
+			opErrors = append(opErrors, err)
 			continue
 		}
+		if len(delivery) > 0 {
+			ctx = context.WithValue(ctx, deliveryContext{}, deliveryOperation{delivery[0], opIndex})
+		}
 		if err := b.applyOp(ctx, m, o); err != nil {
+			opErrors = append(opErrors, err)
 			b.log.Warn("插件 op 执行失败", "plugin", m.ID, "op", o.Op, "err", err)
 		}
 	}
@@ -298,7 +311,7 @@ func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any, cfg 
 		}
 		return waitErr
 	}
-	return nil
+	return errors.Join(opErrors...)
 }
 
 type pluginStderr struct {
@@ -331,6 +344,10 @@ func (b *Bus) applyOp(ctx context.Context, m *Manifest, o op) error {
 			return fmt.Errorf("bvid 必填")
 		}
 		p.ID, p.Origin, p.CreatedAt = 0, origin, store.Now()
+		if d, ok := ctx.Value(deliveryContext{}).(deliveryOperation); ok {
+			p.DeliveryID = d.id
+			p.OpIndex = d.index
+		}
 		if p.Generator == "" {
 			p.Generator = origin
 		}
@@ -403,6 +420,10 @@ func (b *Bus) applyOp(ctx context.Context, m *Manifest, o op) error {
 			return err
 		}
 		p.ID, p.Origin, p.CreatedAt = 0, origin, store.Now()
+		if d, ok := ctx.Value(deliveryContext{}).(deliveryOperation); ok {
+			p.DeliveryID = d.id
+			p.OpIndex = d.index
+		}
 		return b.writer.AddRelation(&p)
 	case "save_embedding":
 		var p struct {
@@ -466,4 +487,51 @@ func (b *Bus) Cancel() {
 	if b.cancel != nil {
 		b.cancel()
 	}
+}
+
+type deliveryContext struct{}
+type deliveryOperation struct {
+	id    int64
+	index int
+}
+
+// Deliver executes one recorded subscription. Successful append operations are
+// deduplicated transactionally by delivery ID and output line number.
+func (b *Bus) Deliver(pluginID string, deliveryID, eventID int64, event string, payload map[string]any) error {
+	b.mu.RLock()
+	m := b.manifest[pluginID]
+	b.mu.RUnlock()
+	if m == nil {
+		return fmt.Errorf("plugin %s is unavailable", pluginID)
+	}
+	rows, err := b.st.ListPlugins()
+	if err != nil {
+		return err
+	}
+	var row *store.PluginRow
+	for _, r := range rows {
+		if r.ID == pluginID {
+			row = r
+			break
+		}
+	}
+	if row == nil || !row.Enabled {
+		return fmt.Errorf("plugin %s is disabled", pluginID)
+	}
+	select {
+	case b.processSlots <- struct{}{}:
+	case <-b.lifecycle.Done():
+		return b.lifecycle.Err()
+	}
+	defer func() { <-b.processSlots }()
+	start := time.Now()
+	err = b.execPlugin(m, event, payload, mergeConfig(m.Config, row.ConfigJSON), deliveryID, eventID)
+	run := &store.PluginRun{PluginID: pluginID, Event: event, DurationMs: time.Since(start).Milliseconds(), CreatedAt: store.Now(), Ok: err == nil}
+	if err != nil {
+		run.Error = err.Error()
+	}
+	if auditErr := b.st.AddPluginRun(run); auditErr != nil {
+		return errors.Join(err, auditErr)
+	}
+	return err
 }
