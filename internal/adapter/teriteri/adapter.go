@@ -19,16 +19,21 @@ import (
 
 	"bili-saver/internal/images"
 	"bili-saver/internal/levels"
+	"bili-saver/internal/nodeauth"
 	"bili-saver/internal/store"
+	"sync"
 )
 
 // Adapter 挂载在核心 HTTP mux 上。
 type Adapter struct {
-	St        *store.Store
-	DataDir   string
-	AdminUser string
-	AdminPass string
-	JWTSecret string
+	credentialMu   sync.Mutex
+	Credentials    func() nodeauth.Credentials
+	fallbackSecret string
+	St             *store.Store
+	DataDir        string
+	AdminUser      string
+	AdminPass      string
+	JWTSecret      string
 	// DeletedMarker 前缀注入已消失评论正文。
 	DeletedMarker string
 	// PasswordHook 密码修改持久化回调（写回配置文件）；nil 仅改内存。
@@ -166,12 +171,22 @@ func (a *Adapter) parseJWT(tok string) (int64, error) {
 	return ParseJWT(a.jwtSecret(), tok)
 }
 
-func (a *Adapter) jwtSecret() string {
-	if a.JWTSecret != "" {
-		return a.JWTSecret
+func (a *Adapter) credentials() nodeauth.Credentials {
+	if a.Credentials != nil {
+		return a.Credentials()
 	}
-	return "bili-saver-default-jwt-secret"
+	a.credentialMu.Lock()
+	defer a.credentialMu.Unlock()
+	secret := a.JWTSecret
+	if secret == "" {
+		if a.fallbackSecret == "" {
+			a.fallbackSecret = nodeauth.Token()
+		}
+		secret = a.fallbackSecret
+	}
+	return nodeauth.Credentials{User: a.AdminUser, Password: a.AdminPass, Secret: secret}
 }
+func (a *Adapter) jwtSecret() string { return a.credentials().SigningKey() }
 
 func (a *Adapter) login(w http.ResponseWriter, r *http.Request, _ int64) {
 	_ = r.ParseMultipartForm(1 << 20)
@@ -197,7 +212,7 @@ func (a *Adapter) login(w http.ResponseWriter, r *http.Request, _ int64) {
 		a.fail(w, 400, "账号或密码不能为空")
 		return
 	}
-	if user != a.AdminUser || pass != a.AdminPass {
+	if user != a.credentials().User || pass != a.credentials().Password {
 		a.fail(w, 400, "账号或密码错误（归档站单用户：见 bili-saver 配置 teriteri.admin_user/admin_pass）")
 		return
 	}

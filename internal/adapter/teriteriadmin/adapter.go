@@ -16,17 +16,22 @@ import (
 	"time"
 
 	"bili-saver/internal/adapter/teriteri"
+	"bili-saver/internal/nodeauth"
 	"bili-saver/internal/store"
+	"sync"
 )
 
 // Adapter 挂载在核心 HTTP mux 上（与用户端适配层共享 JWT）。
 type Adapter struct {
-	St        *store.Store
-	DataDir   string
-	AdminUser string
-	AdminPass string
-	JWTSecret string
-	Log       *slog.Logger
+	credentialMu   sync.Mutex
+	Credentials    func() nodeauth.Credentials
+	fallbackSecret string
+	St             *store.Store
+	DataDir        string
+	AdminUser      string
+	AdminPass      string
+	JWTSecret      string
+	Log            *slog.Logger
 }
 
 func (a *Adapter) log() *slog.Logger {
@@ -36,12 +41,22 @@ func (a *Adapter) log() *slog.Logger {
 	return slog.Default()
 }
 
-func (a *Adapter) jwtSecret() string {
-	if a.JWTSecret != "" {
-		return a.JWTSecret
+func (a *Adapter) credentials() nodeauth.Credentials {
+	if a.Credentials != nil {
+		return a.Credentials()
 	}
-	return "bili-saver-default-jwt-secret"
+	a.credentialMu.Lock()
+	defer a.credentialMu.Unlock()
+	secret := a.JWTSecret
+	if secret == "" {
+		if a.fallbackSecret == "" {
+			a.fallbackSecret = nodeauth.Token()
+		}
+		secret = a.fallbackSecret
+	}
+	return nodeauth.Credentials{User: a.AdminUser, Password: a.AdminPass, Secret: secret}
 }
+func (a *Adapter) jwtSecret() string { return a.credentials().SigningKey() }
 
 type handlerFunc func(w http.ResponseWriter, r *http.Request, uid int64)
 
@@ -112,7 +127,7 @@ func (a *Adapter) login(w http.ResponseWriter, r *http.Request, _ int64) {
 		a.fail(w, 400, "账号或密码不能为空")
 		return
 	}
-	if body.Username != a.AdminUser || body.Password != a.AdminPass {
+	if body.Username != a.credentials().User || body.Password != a.credentials().Password {
 		a.fail(w, 400, "用户名或密码错误")
 		return
 	}

@@ -22,9 +22,12 @@ import (
 	"bili-saver/internal/jobs"
 	"bili-saver/internal/media"
 	"bili-saver/internal/metrics"
+	"bili-saver/internal/nodeauth"
 	"bili-saver/internal/plugin"
 	"bili-saver/internal/store"
 	"bili-saver/internal/teriteriweb"
+	"crypto/subtle"
+	"fmt"
 )
 
 //go:embed static
@@ -32,17 +35,19 @@ var staticFS embed.FS
 
 // Deps 汇集服务器依赖。
 type Deps struct {
-	Cfg  *config.Config
-	St   *store.Store
-	API  *biliapi.Client
-	Col  *collector.Collector
-	Dl   *downloader.Downloader
-	Mgr  *jobs.Manager
-	Bus  *plugin.Bus
-	Med  *media.Bridge
-	Card *card.Generator
-	Log  *slog.Logger
-	Teri *teriteriweb.Web // teriteri 多端站点管理（nil 则无一键安装能力）
+	Vault       *nodeauth.Vault
+	PluginToken string
+	Cfg         *config.Config
+	St          *store.Store
+	API         *biliapi.Client
+	Col         *collector.Collector
+	Dl          *downloader.Downloader
+	Mgr         *jobs.Manager
+	Bus         *plugin.Bus
+	Med         *media.Bridge
+	Card        *card.Generator
+	Log         *slog.Logger
+	Teri        *teriteriweb.Web // teriteri 多端站点管理（nil 则无一键安装能力）
 	// ConfigPath 配置文件路径；非空时 PATCH /api/v1/config 会把变更写盘（.bak 备份）。
 	ConfigPath string
 }
@@ -66,16 +71,29 @@ func New(d Deps) *Server {
 
 	s := &Server{Deps: d, mux: http.NewServeMux()}
 	if d.Cfg.View().Teriteri.Enabled {
-		// 密码自助修改：经此回调写回配置文件（两套适配层共享同一账号体系）
+		secret := d.Cfg.View().Teriteri.JWTSecret
+		if secret == "" {
+			secret = nodeauth.Token()
+		}
+		credentials := func() nodeauth.Credentials {
+			c := d.Cfg.View()
+			return nodeauth.Credentials{User: c.Teriteri.AdminUser, Password: c.Teriteri.AdminPass, Secret: secret}
+		}
 		passHook := func(npw string) error {
+			if config.EnvControlled("teriteri.admin_pass") {
+				return fmt.Errorf("playback password is controlled by environment")
+			}
+			if d.Vault == nil {
+				return fmt.Errorf("private credential store is unavailable")
+			}
 			return d.Cfg.Update(func(next *config.Config) error {
-				next.Teriteri.AdminPass = npw
-				if err := next.Validate(); err != nil {
+				if err := store.ValidateNewPassword(npw); err != nil {
 					return err
 				}
-				if d.ConfigPath != "" {
-					return config.SaveConfigFile(d.ConfigPath, next)
+				if err := d.Vault.SetPlayback(next.Teriteri.AdminUser, npw); err != nil {
+					return err
 				}
+				next.Teriteri.AdminPass = npw
 				return nil
 			})
 		}
@@ -83,7 +101,8 @@ func New(d Deps) *Server {
 		s.teri = &teriteri.Adapter{
 			St: d.St, DataDir: d.Cfg.View().DataDir,
 			AdminUser: d.Cfg.View().Teriteri.AdminUser, AdminPass: d.Cfg.View().Teriteri.AdminPass,
-			JWTSecret:    d.Cfg.View().Teriteri.JWTSecret,
+			JWTSecret:    secret,
+			Credentials:  credentials,
 			PasswordHook: passHook,
 			Log:          d.Log,
 		}
@@ -92,8 +111,9 @@ func New(d Deps) *Server {
 		admin := &teriteriadmin.Adapter{
 			St: d.St, DataDir: d.Cfg.View().DataDir,
 			AdminUser: d.Cfg.View().Teriteri.AdminUser, AdminPass: d.Cfg.View().Teriteri.AdminPass,
-			JWTSecret: d.Cfg.View().Teriteri.JWTSecret,
-			Log:       d.Log,
+			JWTSecret:   secret,
+			Credentials: credentials,
+			Log:         d.Log,
 		}
 		admin.Register(s.mux)
 	}
@@ -167,6 +187,14 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			if tok == s.Deps.Cfg.View().Admin.Token {
 				au = authUser{Role: "admin", Name: "token"}
 			}
+		}
+		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if au.Role == "" && s.Deps.PluginToken != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(s.Deps.PluginToken)) == 1 {
+			if !pluginAllowed(r.Method, r.URL.Path) {
+				http.Error(w, "plugin capability does not permit this operation", http.StatusForbidden)
+				return
+			}
+			au = authUser{Role: "plugin", Name: "plugin"}
 		}
 		if au.Role == "" {
 			if ck, err := r.Cookie("bs_sess"); err == nil {
@@ -268,4 +296,22 @@ func (s *Server) registerStatic() {
 		w.Header().Set("Cache-Control", "no-cache")
 		_, _ = w.Write(b)
 	})
+}
+
+// Plugins can inspect archived metadata; administration and mutations are excluded.
+func pluginAllowed(method, path string) bool {
+	if method != "GET" {
+		return false
+	}
+	if path == "/api/v1/videos" || path == "/api/v1/comments/search" {
+		return true
+	}
+	if !strings.HasPrefix(path, "/api/v1/videos/") {
+		return false
+	}
+	p := strings.Split(strings.TrimPrefix(path, "/api/v1/videos/"), "/")
+	if len(p) == 1 {
+		return p[0] != ""
+	}
+	return len(p) == 2 && (p[1] == "comments" || p[1] == "danmaku" || p[1] == "tracks")
 }

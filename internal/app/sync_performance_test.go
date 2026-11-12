@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bili-saver/internal/config"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,7 +16,7 @@ import (
 
 func TestGoneSourceSchedulesOnlyExistenceCheck(t *testing.T) {
 	a := newTestApp(t)
-	a.Cfg.Collector.AdaptiveSync = false
+	editTestConfig(a, func(c *config.Config) { c.Collector.AdaptiveSync = false })
 	now := store.Now()
 	src := &store.Source{SyncIntervalMinutes: 60}
 	v := &store.Video{Bvid: "BVgone", Status: "gone", LastStatsAt: now}
@@ -52,8 +53,8 @@ func TestCancelledStatsSweepDoesNotTraverseVideos(t *testing.T) {
 func TestStatsSweepSpansPagesAndKeepsInitialWindow(t *testing.T) {
 	a := newTestApp(t)
 	a.Log = slog.Default()
-	a.Cfg.Collector.AdaptiveSync = true
-	a.Cfg.Collector.StatsResyncHours = 24
+	editTestConfig(a, func(c *config.Config) { c.Collector.AdaptiveSync = true })
+	editTestConfig(a, func(c *config.Config) { c.Collector.StatsResyncHours = 24 })
 	now := store.Now()
 	for i := 0; i < 805; i++ {
 		if err := a.St.UpsertVideo(&store.Video{Bvid: fmt.Sprintf("BVpage%04d", i), Pubdate: now, LastStatsAt: now, FirstArchivedAt: 1}); err != nil {
@@ -87,7 +88,7 @@ func TestGoneRecoveryImmediatelyQueuesDueParts(t *testing.T) {
 	for _, gone := range []bool{true, false} {
 		t.Run(fmt.Sprintf("still_gone_%v", gone), func(t *testing.T) {
 			a := newTestApp(t)
-			a.Cfg.Collector.AdaptiveSync = false
+			editTestConfig(a, func(c *config.Config) { c.Collector.AdaptiveSync = false })
 			src := &store.Source{Type: "video", ExtID: "BVrestore", SyncIntervalMinutes: 60, IntervalDanmakuMin: -1, IntervalSubsMin: -1}
 			if _, err := a.St.UpsertSource(src); err != nil {
 				t.Fatal(err)

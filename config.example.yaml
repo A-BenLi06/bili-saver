@@ -66,8 +66,8 @@ media:
 teriteri:
   enabled: true              # teriteri-client 适配层
   admin_user: admin
-  admin_pass: bili-saver     # 前端登录用；请修改
-  jwt_secret: ""             # 留空用内置默认；生产建议设置
+  admin_pass: ""             # Blank: use the private generated installation password
+  jwt_secret: ""             # Blank: use the private generated installation secret
   # frontend_url: "http://127.0.0.1:8081"  # teriteri 前端地址（管理页“观看入口”）；Docker 部署为 http://127.0.0.1:8081，留空显示部署提示
 
 admin:

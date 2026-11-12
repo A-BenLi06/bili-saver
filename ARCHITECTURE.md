@@ -261,3 +261,9 @@ Runtime console changes are stored in runtime_settings in the same SQLite transa
 `archiveguard` owns a nonblocking OS file lock for the data root throughout an App lifetime. Maintenance commands take the same lock without starting workers or running schema migrations. Stop pre-lock-version binaries explicitly before the first upgrade. New HTTP servers drain requests for up to 15 seconds; plugin execution and installers are canceled before the store is closed.
 
 See [archive recovery](docs/archive-recovery.md) for commands and backup/catalog boundaries.
+
+### Private installation state
+
+`nodeauth` initializes private credentials before any API is exposed. It rotates only the recognized legacy admin seed, preserving custom user passwords, and writes the recovery value before updating the database. Blank/legacy playback passwords and JWT keys become per-installation random values in data/credentials.json. Explicit custom credentials remain valid. Password changes use the private vault and invalidate playback tokens across both adapters. Generated files request owner-only Unix permissions; Windows access follows the archive directory ACL. The login page points local owners to the private credential file without exposing its contents.
+
+Plugins receive a process-local read-only capability for video metadata/comments/danmaku/tracks. It cannot read settings or administer the service. Plugins still execute trusted local programs with the operating-system user's filesystem permissions; this is an API capability boundary, not a process sandbox.

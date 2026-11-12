@@ -4,6 +4,7 @@ package app
 // dueParts 自适应行为、sync_stats_all 冷却跳过、新发加速扫描选集。
 
 import (
+	"bili-saver/internal/config"
 	"testing"
 
 	"bili-saver/internal/store"
@@ -136,7 +137,7 @@ func TestDuePartsAdaptive(t *testing.T) {
 	}
 
 	// 关闭自适应：同一条老旧沉寂视频按固定 6h 间隔应到期
-	a.Cfg.Collector.AdaptiveSync = false
+	editTestConfig(a, func(c *config.Config) { c.Collector.AdaptiveSync = false })
 	stats3, comments3, _, _ := a.dueParts(src, v2, now)
 	if !stats3 || !comments3 {
 		t.Errorf("adaptive 关闭应回退固定间隔到期: %v %v", stats3, comments3)
@@ -146,7 +147,7 @@ func TestDuePartsAdaptive(t *testing.T) {
 // TestStatsSkipAdaptive sync_stats_all 的冷却跳过判定。
 func TestStatsSkipAdaptive(t *testing.T) {
 	a := newTestApp(t)
-	a.Cfg.Collector.StatsResyncHours = 24 // 基准 1440min
+	editTestConfig(a, func(c *config.Config) { c.Collector.StatsResyncHours = 24 })
 	now := store.Now()
 	if err := a.St.UpsertVideo(&store.Video{
 		Bvid: "BV1Skip", Title: "沉寂", Pubdate: now - 40*86400, Status: "ok",
@@ -177,7 +178,7 @@ func TestStatsSkipAdaptive(t *testing.T) {
 	}
 	v.LastStatsAt = now - 24*3600
 	// 关闭自适应 → 永不跳过（旧行为全刷）
-	a.Cfg.Collector.AdaptiveSync = false
+	editTestConfig(a, func(c *config.Config) { c.Collector.AdaptiveSync = false })
 	if a.statsSkipAdaptive(v, now) {
 		t.Error("adaptive 关闭不应跳过")
 	}

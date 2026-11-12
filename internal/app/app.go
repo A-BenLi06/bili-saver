@@ -22,6 +22,7 @@ import (
 	"bili-saver/internal/levels"
 	"bili-saver/internal/media"
 	"bili-saver/internal/metrics"
+	"bili-saver/internal/nodeauth"
 	"bili-saver/internal/plugin"
 	"bili-saver/internal/resolver"
 	"bili-saver/internal/server"
@@ -33,23 +34,25 @@ import (
 
 // App 持有全部组件引用。
 type App struct {
-	guard      *archiveguard.Lock
-	closeOnce  sync.Once
-	closeError error
-	Cfg        *config.Config
-	Log        *slog.Logger
-	St         *store.Store
-	API        *biliapi.Client
-	Col        *collector.Collector
-	Dl         *downloader.Downloader
-	Mgr        *jobs.Manager
-	Bus        *plugin.Bus
-	Med        *media.Bridge
-	Card       *card.Generator
-	Img        *images.Localizer
-	Lv         *levels.Backfiller
-	Srv        *server.Server
-	Teri       *teriteriweb.Web
+	guard       *archiveguard.Lock
+	vault       *nodeauth.Vault
+	pluginToken string
+	closeOnce   sync.Once
+	closeError  error
+	Cfg         *config.Config
+	Log         *slog.Logger
+	St          *store.Store
+	API         *biliapi.Client
+	Col         *collector.Collector
+	Dl          *downloader.Downloader
+	Mgr         *jobs.Manager
+	Bus         *plugin.Bus
+	Med         *media.Bridge
+	Card        *card.Generator
+	Img         *images.Localizer
+	Lv          *levels.Backfiller
+	Srv         *server.Server
+	Teri        *teriteriweb.Web
 	// CfgPath 配置文件路径（serve 时由 CLI 注入）；非空时设置页 PATCH config 会写盘。
 	CfgPath string
 }
@@ -91,7 +94,16 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		st.Close()
 		return nil, err
 	}
+	vault, err := nodeauth.Open(cfg.View().DataDir)
+	if err == nil {
+		err = vault.Bootstrap(st, cfg)
+	}
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
 	cfg.MarkApplied()
+	pluginToken := nodeauth.Token()
 	api, err := biliapi.New(cfg.View().CookiePath(), cfg.View().Bilibili.MinReqMs, cfg.View().Bilibili.UserAgent)
 	if err != nil {
 		st.Close()
@@ -102,7 +114,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	bus := plugin.NewBus(st, st, cfg.View().Plugins.Dir, log, plugin.Context{
 		DataDir: cfg.View().DataDir,
 		APIBase: cfg.LocalURL(),
-		Token:   cfg.Admin.Token,
+		Token:   pluginToken,
 	})
 	col := collector.New(st, api, cfg, log, asyncEmitter{bus})
 	api.SetSnapshotHook(col.SnapshotHook())
@@ -115,7 +127,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	if err := st.EnsureDefaultLibrary(cfg.View().Media.Root, cfg.View().Media.Layout, cfg.View().Media.LinkMode); err != nil {
 		log.Warn("默认媒体库迁移失败", "err", err)
 	}
-	a := &App{guard: guard, Cfg: cfg, Log: log, St: st, API: api, Col: col, Dl: dl, Mgr: mgr, Bus: bus, Med: med, Card: cardGen, Img: img, Lv: lv}
+	a := &App{guard: guard, vault: vault, pluginToken: pluginToken, Cfg: cfg, Log: log, St: st, API: api, Col: col, Dl: dl, Mgr: mgr, Bus: bus, Med: med, Card: cardGen, Img: img, Lv: lv}
 	if cfg.View().Teriteri.Enabled {
 		a.Teri = teriteriweb.New(cfg, log)
 		// 首页轮播取归档库最新可播视频的本地封面（构建期写入 client）
@@ -647,7 +659,7 @@ func (a *App) HTTPHandler() http.Handler {
 		a.Srv = server.New(server.Deps{
 			Cfg: a.Cfg, St: a.St, API: a.API, Col: a.Col, Dl: a.Dl,
 			Mgr: a.Mgr, Bus: a.Bus, Med: a.Med, Card: a.Card, Log: a.Log,
-			Teri: a.Teri, ConfigPath: a.CfgPath,
+			Teri: a.Teri, ConfigPath: a.CfgPath, Vault: a.vault, PluginToken: a.pluginToken,
 		})
 	}
 	return a.Srv.Handler()

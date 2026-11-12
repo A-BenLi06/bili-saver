@@ -146,7 +146,7 @@ func Defaults() *Config {
 	c.Media.LinkMode = "auto"
 	c.Teriteri.Enabled = true
 	c.Teriteri.AdminUser = "admin"
-	c.Teriteri.AdminPass = "bili-saver"
+	c.Teriteri.AdminPass = ""
 	c.Teriteri.ClientAddr = ":8081"
 	c.Teriteri.AdminAddr = ":8082"
 	c.Plugins.Enabled = true
@@ -170,6 +170,18 @@ func Load(path string) (*Config, error) {
 	}
 	if err := applyEnv(c, "BILI_SAVER", reflect.ValueOf(c).Elem(), ""); err != nil {
 		return nil, err
+	}
+	base, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range []*string{&c.DataDir, &c.Media.Root, &c.Plugins.Dir, &c.Teriteri.WebRoot, &c.Bilibili.CookieFile, &c.Log.File} {
+		if *field != "" && !filepath.IsAbs(*field) {
+			*field = filepath.Join(base, *field)
+		}
+	}
+	if c.FFmpeg.Path != "" && strings.ContainsAny(c.FFmpeg.Path, "/\\") && !filepath.IsAbs(c.FFmpeg.Path) {
+		c.FFmpeg.Path = filepath.Join(base, c.FFmpeg.Path)
 	}
 	c.Normalize()
 	if err := c.Validate(); err != nil {

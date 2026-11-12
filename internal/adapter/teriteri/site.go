@@ -636,7 +636,7 @@ func (a *Adapter) userPasswordUpdate(w http.ResponseWriter, r *http.Request, uid
 	_ = r.ParseMultipartForm(1 << 20)
 	pw := r.FormValue("pw")
 	npw := r.FormValue("npw")
-	if pw != a.AdminPass {
+	if pw != a.credentials().Password {
 		a.fail(w, 400, "原密码错误")
 		return
 	}
@@ -650,6 +650,10 @@ func (a *Adapter) userPasswordUpdate(w http.ResponseWriter, r *http.Request, uid
 			return
 		}
 	}
-	a.AdminPass = npw
+	if a.PasswordHook == nil {
+		a.credentialMu.Lock()
+		a.AdminPass = npw
+		a.credentialMu.Unlock()
+	}
 	a.ok(w, true)
 }

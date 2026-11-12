@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bili-saver/internal/config"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -15,7 +16,7 @@ import (
 func TestPersonalFirstScanAndDeleteSourceRetention(t *testing.T) {
 	a := newTestApp(t)
 	a.Log = slog.Default()
-	a.Cfg.Collector.AdaptiveSync = false
+	editTestConfig(a, func(c *config.Config) { c.Collector.AdaptiveSync = false })
 	u, err := a.St.CreateUser("scan-user", "password", "user", 1)
 	if err != nil {
 		t.Fatal(err)

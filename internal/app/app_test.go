@@ -57,7 +57,15 @@ func TestHTTPWiring(t *testing.T) {
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{Jar: jar, Timeout: 10 * time.Second}
 	lr, lerr := client.Post(srv.URL+"/api/v1/auth/login", "application/json",
-		strings.NewReader(`{"username":"admin","password":"bili-saver"}`))
+		strings.NewReader(func() string {
+			body, _ := os.ReadFile(filepath.Join(a.Cfg.View().DataDir, "credentials.json"))
+			var p struct {
+				Password string `json:"console_bootstrap_password"`
+			}
+			_ = json.Unmarshal(body, &p)
+			v, _ := json.Marshal(map[string]string{"username": "admin", "password": p.Password})
+			return string(v)
+		}()))
 	if lerr != nil || lr.StatusCode != 200 {
 		t.Fatalf("种子管理员登录失败: %v %v", lerr, lr)
 	}
@@ -189,7 +197,7 @@ func timeSleepMs(ms int) { time.Sleep(time.Duration(ms) * time.Millisecond) }
 
 func TestDueParts(t *testing.T) {
 	a := newTestApp(t)
-	a.Cfg.Collector.AdaptiveSync = false // 本用例锁定固定间隔语义；自适应行为见 adaptive_test.go
+	editTestConfig(a, func(c *config.Config) { c.Collector.AdaptiveSync = false })
 	now := store.Now()
 	src := &store.Source{
 		SyncIntervalMinutes: 60, // 主间隔 1 小时
@@ -220,5 +228,11 @@ func TestDueParts(t *testing.T) {
 	stats, comments, danmaku, subs = a.dueParts(src, v, now+61*60)
 	if !stats || !comments || danmaku || !subs {
 		t.Errorf("一小时后 stats/comments/subs 应到期且 danmaku 永不: %v %v %v %v", stats, comments, danmaku, subs)
+	}
+}
+
+func editTestConfig(a *App, edit func(*config.Config)) {
+	if err := a.Cfg.Update(func(c *config.Config) error { edit(c); return nil }); err != nil {
+		panic(err)
 	}
 }
