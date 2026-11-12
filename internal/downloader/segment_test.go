@@ -53,6 +53,7 @@ func newRangeServer(t *testing.T, size int64, chunkDelay time.Duration, supportR
 			status = http.StatusPartialContent
 			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, size))
 		}
+		w.Header().Set("ETag", `"deterministic-range-fixture"`)
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", end-start+1))
 		w.WriteHeader(status)
 		buf := make([]byte, 64<<10)
@@ -127,6 +128,10 @@ func TestSegmentedResume(t *testing.T) {
 	d := newTestDownloader(t, 4)
 	path := filepath.Join(t.TempDir(), "video.m4s.part")
 
+	stream := &biliapi.DashStream{BaseURL: srv.URL}
+	if _, _, _, err := d.prepareResume(context.Background(), stream, path); err != nil {
+		t.Fatal(err)
+	}
 	// 预置段 0 已完成的断点与对应数据，验证续传补齐剩余部分
 	sf := &segFile{Size: size, Segs: make([]segState, 4)}
 	chunk := int64(size) / 4
@@ -146,12 +151,14 @@ func TestSegmentedResume(t *testing.T) {
 	if _, err := f.Write(pre); err != nil {
 		t.Fatal(err)
 	}
+	if err = f.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
 	f.Close()
 	if err := saveSegs(path+segExt, sf); err != nil {
 		t.Fatal(err)
 	}
 
-	stream := &biliapi.DashStream{BaseURL: srv.URL}
 	if err := d.downloadFile(context.Background(), stream, path, nil); err != nil {
 		t.Fatal(err)
 	}

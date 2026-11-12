@@ -54,6 +54,7 @@ type Deps struct {
 
 // Server HTTP 服务。
 type Server struct {
+	initErr    error
 	Deps       Deps
 	mux        *http.ServeMux
 	teri       *teriteri.Adapter
@@ -62,14 +63,17 @@ type Server struct {
 
 func New(d Deps) *Server {
 	d.Cfg.InitRuntime()
+	var initErr error
 	if d.St != nil {
-		if values, _, err := d.St.RuntimeSettings(); err == nil {
-			_ = d.Cfg.Prepare(values)
+		values, _, err := d.St.RuntimeSettings()
+		initErr = err
+		if err == nil {
+			initErr = d.Cfg.Prepare(values)
 		}
 	}
 	d.Cfg.MarkApplied()
 
-	s := &Server{Deps: d, mux: http.NewServeMux()}
+	s := &Server{initErr: initErr, Deps: d, mux: http.NewServeMux()}
 	if d.Cfg.View().Teriteri.Enabled {
 		secret := d.Cfg.View().Teriteri.JWTSecret
 		if secret == "" {
@@ -124,7 +128,15 @@ func New(d Deps) *Server {
 	return s
 }
 
-func (s *Server) Handler() http.Handler { return s.auth(s.mux) }
+func (s *Server) Err() error { return s.initErr }
+func (s *Server) Handler() http.Handler {
+	if s.initErr != nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "archive settings are unavailable", http.StatusServiceUnavailable)
+		})
+	}
+	return s.auth(s.mux)
+}
 
 // authUser 当前请求身份（由 auth 中间件解析并注入 context）。
 type authUser struct {

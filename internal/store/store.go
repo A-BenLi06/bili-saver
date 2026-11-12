@@ -29,7 +29,16 @@ func Open(dbPath string) (*Store, error) {
 	if err := ensureDirFor(dbPath); err != nil {
 		return nil, err
 	}
-	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)"
+	uri, err := DatabaseURL(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	q := uri.Query()
+	for _, pragma := range []string{"journal_mode(WAL)", "busy_timeout(10000)", "foreign_keys(1)", "synchronous(NORMAL)"} {
+		q.Add("_pragma", pragma)
+	}
+	uri.RawQuery = q.Encode()
+	dsn := uri.String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err

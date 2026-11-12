@@ -350,7 +350,10 @@ func (d *Downloader) downloadPage(ctx context.Context, bvid string, v *store.Vid
 		}
 		return 0
 	}())
-	dir := filepath.Join(d.Cfg.View().DataDir, "tmp", "downloads", sanitize(bvid), fmt.Sprint(pg.Cid), policy, variant)
+	dir, pathErr := archivepath.Resolve(d.Cfg.View().DataDir, filepath.ToSlash(filepath.Join("tmp", "downloads", sanitize(bvid), fmt.Sprint(pg.Cid), policy, variant)))
+	if pathErr != nil {
+		return "", pathErr
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -440,6 +443,10 @@ func (d *Downloader) downloadFile(ctx context.Context, s *biliapi.DashStream, pa
 	ua := d.API.UserAgent()
 	urls := d.streamURLs(s)
 	segsPath := path + segExt
+	ctx, identity, ranged, resumeErr := d.prepareResume(ctx, s, path)
+	if resumeErr != nil {
+		return resumeErr
+	}
 
 	// 残留分段断点：分段写出的 .part 是稀疏文件，只有分段路径能安全续传
 	if _, err := os.Stat(segsPath); err == nil {
@@ -448,31 +455,15 @@ func (d *Downloader) downloadFile(ctx context.Context, s *biliapi.DashStream, pa
 		}
 		b, rerr := os.ReadFile(segsPath)
 		var sf segFile
-		if rerr != nil || json.Unmarshal(b, &sf) != nil || sf.Size <= 0 {
+		if rerr != nil || json.Unmarshal(b, &sf) != nil || sf.Size <= 0 || sf.Size != identity.Size {
 			return fmt.Errorf("%s 断点损坏，删除 %s 与 .part 后重试", segsPath, segsPath)
 		}
 		d.Log.Info("续传分段下载", "file", filepath.Base(path), "size", sf.Size)
 		return downloadSegmented(ctx, client, ua, urls, path, sf.Size, d.Cfg.View().Download.Segments, d.Log, onFrac)
 	}
 
-	if d.Cfg.View().Download.Segments > 1 {
-		for _, u := range urls {
-			if u == "" {
-				continue
-			}
-			total, ranged, err := probeSize(ctx, client, ua, u)
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				d.Log.Warn("分段探测失败，换下一个地址", "err", err)
-				continue
-			}
-			if !ranged || total < minSegSize {
-				break // 不支持 Range 或文件太小：单流即可
-			}
-			return downloadSegmented(ctx, client, ua, urls, path, total, d.Cfg.View().Download.Segments, d.Log, onFrac)
-		}
+	if d.Cfg.View().Download.Segments > 1 && ranged && identity.Size >= minSegSize {
+		return downloadSegmented(ctx, client, ua, urls, path, identity.Size, d.Cfg.View().Download.Segments, d.Log, onFrac)
 	}
 
 	var have int64
@@ -515,6 +506,9 @@ func (d *Downloader) tryDownload(ctx context.Context, u, path string, have int64
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	if have > 0 {
 		req.Header.Set("Range", "bytes="+strconv.FormatInt(have, 10)+"-")
+		if identity, ok := ctx.Value(resumeKey{}).(*resumeIdentity); ok && identity.ETag != "" {
+			req.Header.Set("If-Range", identity.ETag)
+		}
 	}
 	resp, err := d.API.DownloadClient().Do(req)
 	if err != nil {
@@ -539,6 +533,11 @@ func (d *Downloader) tryDownload(ctx context.Context, u, path string, have int64
 		if _, e := fmt.Sscanf(resp.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &total); e != nil || start != have || end < start || total <= end {
 			return 0, fmt.Errorf("invalid Content-Range for resume")
 		}
+		if e := validateResponse(ctx, resp, total); e != nil {
+			return 0, e
+		}
+	} else if e := validateResponse(ctx, resp, resp.ContentLength); e != nil {
+		return 0, e
 	}
 	var flag int
 	if resp.StatusCode == http.StatusOK && have > 0 {
@@ -546,7 +545,7 @@ func (d *Downloader) tryDownload(ctx context.Context, u, path string, have int64
 		flag = os.O_CREATE | os.O_WRONLY | os.O_TRUNC // 服务器不支持 Range，重来
 	} else {
 		flag = os.O_CREATE | os.O_WRONLY
-		if resp.StatusCode == http.StatusPartialContent {
+		if resp.StatusCode == http.StatusPartialContent && have > 0 {
 			flag |= os.O_APPEND
 		} else {
 			flag |= os.O_TRUNC
@@ -589,6 +588,9 @@ func (d *Downloader) tryDownload(ctx context.Context, u, path string, have int64
 	}
 	if onFrac != nil {
 		onFrac(1)
+	}
+	if err = f.Sync(); err != nil {
+		return written, err
 	}
 	return written, nil
 }
@@ -668,15 +670,8 @@ func loadOrInitSegs(segsPath string, total int64, n int) (*segFile, error) {
 
 // saveSegs 原子落盘分段状态（tmp+rename）。
 func saveSegs(segsPath string, sf *segFile) error {
-	b, err := json.Marshal(sf)
-	if err != nil {
-		return err
-	}
-	tmp := segsPath + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, segsPath)
+	_, err := fileio.WriteBytes(segsPath, mustJSON(sf))
+	return err
 }
 
 // downloadSegmented 用 n 个并发 Range 连接把 total 字节下载到 path。
@@ -690,6 +685,21 @@ func downloadSegmented(ctx context.Context, client *http.Client, ua string, urls
 	}
 	if sf.Size != total {
 		return fmt.Errorf("分段断点大小不符 %d != %d", sf.Size, total)
+	}
+	var end int64
+	for _, seg := range sf.Segs {
+		if seg.Start != end || seg.End <= seg.Start || seg.End > total || seg.Done < 0 || seg.Done > seg.End-seg.Start {
+			return fmt.Errorf("invalid segment checkpoint")
+		}
+		end = seg.End
+	}
+	if end != total {
+		return fmt.Errorf("incomplete segment checkpoint map")
+	}
+	if info, e := os.Stat(path); e != nil || info.Size() != total {
+		for i := range sf.Segs {
+			sf.Segs[i].Done = 0
+		}
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
@@ -747,11 +757,19 @@ func downloadSegmented(ctx context.Context, client *http.Client, ua string, urls
 		}
 	}
 	if firstErr != nil {
-		_ = saveSegs(segsPath, sf) // 保住已完成进度
+		if err = f.Sync(); err != nil {
+			return err
+		}
+		if err = saveSegs(segsPath, sf); err != nil {
+			return err
+		}
 		return firstErr
 	}
 	if written != total {
 		return fmt.Errorf("分段下载不完整 %d/%d", written, total)
+	}
+	if err = f.Sync(); err != nil {
+		return err
 	}
 	_ = os.Remove(segsPath)
 	if onFrac != nil {
@@ -801,6 +819,9 @@ func trySegment(ctx context.Context, client *http.Client, ua, u string, f *os.Fi
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, seg.End-1))
+	if identity, ok := ctx.Value(resumeKey{}).(*resumeIdentity); ok && identity.ETag != "" {
+		req.Header.Set("If-Range", identity.ETag)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -816,6 +837,9 @@ func trySegment(ctx context.Context, client *http.Client, ua, u string, f *os.Fi
 	var responseStart, responseEnd, responseTotal int64
 	if _, err := fmt.Sscanf(resp.Header.Get("Content-Range"), "bytes %d-%d/%d", &responseStart, &responseEnd, &responseTotal); err != nil || responseStart != start || responseEnd != seg.End-1 || responseTotal < seg.End {
 		return fmt.Errorf("invalid Content-Range for segment")
+	}
+	if err := validateResponse(ctx, resp, responseTotal); err != nil {
+		return err
 	}
 	if resp.ContentLength > 0 && resp.ContentLength != seg.End-start {
 		return fmt.Errorf("分段长度不符 %d != %d", resp.ContentLength, seg.End-start)

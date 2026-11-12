@@ -47,6 +47,19 @@ func (s *Store) migrate() error {
 	if v > SchemaVersion {
 		return fmt.Errorf("archive schema %d is newer than supported schema %d; use a newer application", v, SchemaVersion)
 	}
+	// Refuse edited migration history before even legacy repair DDL runs.
+	for _, m := range migrations {
+		if v < m.version {
+			break
+		}
+		var saved string
+		if err = s.DB.QueryRow(`SELECT checksum FROM schema_migrations WHERE version=?`, m.version).Scan(&saved); err != nil {
+			return err
+		}
+		if saved != fmt.Sprintf("%x", sha256.Sum256([]byte(m.sql))) {
+			return fmt.Errorf("migration %d checksum mismatch", m.version)
+		}
+	}
 	{
 		if err := s.migrateLegacy(); err != nil {
 			return err

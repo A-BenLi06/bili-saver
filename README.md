@@ -173,4 +173,6 @@ go vet ./...
 
 MIT
 
-Initial console and playback credentials are generated into `<data_dir>/credentials.json` when the application first starts. Upgrades rotate the recognized legacy `admin / bili-saver` console seed; custom user passwords are preserved. Restrict the archive directory's Windows ACL (or Unix permissions) to its owner. Keep this file and full backups private. Startup paths are resolved relative to the selected configuration file, so starting the same config from another working directory uses the same archive.
+Initial console and playback credentials are generated into `<data_dir>/credentials.json` when the application first starts. Upgrades rotate the recognized legacy `admin / bili-saver` console seed; custom user passwords are preserved. Generated credential/config files use a protected owner/SYSTEM Windows ACL or owner-only Unix permissions. Restrict the archive directory itself to its owner. Keep this file and full backups private. Startup paths are resolved relative to the selected configuration file, so starting the same config from another working directory uses the same archive.
+
+Verified private backup, restore, relocation and content catalog commands are documented in [archive recovery](docs/archive-recovery.md).

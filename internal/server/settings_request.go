@@ -6,6 +6,7 @@ import (
 )
 
 type settingsRequest struct {
+	StallMinutes       *int      `json:"stall_minutes" setting:"queue.stall_minutes"`
 	SyncDefaultMinutes *int      `json:"sync_default_minutes" setting:"collector.sync_default_minutes"`
 	StatsResyncHours   *int      `json:"stats_resync_hours" setting:"collector.stats_resync_hours"`
 	AdaptiveSync       *bool     `json:"adaptive_sync" setting:"collector.adaptive_sync"`

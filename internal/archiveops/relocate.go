@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 
@@ -14,7 +15,11 @@ import (
 )
 
 func relocatePaths(ctx context.Context, stage, oldRoot, destination string) error {
-	db, err := sql.Open("sqlite", filepath.Join(stage, "bili-saver.db"))
+	uri, err := store.DatabaseURL(filepath.Join(stage, "bili-saver.db"))
+	if err != nil {
+		return err
+	}
+	db, err := sql.Open("sqlite", uri.String())
 	if err != nil {
 		return err
 	}
@@ -110,7 +115,24 @@ func relocatePaths(ctx context.Context, stage, oldRoot, destination string) erro
 	}
 	// Node paths are intentionally regenerated; persisted runtime preferences remain in SQLite.
 	cfg := config.Defaults()
+	if _, e := os.Stat(filepath.Join(stage, "startup-config.yaml")); e == nil {
+		cfg, err = config.LoadSnapshot(filepath.Join(stage, "startup-config.yaml"))
+		if err != nil {
+			return err
+		}
+	} else if os.IsNotExist(e) {
+		cfg.Download.AutoDownload = false
+		cfg.Media.Enabled = false
+	} else {
+		return e
+	}
 	cfg.DataDir = destination
+	cfg.Media.Root = filepath.Join(destination, "library")
+	cfg.Plugins.Dir = filepath.Join(destination, "plugins")
+	cfg.Bilibili.CookieFile = filepath.Join(destination, "cookies.json")
+	cfg.Teriteri.WebRoot = filepath.Join(destination, "teriteri")
+	cfg.Log.File = ""
+	cfg.FFmpeg.Path = ""
 	cfg.Listen = "127.0.0.1:8080"
 	cfg.Teriteri.Enabled = false
 	cfg.Plugins.Enabled = false

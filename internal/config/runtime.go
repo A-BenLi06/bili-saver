@@ -71,7 +71,7 @@ func (c *Config) RestartRequired() []string {
 	}
 	current := c.View()
 	out := []string{}
-	for _, key := range []string{"download.concurrency", "collector.comment_concurrency", "bilibili.min_req_ms", "teriteri.enabled"} {
+	for _, key := range []string{"download.concurrency", "collector.comment_concurrency", "bilibili.min_req_ms", "teriteri.enabled", "queue.stall_minutes"} {
 		a, _ := initial.Field(key)
 		b, _ := current.Field(key)
 		if !reflect.DeepEqual(a.Interface(), b.Interface()) {
@@ -91,7 +91,7 @@ func (c *Config) EffectiveStartup() map[string]any {
 	if v == nil {
 		return nil
 	}
-	return map[string]any{"concurrency": v.Download.Concurrency, "comment_concurrency": v.Collector.CommentConcurrency, "min_req_ms": v.Bilibili.MinReqMs, "teriteri_enabled": v.Teriteri.Enabled}
+	return map[string]any{"concurrency": v.Download.Concurrency, "comment_concurrency": v.Collector.CommentConcurrency, "min_req_ms": v.Bilibili.MinReqMs, "teriteri_enabled": v.Teriteri.Enabled, "stall_minutes": v.Queue.StallMinutes}
 }
 
 func (c *Config) Field(key string) (reflect.Value, error) {

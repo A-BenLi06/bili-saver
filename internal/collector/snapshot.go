@@ -4,6 +4,7 @@ package collector
 // 历史时间戳文件继续可读，不修改或清理已有 origin 数据。
 
 import (
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"bili-saver/internal/archivepath"
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/store"
 )
@@ -28,7 +30,10 @@ func (c *Collector) SnapshotHook() biliapi.SnapshotHook {
 		sum := sha256.Sum256(body)
 		hash := hex.EncodeToString(sum[:])
 		rel := filepath.Join("raw", "objects", hash[:2], hash[2:4], hash+".json.gz")
-		full := filepath.Join(c.Cfg.View().DataDir, rel)
+		full, pathErr := archivepath.Resolve(c.Cfg.View().DataDir, filepath.ToSlash(rel))
+		if pathErr != nil {
+			return pathErr
+		}
 		if err := persistSnapshot(full, body, &snapshotLocks[int(sum[0])%len(snapshotLocks)]); err != nil {
 			return fmt.Errorf("snapshot body: %w", err)
 		}
@@ -47,6 +52,25 @@ func persistSnapshot(path string, body []byte, mu *sync.Mutex) error {
 	defer mu.Unlock()
 	if fi, err := os.Stat(path); err == nil {
 		if fi.Mode().IsRegular() && fi.Size() > 0 {
+			f, e := os.Open(path)
+			if e != nil {
+				return e
+			}
+			defer f.Close()
+			gz, e := gzip.NewReader(f)
+			if e != nil {
+				return e
+			}
+			defer gz.Close()
+			h := sha256.New()
+			n, e := io.Copy(h, io.LimitReader(gz, int64(len(body))+1))
+			if e != nil {
+				return e
+			}
+			want := sha256.Sum256(body)
+			if n != int64(len(body)) || !bytes.Equal(h.Sum(nil), want[:]) {
+				return fmt.Errorf("existing snapshot checksum mismatch: %s", path)
+			}
 			return nil
 		}
 		return fmt.Errorf("快照目标不是有效文件: %s", path)

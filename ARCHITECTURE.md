@@ -9,7 +9,7 @@
 ## 1. 设计原则（红线）
 
 1. **数据忠诚（最高优先级）**，三层机制保障：
-   - **origin / derived 分层**：B 站原始数据（`raw/` 快照 + `media/` + origin 标注的表行）与一切生成数据（`derived/` + `origin=plugin:*` 的表行）物理与逻辑分离。插件通过进程协议**只能写 derived 层**，机制上无法污染原始数据。
+   - **origin / derived 分层**：B 站原始数据（`raw/` 快照 + `media/` + origin 标注的表行）与一切生成数据（`derived/` + `origin=plugin:*` 的表行）物理与逻辑分离。核心插件回写协议**只允许 derived 层**；外部插件属于可信本机程序，仍具有操作系统用户的文件权限，不构成进程沙箱。
    - **只增不删**：评论/弹幕消失时标记 `status='deleted' + deleted_at`，正文与原始 JSON 永久保留；统计数字按时间序列追加（`video_stats_history`）。
    - **快照先行**：所有 B 站 API 响应先 gzip 落盘（`raw/`）再解析，接口变更可离线重解析。
 2. **消失检测必须防误判**（详见 §6.2）：接口截断/降级导致的"假消失"会被防御机制拦截，宁可不标也不制造虚假消失记录。
@@ -264,7 +264,7 @@ See [archive recovery](docs/archive-recovery.md) for commands and backup/catalog
 
 ### Private installation state
 
-`nodeauth` initializes private credentials before any API is exposed. It rotates only the recognized legacy admin seed, preserving custom user passwords, and writes the recovery value before updating the database. Blank/legacy playback passwords and JWT keys become per-installation random values in data/credentials.json. Explicit custom credentials remain valid. Password changes use the private vault and invalidate playback tokens across both adapters. Generated files request owner-only Unix permissions; Windows access follows the archive directory ACL. The login page points local owners to the private credential file without exposing its contents.
+`nodeauth` initializes private credentials before any API is exposed. It rotates only the recognized legacy admin seed, preserving custom user passwords, and writes the recovery value before updating the database. Blank/legacy playback passwords and JWT keys become per-installation random values in data/credentials.json. Explicit custom credentials remain valid. Password changes use the private vault and invalidate playback tokens across both adapters. Generated credential/config files use owner-only Unix permissions or a protected Windows DACL granting the current user and SYSTEM access. Private backup staging applies the same restriction. The login page points local owners to the private credential file without exposing its contents.
 
 Plugins receive a process-local read-only capability for video metadata/comments/danmaku/tracks. It cannot read settings or administer the service. Plugins still execute trusted local programs with the operating-system user's filesystem permissions; this is an API capability boundary, not a process sandbox.
 
@@ -272,10 +272,19 @@ Plugins receive a process-local read-only capability for video metadata/comments
 
 Archive events and per-target deliveries separate producer completion from plugin/media side effects. Download visibility and its event commit atomically. Deliveries retry with capped backoff and are not acknowledged on process/op failures. Event IDs are stable across replay; plugin append operations record transactional receipts keyed by delivery/operation order with a content checksum. Replayed append output must be deterministic. Plugins that perform external side effects must deduplicate by event_id themselves: delivery is at least once, not exactly once.
 
-The delivery worker is owned by App and stops before the database closes. Download jobs from all paths refresh media projections through the same durable event route. Queue recovery failures abort startup. Prolonged state-write failure stops the queue for restart recovery; the watchdog cooperatively cancels handlers that stop reporting progress for 30 minutes. Handler code must honor its context; Go handlers are not forcibly terminated.
+The delivery worker is owned by App and stops before the database closes. Download jobs from all paths refresh media projections through the same durable event route. Queue recovery failures abort startup. Prolonged state-write failure stops the queue for restart recovery; the watchdog cooperatively cancels handlers that stop reporting progress for `queue.stall_minutes` (default 30; startup setting). Handler code must honor its context; Go handlers are not forcibly terminated.
 
 ### Schema v20 — Owned library projections and source provenance
 
 Media outputs are regenerable projections with a database ownership ledger. A complete library is prepared in an isolated sibling staging directory; generation errors leave its published outputs intact. Each leaf records an intent before publication, retaining its previous identity for crash recovery. Cleanup unlinks only owned unchanged leaves inside the validated current root. Modified/unmanaged files are conflicts. Exact existing matches can be adopted; pre-ledger stale files and output directories from former roots are retained. This avoids guessing ownership during upgrade. Empty directories are harmless and retained.
 
 Show groups use owner identity in their stable folder names; persisted episode numbers append instead of renumbering when older videos arrive. Explicit show layout also works with one video. Collection layout emits all recorded collection memberships, including memberships retained in source tombstones after deleting a monitor. JSON sidecars include all collection identities; NFO's single set field uses the first stable source order. Missing optional artwork is skipped; actual write failures are surfaced. Copy-mode staging avoids copying video bytes until changed output is published; validating regular-file fingerprints still incurs content-reading I/O.
+
+
+### Portable I/O and final recovery behavior
+
+SQLite filesystem paths are encoded as file URIs, including spaces, Unicode and literal `#`. Raw snapshot reuse checks the gzip body against its content hash; existing corruption is reported and retained. Migration checksums are checked before legacy repair DDL. CDN staging is bound to selected stream properties, a strong ETag and total size; responses validate If-Range and Content-Range before reuse. Without a strong validator, partial streams restart and parallel range reuse is disabled. Segment checkpoints follow synced data. This can reduce speed on unvalidated CDNs but avoids combining unrelated bytes.
+
+Private CLI backups capture effective startup configuration (without changing the source YAML), database runtime settings, active cookie state and installed plugins, including explicitly configured external cookie/plugin locations. Restore reads the private snapshot without applying the invoking process environment, regenerates node paths/loopback listener and disables hosted sites/plugins. Older data-only backups restore with automatic downloads and media output disabled. Node binaries, ffmpeg, hosted frontend builds, logs, output libraries and incomplete staging are not content backups. Review the generated config before starting.
+
+Admin-only `/api/v1/archive/deliveries` exposes the latest delivery attempts/errors. Offline `check` reports large historical disappearance batches as review candidates without changing original statuses. This is diagnostic evidence, not proof that a batch is incorrect. Future exchange uses versioned content identities/catalogs only; no P2P protocol or import trust model is implemented.

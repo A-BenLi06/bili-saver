@@ -297,12 +297,13 @@ type tFeedCard struct {
 func (a *Adapter) mediaURL(v *store.Video, page int) string {
 	rel, err := a.St.PartLocalPath(v.Bvid, page)
 	if err != nil {
-		if page <= 1 {
-			rel = v.LocalPath
-		} else {
+		pages, e := a.St.ListPages(v.Bvid)
+		if e != nil || len(pages) > 0 || page > 1 {
 			return ""
 		}
+		rel = v.LocalPath
 	}
+
 	rel = strings.ReplaceAll(rel, `\`, "/")
 	if _, err := os.Stat(filepath.Join(a.DataDir, filepath.FromSlash(rel))); err != nil {
 		// 文件尚未下载：仍然返回 URL（前端会 404，管理端可触发下载）

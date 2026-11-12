@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"bili-saver/internal/config"
+	"bili-saver/internal/fileio"
 	"bili-saver/internal/store"
 )
 
@@ -66,25 +67,7 @@ func (v *Vault) save(value Private) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.CreateTemp(filepath.Dir(v.path), ".credentials-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if err = f.Chmod(0600); err != nil {
-		return err
-	}
-	if _, err = f.Write(body); err != nil {
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(f.Name(), v.path); err != nil {
+	if err = fileio.WritePrivateBytes(v.path, body); err != nil {
 		return err
 	}
 	v.value = value

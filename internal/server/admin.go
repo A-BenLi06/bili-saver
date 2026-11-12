@@ -74,6 +74,7 @@ func hotHumanize(n int) string {
 }
 
 func (s *Server) registerAdmin() {
+	s.mux.HandleFunc("GET /api/v1/archive/deliveries", s.handleDeliveries)
 	s.mux.HandleFunc("GET /api/v1/archive/catalog", func(w http.ResponseWriter, r *http.Request) {
 		value, err := archiveops.ExportCatalog(s.Deps.St)
 		if err != nil {
@@ -743,6 +744,7 @@ func configPayload(c *config.Config) map[string]any {
 		"hot_video_views":      c.Collector.HotVideoViews, "hot_video_replies": c.Collector.HotVideoReplies,
 		"adaptive_sync": c.Collector.AdaptiveSync,
 		"new_add_first": c.Queue.NewAddFirst,
+		"stall_minutes": c.Queue.StallMinutes,
 		"min_req_ms":    c.Bilibili.MinReqMs,
 		"media_enabled": c.Media.Enabled, "media_layout": c.Media.Layout, "media_root": c.Media.Root,
 		"media_servers":   publicMediaServers(c.Media.Servers),
@@ -835,6 +837,9 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	// ---- 提交 ----
 	apply := func() {
+		if req.StallMinutes != nil {
+			c.Queue.StallMinutes = *req.StallMinutes
+		}
 		if req.SyncDefaultMinutes != nil {
 			c.Collector.SyncDefaultMinutes = *req.SyncDefaultMinutes
 		}
@@ -945,6 +950,9 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.Deps.St != nil {
 			revision, err = s.Deps.St.SaveRuntimeSettings(values, expected)
+			if err != nil && !errors.Is(err, store.ErrSettingsConflict) {
+				return fmt.Errorf("%w: %v", store.ErrSettingsUnavailable, err)
+			}
 			return err
 		}
 		return nil
@@ -953,6 +961,8 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		code := 400
 		if errors.Is(err, store.ErrSettingsConflict) {
 			code = 409
+		} else if errors.Is(err, store.ErrSettingsUnavailable) {
+			code = 503
 		}
 		errJSON(w, code, err)
 		return

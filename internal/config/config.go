@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"bili-saver/internal/fileio"
 	"gopkg.in/yaml.v3"
 )
 
@@ -112,7 +113,8 @@ type Config struct {
 	Queue struct {
 		// NewAddFirst 新添加补档优先执行：/add 触发的首个任务先于普通排队任务。
 		// 不中断正在执行的任务，同优先级按加入顺序执行；false=按先来后到。
-		NewAddFirst bool `yaml:"new_add_first"`
+		NewAddFirst  bool `yaml:"new_add_first"`
+		StallMinutes int  `yaml:"stall_minutes"`
 	} `yaml:"queue"`
 }
 
@@ -151,11 +153,16 @@ func Defaults() *Config {
 	c.Teriteri.AdminAddr = ":8082"
 	c.Plugins.Enabled = true
 	c.Queue.NewAddFirst = true
+	c.Queue.StallMinutes = 30
 	return &c
 }
 
 // Load 依次应用默认值 → YAML 文件（可不存在）→ 环境变量，然后派生路径并校验。
-func Load(path string) (*Config, error) {
+func Load(path string) (*Config, error) { return load(path, true) }
+
+// LoadSnapshot reads private backup configuration without process environment overrides.
+func LoadSnapshot(path string) (*Config, error) { return load(path, false) }
+func load(path string, environment bool) (*Config, error) {
 	c := Defaults()
 	if path != "" {
 		b, err := os.ReadFile(path)
@@ -168,8 +175,10 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("解析配置 %s: %w", path, err)
 		}
 	}
-	if err := applyEnv(c, "BILI_SAVER", reflect.ValueOf(c).Elem(), ""); err != nil {
-		return nil, err
+	if environment {
+		if err := applyEnv(c, "BILI_SAVER", reflect.ValueOf(c).Elem(), ""); err != nil {
+			return nil, err
+		}
 	}
 	base, err := filepath.Abs(filepath.Dir(path))
 	if err != nil {
@@ -234,6 +243,9 @@ func (c *Config) Normalize() {
 
 // Validate 做跨字段校验与派生。
 func (c *Config) Validate() error {
+	if c.Queue.StallMinutes < 1 || c.Queue.StallMinutes > 1440 {
+		return fmt.Errorf("queue.stall_minutes must be between 1 and 1440")
+	}
 	if c.Collector.CommentConcurrency < 1 || c.Collector.CommentConcurrency > 4 {
 		return fmt.Errorf("collector.comment_concurrency 必须在 1 到 4 之间")
 	}
@@ -322,24 +334,4 @@ func applyEnv(c *Config, prefix string, v reflect.Value, path string) error {
 	return nil
 }
 
-func writeConfigAtomic(path string, body []byte) error {
-	f, err := os.CreateTemp(filepath.Dir(path), ".config-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if err = f.Chmod(0600); err != nil {
-		return err
-	}
-	if _, err = f.Write(body); err != nil {
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
-}
+func writeConfigAtomic(path string, body []byte) error { return fileio.WritePrivateBytes(path, body) }

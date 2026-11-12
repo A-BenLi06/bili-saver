@@ -11,6 +11,7 @@ const settingsSchema = `CREATE TABLE IF NOT EXISTS runtime_settings(key TEXT PRI
 CREATE TABLE IF NOT EXISTS settings_revision(id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL);
 INSERT OR IGNORE INTO settings_revision VALUES(1,0);`
 
+var ErrSettingsUnavailable = errors.New("archive settings could not be persisted")
 var ErrSettingsConflict = errors.New("settings changed; reload before saving")
 
 func (s *Store) RuntimeSettings() (map[string]json.RawMessage, int64, error) {

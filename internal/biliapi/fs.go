@@ -1,6 +1,7 @@
 package biliapi
 
 import (
+	"bili-saver/internal/fileio"
 	"errors"
 	"os"
 )
@@ -8,7 +9,7 @@ import (
 var errFileNotFound = errors.New("file not found")
 
 func osWriteFile(path string, data []byte) error {
-	return os.WriteFile(path, data, 0o600)
+	return fileio.WritePrivateBytes(path, data)
 }
 
 func osReadFile(path string) ([]byte, error) {

@@ -38,11 +38,38 @@ import (
 
 var version = "0.1.0"
 
+type commandFailure struct{ err error }
+
 func main() {
+	code := 0
+	func() {
+		defer func() {
+			if value := recover(); value != nil {
+				if failure, ok := value.(commandFailure); ok {
+					fmt.Fprintln(os.Stderr, "Error:", failure.err)
+					code = 1
+				} else {
+					panic(value)
+				}
+			}
+		}()
+		run()
+	}()
+	if code != 0 {
+		os.Exit(code)
+	}
+}
+func run() {
 	configPath := flag.String("config", "", "配置文件路径（默认 ./config.yaml，可用 BILI_SAVER_CONFIG 覆盖）")
 	flag.Parse()
 	args := flag.Args()
 	if len(args) == 0 {
+		usage()
+		os.Exit(2)
+	}
+	switch args[0] {
+	case "serve", "add", "sync", "login", "export-nfo", "cards", "version", "check", "backup", "restore", "relocate", "catalog":
+	default:
 		usage()
 		os.Exit(2)
 	}
@@ -86,7 +113,7 @@ func main() {
 		if len(args) != 2 {
 			fatal(fmt.Errorf("usage: backup NEW_DIRECTORY"))
 		}
-		manifest, err := archiveops.Backup(context.Background(), cfg.DataDir, args[1])
+		manifest, err := archiveops.BackupWithConfig(context.Background(), cfg, args[1])
 		if err != nil {
 			fatal(err)
 		}
@@ -96,7 +123,7 @@ func main() {
 		if len(args) != 2 {
 			fatal(fmt.Errorf("usage: relocate NEW_DIRECTORY"))
 		}
-		if err := archiveops.Relocate(context.Background(), cfg.DataDir, args[1]); err != nil {
+		if err := archiveops.RelocateWithConfig(context.Background(), cfg, args[1]); err != nil {
 			fatal(err)
 		}
 		fmt.Println("Verified archive copy created; source retained. Review destination config.yaml before starting")
@@ -172,8 +199,7 @@ func usage() {
 }
 
 func fatal(err error) {
-	fmt.Fprintln(os.Stderr, "错误:", err)
-	os.Exit(1)
+	panic(commandFailure{err})
 }
 
 func runServe(cfg *config.Config, a *app.App) {

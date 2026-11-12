@@ -6,10 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"bili-saver/internal/store"
@@ -50,6 +48,9 @@ type Catalog struct {
 
 // Catalog excludes node paths, credentials, users, quotas and operational state.
 func ExportCatalog(st *store.Store) (Catalog, error) {
+	if !hasTable(st.DB, "archive_assets") {
+		return Catalog{}, fmt.Errorf("content catalog requires the asset-index migration; start the upgraded application on a verified archive copy first")
+	}
 	items, err := st.Assets("")
 	if err != nil {
 		return Catalog{}, err
@@ -69,11 +70,10 @@ func openReadOnly(ctx context.Context, root string) (*sql.DB, error) {
 	if _, err = os.Stat(p); err != nil {
 		return nil, err
 	}
-	uriPath := filepath.ToSlash(p)
-	if len(uriPath) > 1 && uriPath[1] == ':' && !strings.HasPrefix(uriPath, "/") {
-		uriPath = "/" + uriPath
+	u, err := store.DatabaseURL(p)
+	if err != nil {
+		return nil, err
 	}
-	u := url.URL{Scheme: "file", Path: uriPath}
 	q := u.Query()
 	q.Set("mode", "ro")
 	q.Add("_pragma", "query_only(1)")

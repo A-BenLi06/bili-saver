@@ -221,9 +221,10 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 			names = append(names, t.NameOr())
 		}
 		if err := c.St.AddTags(view.Bvid, names, "bilibili"); err != nil {
-			c.Log.Warn("标签入库失败", "bvid", bvid, "err", err)
+			return res, err
 		}
 	} else {
+		res.Warnings = append(res.Warnings, "tags: "+err.Error())
 		c.Log.Warn("标签拉取失败", "bvid", bvid, "err", err)
 	}
 
@@ -236,8 +237,10 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 			break
 		}
 		if err := c.St.UpsertAIConclusion(view.Bvid, model, concl.ModelResult.Summary, string(outline)); err != nil {
-			c.Log.Warn("AI小结入库失败", "bvid", bvid, "err", err)
+			return res, err
 		}
+	} else if errors.Is(err, biliapi.ErrSnapshot) {
+		return res, err
 	}
 
 	taskflow.Report(ctx, 0.08, "采集弹幕")

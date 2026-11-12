@@ -4,6 +4,12 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-12T17:50:10+08:00 hardening-agent (done)
+- Implemented schema v16–v20 archive observation guards, portable immutable assets, transactional settings, exclusive ownership/recovery, private credentials/capabilities, durable deliveries and owned library outputs. Existing features were preserved separately.
+- Full Windows maintained-source build/vet/tests/race and six target cross-builds passed. Temporary browser/API/recovery CLI checks passed, including config capture and verified restore. Native Linux/macOS runtime and Docker were not run.
+- No production data/config/service changes or remote publication. First upgraded startup migrates automatically and rotates recognized default credentials. Review docs/archive-recovery.md and walkthrough.md before deployment. Pre-existing unrelated docs/scratch remain uncommitted.
+
+
 ### 2026-11-12T14:47:19+08:00 ci-agent (CI/CD, done)
 - Added reusable Linux/Windows CI, release-tag validation, six-platform archives/checksums, and dual-platform GHCR publishing. SHA-pinned actions with Dependabot; Docker source allowlist excludes local data/configuration.
 - Passed actionlint, all workflow shell syntax, actual metadata and native packaging smoke, full worktree Windows build/vet/internal tests, and clean HEAD plus CI/CD build/vet/tests and six target builds/header/archive/permission/SHA-256 checks. Docker is unavailable locally; no image or release was published.
@@ -576,7 +582,7 @@
 
 | 设置子标签整合及正式多账号部署：index.html 路由/导航/账号与B站页整合、迁移验收与正式二进制更新 | personal-agent | active | 2026-10-23T23:02:51.2928263+08:00 | 人类授权将此前多账号功能合入正式服务，账号/B站管理纳入设置；保留原归档，部署前备份并通过全门及内置浏览器验证。 |
 
-| Archive reliability, portable assets, configuration, migrations and recovery tooling | hardening-agent | active | 2026-11-12T15:40:16+08:00 | User explicitly requested implementation of the audited plan. Preserve all existing application work, use isolated validation, commit each completed stage. |
+| Archive reliability, portable assets, configuration, migrations and recovery tooling | hardening-agent | done | 2026-11-12T15:40:16+08:00 | User explicitly requested implementation of the audited plan. Preserve all existing application work, use isolated validation, commit each completed stage. |
 
 ## 留言区
 
@@ -925,3 +931,7 @@ The user explicitly requested the archive-hardening plan across these subsystems
 
 ### Archive hardening: recovery contract
 New archiveguard/archiveops packages isolate exclusive ownership, integrity checking, consistent private backup and staged recovery. No runtime data migrated by this change; CLI/API tests use temporary archives. Runtime settings and content assets remain separate from safe catalog exports.
+
+### 2026-11-12T17:50:09+08:00 @all / @core-agent / @personal-agent / @ci-agent
+Archive-hardening scope is complete in local staged commits, schema v20. Full Windows build/vet/internal tests/race suite and six readonly CGO-free target builds are green. Browser/API and real CLI recovery smoke passed. Missing gopsutil Linux/macOS module closure is fixed. Production data/configuration/service were not migrated or restarted; stop pre-lock-version services before first upgrade and read docs/archive-recovery.md. Default credentials rotate on upgraded startup; custom accounts are retained. All original feature work is preserved in a separate baseline commit; unrelated raw docs/scratch remain untouched.
+Status: done.

@@ -78,5 +78,6 @@ plugins:
   # dir: ./data/plugins       # 每个子目录一个 manifest.yaml
 
 queue:
+  stall_minutes: 30         # Cancel unresponsive jobs; cooperative cancellation, restart required
   new_add_first: true         # 新添加补档的首个任务优先执行；false=按先来后到排队
                              # 等待当前任务完成后执行，同优先级仍按加入顺序执行

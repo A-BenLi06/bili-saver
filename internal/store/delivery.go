@@ -86,6 +86,9 @@ func (s *Store) CompleteDownload(bvid, path string, payload map[string]any) erro
 	if _, err = tx.Exec(`UPDATE videos SET downloaded=1,local_path=? WHERE bvid=?`, path, bvid); err != nil {
 		return err
 	}
+	if _, err = tx.Exec(`UPDATE user_download_requests SET next_attempt_at=0 WHERE bvid=? AND state='waiting'`, bvid); err != nil {
+		return err
+	}
 	if _, err = enqueueEvent(tx, "video.downloaded", payload); err != nil {
 		return err
 	}

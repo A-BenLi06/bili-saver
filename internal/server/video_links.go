@@ -72,12 +72,13 @@ func (s *Server) videoFile(v *store.Video, page int) (string, bool) {
 	}
 	rel, resolveErr := s.Deps.St.PartLocalPath(v.Bvid, page)
 	if resolveErr != nil {
-		if page == 1 {
-			rel = v.LocalPath
-		} else {
+		pages, e := s.Deps.St.ListPages(v.Bvid)
+		if e != nil || len(pages) > 0 || page > 1 {
 			return "", false
 		}
+		rel = v.LocalPath
 	}
+
 	p, pathErr := archivepath.Resolve(root, rel)
 	if pathErr != nil {
 		return "", false

@@ -4011,7 +4011,7 @@ const QUAL_OPTS = ['4k','1080p60','1080p-high','1080p','720p60','720p','480p','3
 const AQUAL_OPTS = ['hires','dolby','192k','132k','64k'];
 const ST_FIELDS = [
   ['stSyncMin','sync_default_minutes','int'], ['stStatsH','stats_resync_hours','int'],
-  ['stAdaptive','adaptive_sync','bool'], ['stNewAddFirst','new_add_first','bool'], ['stCmtMax','comments_max','int'],
+  ['stStallMinutes','stall_minutes','int'], ['stAdaptive','adaptive_sync','bool'], ['stNewAddFirst','new_add_first','bool'], ['stCmtMax','comments_max','int'],
   ['stSubMax','sub_replies_max','int'], ['stFullCmt','full_resync_comments','bool'],
   ['stCommentConc','comment_concurrency','int1'], ['stCommentFullH','comment_full_hours','int'],
   ['stHotV','hot_video_views','int'], ['stHotR','hot_video_replies','int'],
@@ -4202,6 +4202,7 @@ async function renderSettings(m){
       ${stRow(ST_COMBOS[1].id, '全库统计周期', '定时刷新全库视频播放量、点赞、投币等走势快照', stComboCtrl(ST_COMBOS[1], c.stats_resync_hours??0))}
       ${stSwRow('stAdaptive', c.adaptive_sync, '自适应补档频率', '新发布视频 24h 内高频追踪，对沉寂老视频自动降低检测频率')}
       ${stSwRow('stNewAddFirst', c.new_add_first, '新加入视频优先执行', '默认开启，新加入的视频及源首次展开的归档任务优先；等待正在执行的任务完成，同级按加入顺序执行。保存后对新任务生效，关闭则按先来后到排队')}
+      ${stRow('stStallMinutes', 'Job progress timeout', 'Cancel a job that stops reporting progress. Requires restart.', `<input id="stStallMinutes" type="number" min="1" max="1440" value="${c.stall_minutes??30}" style="width:80px"><span>min</span>`)}
       ${stSwRow('stFullCmt', c.full_resync_comments, '周期完整核对评论', '首次归档完整抓取；日常增量扫描新主楼并轮转检查旧楼回复，最多 5 页主楼、10 次评论请求。仅完整核对检测消失；关闭后停用周期核对')}
       ${stRow('stCommentFullH', '评论完整核对周期', '默认 168 小时（7 天），到期后的评论同步执行全量；0 表示每轮全量。暂停监控时不执行', `<input id="stCommentFullH" type="number" min="0" max="8760" value="${c.comment_full_hours??168}" style="width:80px"><span>小时</span>`)}
       ${stRow('stCommentConc', '评论请求并发', '全局在途上限 1–4，主楼按序、楼中楼并发，仍共享请求间隔。保存后需重启生效；已保存的分页可在重启后继续', `<input id="stCommentConc" type="number" min="1" max="4" value="${c.comment_concurrency??2}" style="width:80px">`)}

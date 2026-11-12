@@ -124,12 +124,14 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	api.SetSnapshotHook(col.SnapshotHook())
 	dl := downloader.New(st, api, cfg, log, asyncEmitter{bus})
 	mgr := jobs.NewManager(st, log, cfg.View().Download.Concurrency)
+	mgr.StallTimeout = time.Duration(cfg.View().Queue.StallMinutes) * time.Minute
 	med := media.New(st, cfg, log)
 	cardGen := card.New(st, cfg, log)
 	img := images.New(st, cfg.View().DataDir, cfg.View().Bilibili.UserAgent, log)
 	lv := levels.New(st, cfg.View().DataDir, api, log)
 	if err := st.EnsureDefaultLibrary(cfg.View().Media.Root, cfg.View().Media.Layout, cfg.View().Media.LinkMode); err != nil {
-		log.Warn("默认媒体库迁移失败", "err", err)
+		st.Close()
+		return nil, fmt.Errorf("initialize default library: %w", err)
 	}
 	a := &App{guard: guard, vault: vault, pluginToken: pluginToken, Cfg: cfg, Log: log, St: st, API: api, Col: col, Dl: dl, Mgr: mgr, Bus: bus, Med: med, Card: cardGen, Img: img, Lv: lv}
 	if cfg.View().Teriteri.Enabled {
@@ -675,6 +677,9 @@ func (a *App) Serve(ctx context.Context) error {
 		}
 	}()
 	handler := a.HTTPHandler()
+	if err := a.Srv.Err(); err != nil {
+		return err
+	}
 	a.startDeliveries(ctx)
 	if a.Teri != nil {
 		a.Teri.Attach(handler)

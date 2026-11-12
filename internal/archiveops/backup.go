@@ -13,11 +13,19 @@ import (
 	"bili-saver/internal/archiveguard"
 	"bili-saver/internal/archivepath"
 	"bili-saver/internal/assets"
+	"bili-saver/internal/config"
+	"bili-saver/internal/fileio"
 	"bili-saver/internal/store"
 	sqlite "modernc.org/sqlite"
 )
 
 func Backup(ctx context.Context, root, destination string) (*Manifest, error) {
+	return backup(ctx, root, destination, nil)
+}
+func BackupWithConfig(ctx context.Context, cfg *config.Config, destination string) (*Manifest, error) {
+	return backup(ctx, cfg.View().DataDir, destination, cfg)
+}
+func backup(ctx context.Context, root, destination string, cfg *config.Config) (*Manifest, error) {
 	if _, err := os.Stat(filepath.Join(root, "bili-saver.db")); err != nil {
 		return nil, err
 	}
@@ -26,10 +34,14 @@ func Backup(ctx context.Context, root, destination string) (*Manifest, error) {
 		return nil, err
 	}
 	defer lock.Close()
-	return backupLocked(ctx, root, destination)
+	return backupLocked(ctx, root, destination, cfg)
 }
 
-func backupLocked(ctx context.Context, root, destination string) (*Manifest, error) {
+func backupLocked(ctx context.Context, root, destination string, startup ...*config.Config) (*Manifest, error) {
+	var cfg *config.Config
+	if len(startup) > 0 {
+		cfg = startup[0]
+	}
 	source, err := archivepath.Canonical(root)
 	if err != nil {
 		return nil, err
@@ -56,6 +68,16 @@ func backupLocked(ctx context.Context, root, destination string) (*Manifest, err
 		return nil, err
 	}
 	defer db.Close()
+	if cfg != nil && hasTable(db, "runtime_settings") {
+		cfg = cfg.Clone()
+		values, _, e := (&store.Store{DB: db}).RuntimeSettings()
+		if e != nil {
+			return nil, e
+		}
+		if e = cfg.ApplyOverrides(values); e != nil {
+			return nil, e
+		}
+	}
 	if err = backupDatabase(ctx, db, filepath.Join(stage, "bili-saver.db")); err != nil {
 		return nil, err
 	}
@@ -64,9 +86,22 @@ func backupLocked(ctx context.Context, root, destination string) (*Manifest, err
 		return nil, err
 	}
 	keys := []string{"bili-saver.db"}
+	sources := map[string]string{}
+	prepared := map[string]bool{"bili-saver.db": true}
+	if cfg != nil {
+		if err = config.SaveConfigFile(filepath.Join(stage, "startup-config.yaml"), cfg); err != nil {
+			return nil, err
+		}
+		keys = append(keys, "startup-config.yaml")
+		prepared["startup-config.yaml"] = true
+	}
+
 	// Full private backups include original/derived bytes and private root state.
 	for _, name := range []string{"raw", "media", "derived", "plugins"} {
 		start := filepath.Join(source, name)
+		if name == "plugins" && cfg != nil && cfg.View().Plugins.Dir != "" {
+			start = cfg.View().Plugins.Dir
+		}
 		if _, e := os.Lstat(start); os.IsNotExist(e) {
 			continue
 		} else if e != nil {
@@ -92,11 +127,13 @@ func backupLocked(ctx context.Context, root, destination string) (*Manifest, err
 			if !info.Mode().IsRegular() {
 				return fmt.Errorf("unsupported archive file %s", p)
 			}
-			rel, e := filepath.Rel(source, p)
+			rel, e := filepath.Rel(start, p)
 			if e != nil {
 				return e
 			}
-			keys = append(keys, filepath.ToSlash(rel))
+			key := name + "/" + filepath.ToSlash(rel)
+			keys = append(keys, key)
+			sources[key] = p
 			return nil
 		})
 		if err != nil {
@@ -104,9 +141,17 @@ func backupLocked(ctx context.Context, root, destination string) (*Manifest, err
 		}
 	}
 	for _, name := range []string{"cookies.json", "credentials.json", "bootstrap-credentials.json"} {
-		if fi, e := os.Stat(filepath.Join(source, name)); e == nil && fi.Mode().IsRegular() {
+		from := filepath.Join(source, name)
+		if name == "cookies.json" && cfg != nil && cfg.View().CookiePath() != "" {
+			from = cfg.View().CookiePath()
+		}
+		if fi, e := os.Lstat(from); e == nil {
+			if !fi.Mode().IsRegular() {
+				return nil, fmt.Errorf("private root file must be regular: %s", name)
+			}
 			keys = append(keys, name)
-		} else if e != nil && !os.IsNotExist(e) {
+			sources[name] = from
+		} else if !os.IsNotExist(e) {
 			return nil, e
 		}
 	}
@@ -116,12 +161,12 @@ func backupLocked(ctx context.Context, root, destination string) (*Manifest, err
 			return nil, err
 		}
 		target := filepath.Join(stage, filepath.FromSlash(key))
-		if key != "bili-saver.db" {
-			from, e := archivepath.Resolve(source, key)
-			if e != nil {
-				return nil, e
+		if !prepared[key] {
+			from := sources[key]
+			if from == "" {
+				return nil, fmt.Errorf("missing backup source mapping %s", key)
 			}
-			if e = copyExclusive(ctx, from, target); e != nil {
+			if e := copyExclusive(ctx, from, target); e != nil {
 				return nil, e
 			}
 		}
@@ -200,6 +245,10 @@ func newStage(destination string) (string, error) {
 	if !archivepath.Within(parent, stage) || stage == parent {
 		return "", fmt.Errorf("invalid staging path")
 	}
+	if err = fileio.ProtectPrivate(stage); err != nil {
+		os.Remove(stage)
+		return "", err
+	}
 	return stage, nil
 }
 
@@ -246,7 +295,7 @@ func verifyBackup(ctx context.Context, root string, m Manifest) error {
 		if err != nil || key != entry.Key || seen[strings.ToLower(key)] {
 			return fmt.Errorf("invalid or duplicate manifest key %q", entry.Key)
 		}
-		allowed := key == "bili-saver.db" || key == "cookies.json" || key == "credentials.json" || key == "bootstrap-credentials.json"
+		allowed := key == "bili-saver.db" || key == "cookies.json" || key == "credentials.json" || key == "bootstrap-credentials.json" || key == "startup-config.yaml"
 		for _, prefix := range []string{"raw/", "media/", "derived/", "plugins/"} {
 			allowed = allowed || strings.HasPrefix(key, prefix)
 		}
@@ -347,6 +396,12 @@ func Restore(ctx context.Context, backupRoot, destination string) error {
 
 // Relocate creates and verifies a portable copy. The source is deliberately retained.
 func Relocate(ctx context.Context, root, destination string) error {
+	return relocate(ctx, root, destination, nil)
+}
+func RelocateWithConfig(ctx context.Context, cfg *config.Config, destination string) error {
+	return relocate(ctx, cfg.View().DataDir, destination, cfg)
+}
+func relocate(ctx context.Context, root, destination string, cfg *config.Config) error {
 	lock, err := archiveguard.Acquire(root)
 	if err != nil {
 		return err
@@ -358,7 +413,7 @@ func Relocate(ctx context.Context, root, destination string) error {
 	}
 	defer os.RemoveAll(parent)
 	backupRoot := filepath.Join(parent, "backup")
-	if _, err = backupLocked(ctx, root, backupRoot); err != nil {
+	if _, err = backupLocked(ctx, root, backupRoot, cfg); err != nil {
 		return err
 	}
 	return Restore(ctx, backupRoot, destination)

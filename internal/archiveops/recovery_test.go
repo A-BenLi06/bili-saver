@@ -165,3 +165,32 @@ func TestMaintenanceRefusesActiveWriter(t *testing.T) {
 		t.Fatal("backed up active writer")
 	}
 }
+
+func TestDisappearanceReviewNeverRepairsOrigin(t *testing.T) {
+	root := fixture(t)
+	st, err := store.Open(filepath.Join(root, "bili-saver.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = st.DB.Exec(`WITH RECURSIVE n(v) AS(SELECT 1 UNION ALL SELECT v+1 FROM n WHERE v<150) INSERT INTO danmaku(dmid,bvid,cid,first_seen_at,last_seen_at,status,deleted_at) SELECT v,'BVfixture',1,1,1,'deleted',42 FROM n`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	report, err := Check(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.DisappearanceReview) != 1 || report.DisappearanceReview[0].Count != 150 {
+		t.Fatalf("missing review candidate: %+v", report.DisappearanceReview)
+	}
+	db, err := openReadOnly(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	if err = db.QueryRow(`SELECT COUNT(*) FROM danmaku WHERE status='deleted' AND deleted_at=42`).Scan(&count); err != nil || count != 150 {
+		t.Fatal("review changed origin", count, err)
+	}
+}

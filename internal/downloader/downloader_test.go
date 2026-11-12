@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"bili-saver/internal/biliapi"
@@ -157,15 +158,22 @@ func TestDownloadFileFullAndResume(t *testing.T) {
 	for i := range payload {
 		payload[i] = byte(i % 251)
 	}
-	var hitRange bool
+	var hitRange atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"stream-fixture"`)
 		if rg := r.Header.Get("Range"); rg != "" {
-			hitRange = true
+			hitRange.Store(true)
 			var start int64
-			fmt.Sscanf(rg, "bytes=%d-", &start)
-			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(payload)-1, len(payload)))
+			end := int64(len(payload) - 1)
+			_, _ = fmt.Sscanf(rg, "bytes=%d-%d", &start, &end)
+			if start >= int64(len(payload)) {
+				w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+				return
+			}
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, len(payload)))
+			w.Header().Set("Content-Length", fmt.Sprint(end-start+1))
 			w.WriteHeader(http.StatusPartialContent)
-			_, _ = w.Write(payload[start:])
+			_, _ = w.Write(payload[start : end+1])
 			return
 		}
 		w.Header().Set("Content-Length", fmt.Sprint(len(payload)))
@@ -193,6 +201,8 @@ func TestDownloadFileFullAndResume(t *testing.T) {
 	// 模拟断点：保留前半部分，续传
 	part := path + ".resume"
 	_ = os.WriteFile(part, payload[:100*1024], 0o644)
+	identity, _ := os.ReadFile(path + ".resume.json")
+	_ = os.WriteFile(part+".resume.json", identity, 0600)
 	if err := d.downloadFile(context.Background(), stream, part, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +213,7 @@ func TestDownloadFileFullAndResume(t *testing.T) {
 	if string(got2) != string(payload) {
 		t.Fatal("续传内容不一致")
 	}
-	if !hitRange {
+	if !hitRange.Load() {
 		t.Fatal("未发起 Range 请求")
 	}
 }

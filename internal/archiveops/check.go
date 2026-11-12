@@ -22,11 +22,18 @@ type Issue struct {
 	Key     string `json:"key,omitempty"`
 	Message string `json:"message"`
 }
+type DisappearanceReview struct {
+	Bvid  string `json:"bvid"`
+	Cid   int64  `json:"cid"`
+	Epoch int64  `json:"epoch"`
+	Count int    `json:"count"`
+}
 type Report struct {
-	Schema       int     `json:"schema"`
-	DatabaseOK   bool    `json:"database_ok"`
-	FilesChecked int     `json:"files_checked"`
-	Issues       []Issue `json:"issues"`
+	DisappearanceReview []DisappearanceReview `json:"disappearance_review,omitempty"`
+	Schema              int                   `json:"schema"`
+	DatabaseOK          bool                  `json:"database_ok"`
+	FilesChecked        int                   `json:"files_checked"`
+	Issues              []Issue               `json:"issues"`
 }
 
 func Check(ctx context.Context, root string) (*Report, error) {
@@ -148,7 +155,11 @@ func checkLocked(ctx context.Context, root string) (*Report, error) {
 			r.FilesChecked++
 		}
 	}
-	rows, err = db.QueryContext(ctx, `SELECT bvid,page,COUNT(*) FROM pages GROUP BY bvid,page HAVING COUNT(*)>1`)
+	partQuery := `SELECT bvid,page,COUNT(*) FROM pages GROUP BY bvid,page HAVING COUNT(*)>1`
+	if hasTable(db, "current_pages") {
+		partQuery += ` AND NOT EXISTS(SELECT 1 FROM current_pages cp WHERE cp.bvid=pages.bvid AND cp.page=pages.page)`
+	}
+	rows, err = db.QueryContext(ctx, partQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +174,22 @@ func checkLocked(ctx context.Context, root string) (*Report, error) {
 	}
 	err = rows.Err()
 	rows.Close()
-	return r, err
+	if err != nil {
+		return nil, err
+	}
+	rows, err = db.QueryContext(ctx, `SELECT bvid,cid,deleted_at,COUNT(*) FROM danmaku WHERE status='deleted' GROUP BY bvid,cid,deleted_at HAVING COUNT(*)>100 ORDER BY bvid,cid,deleted_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var candidate DisappearanceReview
+		if err = rows.Scan(&candidate.Bvid, &candidate.Cid, &candidate.Epoch, &candidate.Count); err != nil {
+			return nil, err
+		}
+		r.DisappearanceReview = append(r.DisappearanceReview, candidate)
+	}
+	return r, rows.Err()
 }
 
 type contextReader struct {
