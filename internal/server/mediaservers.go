@@ -109,7 +109,7 @@ var probeClient = &http.Client{
 // mediaServerStatuses 聚合五种规范类型的在线状态（未配置的类型输出「未检测到」行）。
 func (s *Server) mediaServerStatuses(ctx context.Context) []MediaServerStatus {
 	grouped := map[string][]config.MediaServer{}
-	for _, c := range s.Deps.Cfg.Media.Servers {
+	for _, c := range s.Deps.Cfg.View().Media.Servers {
 		t := strings.ToLower(strings.TrimSpace(c.Type))
 		if t == "" {
 			t = "kodi"
@@ -123,13 +123,13 @@ func (s *Server) mediaServerStatuses(ctx context.Context) []MediaServerStatus {
 	for _, typ := range canonicalTypes {
 		instances := grouped[typ]
 		row := MediaServerStatus{Type: typ, Instances: []MediaServerInstance{}}
-		if len(instances) == 0 && typ == "teriteri" && s.Deps.Cfg.Teriteri.Enabled {
+		if len(instances) == 0 && typ == "teriteri" && s.Deps.Cfg.View().Teriteri.Enabled {
 			// 内置适配随核心进程运行；前端地址仅作展示链接
 			row.Detected = true
 			row.Online = true
 			row.Note = "内置适配 · 随核心进程运行"
 			row.Instances = append(row.Instances, MediaServerInstance{
-				Name: "内置适配", URL: safeMediaURL(s.Deps.Cfg.Teriteri.FrontendURL), Online: true,
+				Name: "内置适配", URL: safeMediaURL(s.Deps.Cfg.View().Teriteri.FrontendURL), Online: true,
 				Note: "随核心进程运行",
 			})
 			mu.Lock()

@@ -31,7 +31,7 @@ func (a *App) queueRestoredParts(ctx context.Context, bvid string, sourceID int6
 	if !comments && !dm && !subs {
 		return nil
 	}
-	dl := a.Cfg.Download.AutoDownload
+	dl := a.Cfg.View().Download.AutoDownload
 	if download != nil {
 		dl = *download
 	}

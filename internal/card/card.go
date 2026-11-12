@@ -39,7 +39,7 @@ func New(st *store.Store, cfg *config.Config, log *slog.Logger) *Generator {
 
 // PathFor 卡片输出位置（derived 层）。
 func (g *Generator) PathFor(bvid string) string {
-	return filepath.Join(g.Cfg.DataDir, "derived", filepath.Base(sanitizeName(bvid)), "card.png")
+	return filepath.Join(g.Cfg.View().DataDir, "derived", filepath.Base(sanitizeName(bvid)), "card.png")
 }
 
 // Exists 卡片是否已生成。
@@ -181,7 +181,7 @@ func (g *Generator) loadCommentFace(ctx context.Context, rpid int64, faceURL str
 	if faceURL == "" {
 		return nil
 	}
-	cache := filepath.Join(g.Cfg.DataDir, "derived", ".cache", fmt.Sprintf("cmt-%d.jpg", rpid))
+	cache := filepath.Join(g.Cfg.View().DataDir, "derived", ".cache", fmt.Sprintf("cmt-%d.jpg", rpid))
 	if im := decodeFile(cache); im != nil {
 		return im
 	}
@@ -196,7 +196,7 @@ func (g *Generator) loadCommentFace(ctx context.Context, rpid int64, faceURL str
 
 // loadCover 封面：本地 media/{bvid}/cover.jpg 优先，否则拉取 v.Pic；失败返回 nil（占位）。
 func (g *Generator) loadCover(ctx context.Context, v *store.Video) image.Image {
-	local := filepath.Join(g.Cfg.DataDir, "media", sanitizeName(v.Bvid), "cover.jpg")
+	local := filepath.Join(g.Cfg.View().DataDir, "media", sanitizeName(v.Bvid), "cover.jpg")
 	if im := decodeFile(local); im != nil {
 		return im
 	}
@@ -209,11 +209,11 @@ func (g *Generator) loadAvatar(ctx context.Context, v *store.Video) image.Image 
 	if v.OwnerFace == "" {
 		return nil
 	}
-	cache := filepath.Join(g.Cfg.DataDir, "media", "faces", fmt.Sprintf("%d.jpg", v.OwnerMid))
+	cache := filepath.Join(g.Cfg.View().DataDir, "media", "faces", fmt.Sprintf("%d.jpg", v.OwnerMid))
 	if im := decodeFile(cache); im != nil {
 		return im
 	}
-	cache = filepath.Join(g.Cfg.DataDir, "derived", ".cache", fmt.Sprintf("avatar-%d.jpg", v.OwnerMid))
+	cache = filepath.Join(g.Cfg.View().DataDir, "derived", ".cache", fmt.Sprintf("avatar-%d.jpg", v.OwnerMid))
 	if im := decodeFile(cache); im != nil {
 		return im
 	}
@@ -240,7 +240,7 @@ func (g *Generator) fetchImage(ctx context.Context, url string) image.Image {
 	if err != nil {
 		return nil
 	}
-	req.Header.Set("User-Agent", g.Cfg.Bilibili.UserAgent)
+	req.Header.Set("User-Agent", g.Cfg.View().Bilibili.UserAgent)
 	req.Header.Set("Referer", "https://www.bilibili.com/")
 	resp, err := cardHTTP.Do(req)
 	if err != nil {

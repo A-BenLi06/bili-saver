@@ -104,9 +104,9 @@ func (c *Collector) collectDanmaku(ctx context.Context, bvid string, cid int64, 
 // pageDir 返回 dataDir/media/{bvid}/p{n}；n<=0 时用根目录（不区分分P的数据放这里）。
 func (c *Collector) pageDir(bvid string, n int) string {
 	if n <= 0 {
-		return filepath.Join(c.Cfg.DataDir, "media", sanitizePath(bvid))
+		return filepath.Join(c.Cfg.View().DataDir, "media", sanitizePath(bvid))
 	}
-	return filepath.Join(c.Cfg.DataDir, "media", sanitizePath(bvid), fmt.Sprintf("p%d", n))
+	return filepath.Join(c.Cfg.View().DataDir, "media", sanitizePath(bvid), fmt.Sprintf("p%d", n))
 }
 
 // collectSubtitles 抓取 CC 字幕列表并下载 bcc 原件。
@@ -129,7 +129,7 @@ func (c *Collector) collectSubtitles(ctx context.Context, bvid string, aid, cid 
 		if _, err := fileio.WriteBytes(path, raw); err != nil {
 			return err
 		}
-		key, keyErr := archivepath.Key(c.Cfg.DataDir, path)
+		key, keyErr := archivepath.Key(c.Cfg.View().DataDir, path)
 		if keyErr != nil {
 			return keyErr
 		}

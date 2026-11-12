@@ -99,6 +99,13 @@ func TestPatchConfig(t *testing.T) {
 
 	// 写盘生效：从磁盘重新 Load 应读到变更
 	reloaded, err := config.Load(cfgPath)
+	values, _, loadErr := st.RuntimeSettings()
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if err == nil {
+		err = reloaded.ApplyOverrides(values)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,9 +118,9 @@ func TestPatchConfig(t *testing.T) {
 			reloaded.Collector.SyncDefaultMinutes, reloaded.Collector.AdaptiveSync,
 			reloaded.Media.Layout, reloaded.Download.Qualities)
 	}
-	// .bak 备份存在
-	if _, err := os.Stat(cfgPath + ".bak"); err != nil {
-		t.Error("保存后应有 .bak 备份")
+	// Runtime saves are transactional database changes; the startup file is unchanged.
+	if _, err := os.Stat(cfgPath + ".bak"); !os.IsNotExist(err) {
+		t.Fatal("runtime settings rewrote the startup configuration")
 	}
 
 	// 非法值：逐个 400
@@ -134,21 +141,28 @@ func TestPatchConfig(t *testing.T) {
 		}
 	}
 	// 非法请求不得污染内存
-	if cfg.Download.Concurrency != 3 {
-		t.Errorf("非法请求后 concurrency 不应变化，实际 %d", cfg.Download.Concurrency)
+	if cfg.View().Download.Concurrency != 3 {
+		t.Errorf("非法请求后 concurrency 不应变化，实际 %d", cfg.View().Download.Concurrency)
 	}
 	// 非法请求不得写盘
 	reloaded2, err := config.Load(cfgPath)
+	values, _, loadErr = st.RuntimeSettings()
+	if loadErr != nil {
+		t.Fatal(loadErr)
+	}
+	if err == nil {
+		err = reloaded2.ApplyOverrides(values)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	if reloaded2.Download.Concurrency != 3 {
 		t.Errorf("非法请求不应写盘，磁盘 concurrency=%d", reloaded2.Download.Concurrency)
 	}
-	if cfg.Queue.NewAddFirst || reloaded2.Queue.NewAddFirst {
+	if cfg.View().Queue.NewAddFirst || reloaded2.Queue.NewAddFirst {
 		t.Fatal("非法请求不应改变优先设置")
 	}
-	if w := do(`{"new_add_first":true}`); w.Code != 200 || !cfg.Queue.NewAddFirst {
+	if w := do(`{"new_add_first":true}`); w.Code != 200 || !cfg.View().Queue.NewAddFirst {
 		t.Fatalf("应能重新开启优先设置: %d %s", w.Code, w.Body.String())
 	}
 }

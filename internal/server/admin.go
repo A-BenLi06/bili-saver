@@ -7,11 +7,13 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"os"
+	"reflect"
 
 	"bili-saver/internal/metrics"
 
@@ -45,7 +47,7 @@ func errJSON(w http.ResponseWriter, code int, err error) {
 // hotReason 热门视频二次确认文案；空串=未达阈值（或提示已禁用）。
 // 评论全量翻页的耗时随评论数线性增长，热门视频手动补档前应让用户知情。
 func (s *Server) hotReason(view, reply int) string {
-	cfg := s.Deps.Cfg.Collector
+	cfg := s.Deps.Cfg.View().Collector
 	hot := false
 	parts := []string{}
 	if cfg.HotVideoViews > 0 && view >= cfg.HotVideoViews {
@@ -159,7 +161,7 @@ func (s *Server) handleTeriteriInstall(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 503, fmt.Errorf("TeriTeri 多端未启用"))
 		return
 	}
-	if err := s.Deps.Teri.Installer().Start(s.Deps.Cfg.Teriteri.ClientAddr); err != nil {
+	if err := s.Deps.Teri.Installer().Start(s.Deps.Cfg.View().Teriteri.ClientAddr); err != nil {
 		errJSON(w, 409, err)
 		return
 	}
@@ -218,7 +220,7 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 	if req.Watch != nil {
 		watch = *req.Watch
 	}
-	download := s.Deps.Cfg.Download.AutoDownload
+	download := s.Deps.Cfg.View().Download.AutoDownload
 	if req.Download != nil {
 		download = *req.Download
 	}
@@ -313,7 +315,7 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 	// 新添加补档优先执行（queue.new_add_first，默认开）：首次任务及其归档子任务
 	// 先于普通排队任务执行，不抢占运行中任务；调度/重试按常规优先级入队。
 	prio := 0
-	if s.Deps.Cfg.Queue.NewAddFirst {
+	if s.Deps.Cfg.View().Queue.NewAddFirst {
 		prio = 1
 	}
 	if in.Type == resolver.TypeVideo {
@@ -502,7 +504,7 @@ func (s *Server) handleArchiveVideo(w http.ResponseWriter, r *http.Request) {
 		ConfirmHot bool  `json:"confirm_hot"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	dl := s.Deps.Cfg.Download.AutoDownload
+	dl := s.Deps.Cfg.View().Download.AutoDownload
 	if body.Download != nil {
 		dl = *body.Download
 	}
@@ -711,6 +713,7 @@ func (s *Server) handleSyncNow(w http.ResponseWriter, _ *http.Request) {
 
 // configPayload GET/PATCH config 共用的响应形状（login 由 GET 单独附加）。
 func configPayload(c *config.Config) map[string]any {
+	c = c.View()
 	return map[string]any{
 		"data_dir": c.DataDir, "listen": c.Listen,
 		"quality": c.Download.Quality, "qualities": c.Download.Qualities,
@@ -741,6 +744,16 @@ func configPayload(c *config.Config) map[string]any {
 
 func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 	p := configPayload(s.Deps.Cfg)
+	p["environment_controlled"] = settingSources()
+	p["pending_restart"] = s.Deps.Cfg.RestartRequired()
+	p["effective_startup"] = s.Deps.Cfg.EffectiveStartup()
+	if s.Deps.St != nil {
+		_, revision, err := s.Deps.St.RuntimeSettings()
+		if err == nil {
+			p["settings_revision"] = revision
+			w.Header().Set("ETag", fmt.Sprintf(`"%d"`, revision))
+		}
+	}
 	p["login"] = s.Deps.API.CachedLogin(reqCtx())
 	writeJSON(w, 200, p)
 }
@@ -749,35 +762,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 // 提交后 Normalize+Validate，再写回配置文件（.bak 备份，路径未知时仅改内存）。
 // min_req_ms / teriteri_enabled / concurrency 等组件启动时捕获的项需重启完全生效。
 func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
-	c := s.Deps.Cfg
-	var req struct {
-		SyncDefaultMinutes *int      `json:"sync_default_minutes"`
-		StatsResyncHours   *int      `json:"stats_resync_hours"`
-		AdaptiveSync       *bool     `json:"adaptive_sync"`
-		NewAddFirst        *bool     `json:"new_add_first"`
-		CommentsMax        *int      `json:"comments_max"`
-		SubRepliesMax      *int      `json:"sub_replies_max"`
-		FullResyncComments *bool     `json:"full_resync_comments"`
-		CommentConcurrency *int      `json:"comment_concurrency"`
-		CommentFullHours   *int      `json:"comment_full_hours"`
-		HotVideoViews      *int      `json:"hot_video_views"`
-		HotVideoReplies    *int      `json:"hot_video_replies"`
-		AutoDownload       *bool     `json:"auto_download"`
-		DownloadDanmaku    *bool     `json:"download_danmaku"`
-		Concurrency        *int      `json:"concurrency"`
-		Segments           *int      `json:"segments"`
-		AllowAV1           *bool     `json:"allow_av1"`
-		Allow4K            *bool     `json:"allow_4k"`
-		Qualities          *[]string `json:"qualities"`
-		AudioQualities     *[]string `json:"audio_qualities"`
-		MinReqMs           *int      `json:"min_req_ms"`
-		MediaEnabled       *bool     `json:"media_enabled"`
-		MediaLayout        *string   `json:"media_layout"`
-		MediaLinkMode      *string   `json:"media_link_mode"`
-		MediaPublicURL     *string   `json:"media_public_url"`
-		TeriteriEnabled    *bool     `json:"teriteri_enabled"`
-		FrontendURL        *string   `json:"frontend_url"`
-	}
+	var c *config.Config
+	var req settingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		errJSON(w, 400, err)
 		return
@@ -917,19 +903,57 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 			c.Teriteri.FrontendURL = *req.FrontendURL
 		}
 	}
-	apply()
-	c.Normalize()
-	if err := c.Validate(); err != nil {
-		errJSON(w, 400, err)
-		return
-	}
-	if s.Deps.ConfigPath != "" {
-		if err := config.SaveConfigFile(s.Deps.ConfigPath, c); err != nil {
-			errJSON(w, 500, errStr("已生效但写盘失败: "+err.Error()))
+	var expected *int64
+	if raw := r.Header.Get("If-Match"); raw != "" {
+		v, err := strconv.ParseInt(strings.Trim(raw, `"`), 10, 64)
+		if err != nil {
+			errJSON(w, 400, err)
 			return
 		}
+		expected = &v
 	}
-	writeJSON(w, 200, configPayload(c))
+	keys := []string{}
+	rv := reflect.ValueOf(req)
+	rt := rv.Type()
+	for i := 0; i < rv.NumField(); i++ {
+		if !rv.Field(i).IsNil() {
+			keys = append(keys, rt.Field(i).Tag.Get("setting"))
+		}
+	}
+	var revision int64
+	err := s.Deps.Cfg.Update(func(next *config.Config) error {
+		c = next
+		apply()
+		c.Normalize()
+		if err := c.Validate(); err != nil {
+			return err
+		}
+		values, err := c.Values(keys)
+		if err != nil {
+			return err
+		}
+		if s.Deps.St != nil {
+			revision, err = s.Deps.St.SaveRuntimeSettings(values, expected)
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		code := 400
+		if errors.Is(err, store.ErrSettingsConflict) {
+			code = 409
+		}
+		errJSON(w, code, err)
+		return
+	}
+	payload := configPayload(s.Deps.Cfg)
+	payload["environment_controlled"] = settingSources()
+	payload["pending_restart"] = s.Deps.Cfg.RestartRequired()
+	payload["effective_startup"] = s.Deps.Cfg.EffectiveStartup()
+	payload["settings_revision"] = revision
+	w.Header().Set("ETag", fmt.Sprintf(`"%d"`, revision))
+	writeJSON(w, 200, payload)
+
 }
 
 func oneOf(v string, allowed ...string) bool {
@@ -965,7 +989,7 @@ func (s *Server) handleLoginPoll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if res.Code == 0 {
-		if err := s.Deps.API.SaveCookies(s.Deps.Cfg.CookiePath()); err != nil {
+		if err := s.Deps.API.SaveCookies(s.Deps.Cfg.View().CookiePath()); err != nil {
 			errJSON(w, 500, err)
 			return
 		}
@@ -1019,7 +1043,7 @@ func (s *Server) handlePluginEnabled(w http.ResponseWriter, r *http.Request) {
 // ---- 媒体库桥 / 关系网 ----
 
 func (s *Server) handleMediaRebuild(w http.ResponseWriter, _ *http.Request) {
-	if !s.Deps.Cfg.Media.Enabled {
+	if !s.Deps.Cfg.View().Media.Enabled {
 		errJSON(w, 400, errStr("媒体库桥未启用（media.enabled）"))
 		return
 	}
@@ -1093,7 +1117,7 @@ func (s *Server) handleLoginLogout(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 500, err)
 		return
 	}
-	if err := s.Deps.API.SaveCookies(s.Deps.Cfg.CookiePath()); err != nil {
+	if err := s.Deps.API.SaveCookies(s.Deps.Cfg.View().CookiePath()); err != nil {
 		errJSON(w, 500, err)
 		return
 	}
@@ -1226,6 +1250,9 @@ func (s *Server) handlePatchLibrary(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.Deps.St.UpsertMediaLibrary(l); err != nil {
 		errJSON(w, 500, err)
 		return
+	}
+	if values, _, err := s.Deps.St.RuntimeSettings(); err == nil {
+		_ = s.Deps.Cfg.Update(func(next *config.Config) error { return next.ApplyOverrides(values) })
 	}
 	writeJSON(w, 200, l)
 }
@@ -1521,8 +1548,8 @@ func (s *Server) handleSystemRes(w http.ResponseWriter, _ *http.Request) {
 	snap, procs := sysres.ReadCached(8)
 	writeJSON(w, 200, map[string]any{"snapshot": snap, "top": procs,
 		"process_network": metrics.ReadNetwork(),
-		"storage":         sysres.ReadStorageCached(s.Deps.Cfg.DataDir),
-		"archive_storage": sysres.ReadArchiveStorageCached(s.Deps.Cfg.DataDir)})
+		"storage":         sysres.ReadStorageCached(s.Deps.Cfg.View().DataDir),
+		"archive_storage": sysres.ReadArchiveStorageCached(s.Deps.Cfg.View().DataDir)})
 }
 
 // handleSourcePosts UP主源的动态/图文（专栏）归档列表（v10）。

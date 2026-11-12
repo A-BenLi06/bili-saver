@@ -329,14 +329,14 @@ func (s *Scheduler) Run(ctx context.Context) {
 }
 
 func (s *Scheduler) tick(ctx context.Context) {
-	if err := s.Mgr.PumpUserDownloads(s.Cfg.DataDir); err != nil {
+	if err := s.Mgr.PumpUserDownloads(s.Cfg.View().DataDir); err != nil {
 		s.Log.Warn("用户下载队列调度失败", "err", err)
 	}
 	s.pruneJobsIfDue()
-	if s.Cfg.Collector.AdaptiveSync {
+	if s.Cfg.View().Collector.AdaptiveSync {
 		s.freshSweep()
 	}
-	due, err := s.St.DueSources(s.Cfg.Collector.SyncDefaultMinutes, store.Now())
+	due, err := s.St.DueSources(s.Cfg.View().Collector.SyncDefaultMinutes, store.Now())
 	if err != nil {
 		s.Log.Warn("查询到期源失败", "err", err)
 		return
@@ -354,7 +354,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 			s.Log.Info("调度源同步", "source", src.Title, "type", src.Type)
 		}
 	}
-	if hours := s.Cfg.Collector.StatsResyncHours; hours > 0 {
+	if hours := s.Cfg.View().Collector.StatsResyncHours; hours > 0 {
 		if s.statsDue(hours) {
 			if id, err := s.Mgr.Submit("sync_stats_all", map[string]any{}); err == nil && id != 0 {
 				s.Log.Info("调度全库统计重同步")

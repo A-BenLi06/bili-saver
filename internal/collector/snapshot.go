@@ -28,7 +28,7 @@ func (c *Collector) SnapshotHook() biliapi.SnapshotHook {
 		sum := sha256.Sum256(body)
 		hash := hex.EncodeToString(sum[:])
 		rel := filepath.Join("raw", "objects", hash[:2], hash[2:4], hash+".json.gz")
-		full := filepath.Join(c.Cfg.DataDir, rel)
+		full := filepath.Join(c.Cfg.View().DataDir, rel)
 		if err := persistSnapshot(full, body, &snapshotLocks[int(sum[0])%len(snapshotLocks)]); err != nil {
 			return fmt.Errorf("snapshot body: %w", err)
 		}

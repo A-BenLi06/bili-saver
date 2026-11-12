@@ -85,7 +85,7 @@ func maxDelta(d int) int {
 
 // syncMultiplier 该视频当前的自适应倍率（新发×活跃）。adaptive 关闭时恒为 1。
 func (a *App) syncMultiplier(v *store.Video, now int64) float64 {
-	if !a.Cfg.Collector.AdaptiveSync {
+	if !a.Cfg.View().Collector.AdaptiveSync {
 		return 1.0
 	}
 	recent, err := a.St.RecentStats(v.Bvid, 2)
@@ -125,13 +125,13 @@ func (a *App) statsSkipAdaptive(v *store.Video, now int64) bool {
 }
 
 func (a *App) statsSkipWithMultiplier(v *store.Video, now int64, mult float64) bool {
-	if !a.Cfg.Collector.AdaptiveSync || a.Cfg.Collector.StatsResyncHours <= 0 {
+	if !a.Cfg.View().Collector.AdaptiveSync || a.Cfg.View().Collector.StatsResyncHours <= 0 {
 		return false
 	}
 	if v.LastStatsAt == 0 {
 		return false
 	}
-	base := a.Cfg.Collector.StatsResyncHours * 60
+	base := a.Cfg.View().Collector.StatsResyncHours * 60
 	eff := stretchInterval(base, mult)
 	return now-v.LastStatsAt < int64(eff)*60
 }

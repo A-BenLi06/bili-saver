@@ -47,7 +47,7 @@ func (w *Web) Installer() *Installer {
 	defer w.mu.Unlock()
 	if w.installer == nil {
 		web := w
-		w.installer = NewInstaller(w.Cfg.Teriteri.WebRoot, w.Log, func() {
+		w.installer = NewInstaller(w.Cfg.View().Teriteri.WebRoot, w.Log, func() {
 			web.StartSites()
 		})
 		w.installer.Carousel = w.CarouselProvider
@@ -55,8 +55,12 @@ func (w *Web) Installer() *Installer {
 	return w.installer
 }
 
-func (w *Web) ClientDist() string { return filepath.Join(w.Cfg.Teriteri.WebRoot, "client", "dist") }
-func (w *Web) AdminDist() string  { return filepath.Join(w.Cfg.Teriteri.WebRoot, "admin", "dist") }
+func (w *Web) ClientDist() string {
+	return filepath.Join(w.Cfg.View().Teriteri.WebRoot, "client", "dist")
+}
+func (w *Web) AdminDist() string {
+	return filepath.Join(w.Cfg.View().Teriteri.WebRoot, "admin", "dist")
+}
 
 // StartSites 对存在 dist 的端点启动二级监听（幂等；监听失败只记日志不中断核心）。
 func (w *Web) StartSites() {
@@ -65,8 +69,8 @@ func (w *Web) StartSites() {
 		addr string
 		dist string
 	}{
-		{"teriteri-client", w.Cfg.Teriteri.ClientAddr, w.ClientDist()},
-		{"teriteri-admin", w.Cfg.Teriteri.AdminAddr, w.AdminDist()},
+		{"teriteri-client", w.Cfg.View().Teriteri.ClientAddr, w.ClientDist()},
+		{"teriteri-admin", w.Cfg.View().Teriteri.AdminAddr, w.AdminDist()},
 	}
 	for _, s := range sites {
 		if s.addr == "" || !DistExists(s.dist) {
@@ -122,10 +126,10 @@ func (w *Web) Status() map[string]any {
 		"install":      st,
 		"client_ready": DistExists(clientDist),
 		"admin_ready":  DistExists(adminDist),
-		"client_addr":  w.Cfg.Teriteri.ClientAddr,
-		"admin_addr":   w.Cfg.Teriteri.AdminAddr,
-		"client_url":   localURL(w.Cfg.Teriteri.ClientAddr),
-		"admin_url":    localURL(w.Cfg.Teriteri.AdminAddr),
+		"client_addr":  w.Cfg.View().Teriteri.ClientAddr,
+		"admin_addr":   w.Cfg.View().Teriteri.AdminAddr,
+		"client_url":   localURL(w.Cfg.View().Teriteri.ClientAddr),
+		"admin_url":    localURL(w.Cfg.View().Teriteri.AdminAddr),
 		"serving":      serving,
 		"git_npm_hint": "需要系统安装 git 与 Node.js（npm）",
 	}

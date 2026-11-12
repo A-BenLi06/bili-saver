@@ -27,7 +27,7 @@ func (a *App) jobUserDownload(ctx context.Context, j *store.Job, progress jobs.P
 	if !active {
 		return a.St.SkipUserDownload(p.RequestID, j.ID)
 	}
-	complete := a.St.VideoFilesPresent(a.Cfg.DataDir, p.Bvid)
+	complete := a.St.VideoFilesPresent(a.Cfg.View().DataDir, p.Bvid)
 	defer func() {
 		if r := recover(); r != nil {
 			retErr = fmt.Errorf("下载异常: %v", r)
@@ -40,12 +40,12 @@ func (a *App) jobUserDownload(ctx context.Context, j *store.Job, progress jobs.P
 		if err := a.Dl.DownloadVideo(ctx, p.Bvid, func(f float64, detail string) { progress(f, detail) }); err != nil {
 			return err
 		}
-		if !a.St.VideoFilesPresent(a.Cfg.DataDir, p.Bvid) {
+		if !a.St.VideoFilesPresent(a.Cfg.View().DataDir, p.Bvid) {
 			return fmt.Errorf("下载后分 P 文件不完整")
 		}
 		// Refresh is best effort; quota must reflect the file download, not derived rendering.
 		a.refreshCard(ctx, p.Bvid)
-		if a.Cfg.Media.Enabled && a.Med != nil {
+		if a.Cfg.View().Media.Enabled && a.Med != nil {
 			go func() { _ = a.Med.RebuildAllDebounced() }()
 		}
 	} else {

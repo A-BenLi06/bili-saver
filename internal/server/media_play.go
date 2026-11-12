@@ -172,11 +172,11 @@ func resolveMediaItem(ctx context.Context, cfg config.MediaServer, bvid string, 
 
 func (s *Server) handleMediaPlay(w http.ResponseWriter, r *http.Request) {
 	i, err := strconv.Atoi(r.PathValue("server"))
-	if err != nil || i < 0 || i >= len(s.Deps.Cfg.Media.Servers) {
+	if err != nil || i < 0 || i >= len(s.Deps.Cfg.View().Media.Servers) {
 		errJSON(w, 404, errStr("媒体库连接不存在"))
 		return
 	}
-	cfg := s.Deps.Cfg.Media.Servers[i]
+	cfg := s.Deps.Cfg.View().Media.Servers[i]
 	typ := strings.ToLower(strings.TrimSpace(cfg.Type))
 	if typ != "emby" && typ != "jellyfin" {
 		errJSON(w, 400, errStr("此媒体库不支持视频流入口"))

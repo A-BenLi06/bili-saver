@@ -61,7 +61,7 @@ func localAction(r *http.Request) bool {
 
 // Paths are selected from an archived video, never supplied by the browser.
 func (s *Server) videoFile(v *store.Video, page int) (string, bool) {
-	root, err := filepath.Abs(s.Deps.Cfg.DataDir)
+	root, err := filepath.Abs(s.Deps.Cfg.View().DataDir)
 	if err != nil {
 		return "", false
 	}
@@ -131,7 +131,7 @@ func secretMediaQuery(k string) bool {
 }
 
 func (s *Server) teriteriVideoURL(r *http.Request, vid string) string {
-	base := safeMediaURL(s.Deps.Cfg.Teriteri.FrontendURL)
+	base := safeMediaURL(s.Deps.Cfg.View().Teriteri.FrontendURL)
 	if base == "" && s.Deps.Teri != nil {
 		if addr := s.Deps.Teri.Serving()["teriteri-client"]; addr != "" {
 			host, port, err := net.SplitHostPort(addr)
@@ -150,7 +150,7 @@ func (s *Server) teriteriVideoURL(r *http.Request, vid string) string {
 		}
 	}
 	if base == "" {
-		for _, cfg := range s.Deps.Cfg.Media.Servers {
+		for _, cfg := range s.Deps.Cfg.View().Media.Servers {
 			if strings.EqualFold(strings.TrimSpace(cfg.Type), "teriteri") {
 				if candidate := safeMediaURL(cfg.URL); candidate != "" {
 					base = candidate
@@ -212,7 +212,7 @@ func (s *Server) videoLinks(r *http.Request, v *store.Video, pages []*store.Page
 			players = append(players, videoPlayerLink{Type: "teriteri", Name: "TeriTeri 播放", URL: target})
 			seenURLs[target] = true
 		}
-		for i, cfg := range s.Deps.Cfg.Media.Servers {
+		for i, cfg := range s.Deps.Cfg.View().Media.Servers {
 			typ := strings.ToLower(strings.TrimSpace(cfg.Type))
 			if safeMediaURL(cfg.URL) == "" {
 				continue

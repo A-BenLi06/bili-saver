@@ -18,7 +18,7 @@ func (c *Collector) writeDanmakuXML(bvid string, cid int64) error {
 }
 
 func (c *Collector) writeDanmakuXMLContext(ctx context.Context, bvid string, cid int64) error {
-	path := filepath.Join(c.Cfg.DataDir, "derived", sanitizePath(bvid), "danmaku", strconv.FormatInt(cid, 10), "full.xml")
+	path := filepath.Join(c.Cfg.View().DataDir, "derived", sanitizePath(bvid), "danmaku", strconv.FormatInt(cid, 10), "full.xml")
 	_, err := fileio.Write(path, func(w io.Writer) error {
 		// 逐条 EncodeElement 会强制 flush；EncodeToken 保持固定缓冲批量 I/O。
 		buffer := bufio.NewWriterSize(w, 64*1024)

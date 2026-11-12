@@ -185,7 +185,7 @@ func (s *Server) handleAccountAvatar(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 500, errStr("保存头像失败"))
 		return
 	}
-	dir := filepath.Join(s.Deps.Cfg.DataDir, "media", "user-avatars")
+	dir := filepath.Join(s.Deps.Cfg.View().DataDir, "media", "user-avatars")
 	if err = os.MkdirAll(dir, 0755); err != nil {
 		errJSON(w, 500, errStr("无法创建头像目录"))
 		return

@@ -58,35 +58,45 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	if err := mkdirs(cfg); err != nil {
 		return nil, err
 	}
-	st, err := store.Open(filepath.Join(cfg.DataDir, "bili-saver.db"))
+	st, err := store.Open(filepath.Join(cfg.View().DataDir, "bili-saver.db"))
 	if err != nil {
 		return nil, fmt.Errorf("打开数据库: %w", err)
 	}
-	api, err := biliapi.New(cfg.CookiePath(), cfg.Bilibili.MinReqMs, cfg.Bilibili.UserAgent)
+	overrides, _, err := st.RuntimeSettings()
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	if err = cfg.Prepare(overrides); err != nil {
+		st.Close()
+		return nil, err
+	}
+	cfg.MarkApplied()
+	api, err := biliapi.New(cfg.View().CookiePath(), cfg.View().Bilibili.MinReqMs, cfg.View().Bilibili.UserAgent)
 	if err != nil {
 		st.Close()
 		return nil, err
 	}
 	// CDN has its own transport; keep its cookie jar and timeout policy intact.
 	api.DownloadClient().Transport = metrics.InstrumentTransport(api.DownloadClient().Transport.(*http.Transport))
-	bus := plugin.NewBus(st, st, cfg.Plugins.Dir, log, plugin.Context{
-		DataDir: cfg.DataDir,
-		APIBase: "http://127.0.0.1" + cfg.Listen,
+	bus := plugin.NewBus(st, st, cfg.View().Plugins.Dir, log, plugin.Context{
+		DataDir: cfg.View().DataDir,
+		APIBase: cfg.LocalURL(),
 		Token:   cfg.Admin.Token,
 	})
 	col := collector.New(st, api, cfg, log, asyncEmitter{bus})
 	api.SetSnapshotHook(col.SnapshotHook())
 	dl := downloader.New(st, api, cfg, log, asyncEmitter{bus})
-	mgr := jobs.NewManager(st, log, cfg.Download.Concurrency)
+	mgr := jobs.NewManager(st, log, cfg.View().Download.Concurrency)
 	med := media.New(st, cfg, log)
 	cardGen := card.New(st, cfg, log)
-	img := images.New(st, cfg.DataDir, cfg.Bilibili.UserAgent, log)
-	lv := levels.New(st, cfg.DataDir, api, log)
-	if err := st.EnsureDefaultLibrary(cfg.Media.Root, cfg.Media.Layout, cfg.Media.LinkMode); err != nil {
+	img := images.New(st, cfg.View().DataDir, cfg.View().Bilibili.UserAgent, log)
+	lv := levels.New(st, cfg.View().DataDir, api, log)
+	if err := st.EnsureDefaultLibrary(cfg.View().Media.Root, cfg.View().Media.Layout, cfg.View().Media.LinkMode); err != nil {
 		log.Warn("默认媒体库迁移失败", "err", err)
 	}
 	a := &App{Cfg: cfg, Log: log, St: st, API: api, Col: col, Dl: dl, Mgr: mgr, Bus: bus, Med: med, Card: cardGen, Img: img, Lv: lv}
-	if cfg.Teriteri.Enabled {
+	if cfg.View().Teriteri.Enabled {
 		a.Teri = teriteriweb.New(cfg, log)
 		// 首页轮播取归档库最新可播视频的本地封面（构建期写入 client）
 		a.Teri.CarouselProvider = func() []teriteriweb.CarouselItem {
@@ -113,7 +123,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		}
 	}
 	a.registerJobs()
-	if cfg.Plugins.Enabled {
+	if cfg.View().Plugins.Enabled {
 		if err := a.Bus.Reload(); err != nil {
 			log.Warn("插件加载失败", "err", err)
 		}
@@ -123,14 +133,14 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 
 // ReloadPlugins 扫描插件目录（启用时）。
 func (a *App) ReloadPlugins() error {
-	if !a.Cfg.Plugins.Enabled {
+	if !a.Cfg.View().Plugins.Enabled {
 		return nil
 	}
 	return a.Bus.Reload()
 }
 
 func mkdirs(cfg *config.Config) error {
-	for _, d := range []string{cfg.DataDir, cfg.Media.Root, cfg.Plugins.Dir} {
+	for _, d := range []string{cfg.View().DataDir, cfg.View().Media.Root, cfg.View().Plugins.Dir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
@@ -204,7 +214,7 @@ func (a *App) jobArchive(ctx context.Context, j *store.Job, progress jobs.Progre
 	}
 	progress(0.4, "归档完成")
 	a.refreshCard(ctx, res.Bvid)
-	dl := a.Cfg.Download.AutoDownload
+	dl := a.Cfg.View().Download.AutoDownload
 	if p.Download != nil {
 		dl = *p.Download
 	}
@@ -223,7 +233,7 @@ func (a *App) jobArchive(ctx context.Context, j *store.Job, progress jobs.Progre
 		}
 		// 新内容落库后异步刷新媒体库软链接（幂等）；去抖合并：批量下载的
 		// N 次完成合并为实际一轮重建+补跑，不再 N 遍全库遍历
-		if a.Cfg.Media.Enabled {
+		if a.Cfg.View().Media.Enabled {
 			go func() {
 				if err := a.Med.RebuildAllDebounced(); err != nil {
 					a.Log.Warn("下载后媒体库刷新失败", "bvid", res.Bvid, "err", err)
@@ -319,7 +329,7 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 		progress(1, "源为空")
 		return nil
 	}
-	dl := a.Cfg.Download.AutoDownload
+	dl := a.Cfg.View().Download.AutoDownload
 	manual := p.Download != nil
 	if manual {
 		dl = *p.Download
@@ -335,7 +345,7 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 		return fmt.Errorf("读取源视频同步状态: %w", err)
 	}
 	var recent map[string][]*store.StatsSnapshot
-	if a.Cfg.Collector.AdaptiveSync {
+	if a.Cfg.View().Collector.AdaptiveSync {
 		recent, err = a.St.RecentStatsBatch(res.Bvids)
 		if err != nil {
 			return fmt.Errorf("读取源视频活跃度: %w", err)
@@ -369,7 +379,7 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 		} else {
 			// 已有视频：按源的分类型间隔计算到期范围
 			mult := 1.0
-			if a.Cfg.Collector.AdaptiveSync {
+			if a.Cfg.View().Collector.AdaptiveSync {
 				mult = ageFactor(now, v.Pubdate) * activityFactor(recent[bvid])
 			}
 			stats, comments, danmaku, subs := a.duePartsWithMultiplier(src, v, now, mult)
@@ -461,7 +471,7 @@ func (a *App) dueParts(src *store.Source, v *store.Video, now int64) (stats, com
 func (a *App) duePartsWithMultiplier(src *store.Source, v *store.Video, now int64, mult float64) (stats, comments, danmaku, subs bool) {
 	master := src.SyncIntervalMinutes
 	if master <= 0 {
-		master = a.Cfg.Collector.SyncDefaultMinutes
+		master = a.Cfg.View().Collector.SyncDefaultMinutes
 	}
 	iv := func(srcIv int) int {
 		if srcIv < 0 {
@@ -539,7 +549,7 @@ func (a *App) jobSyncStatsAll(ctx context.Context, j *store.Job, progress jobs.P
 			break
 		}
 		var recent map[string][]*store.StatsSnapshot
-		if a.Cfg.Collector.AdaptiveSync && a.Cfg.Collector.StatsResyncHours > 0 {
+		if a.Cfg.View().Collector.AdaptiveSync && a.Cfg.View().Collector.StatsResyncHours > 0 {
 			ids := make([]string, 0, len(videos))
 			for _, v := range videos {
 				if v.LastStatsAt != 0 {
@@ -629,13 +639,13 @@ func (a *App) Serve(ctx context.Context) error {
 		a.Teri.Attach(handler)
 		a.Teri.StartSites() // dist 已存在则立即上线；否则待一键安装完成后自动拉起
 	}
-	httpSrv := &http.Server{Addr: a.Cfg.Listen, Handler: handler}
+	httpSrv := &http.Server{Addr: a.Cfg.View().Listen, Handler: handler}
 	go func() {
 		<-ctx.Done()
 		_ = httpSrv.Close()
 	}()
-	a.Log.Info("bili-saver 开始服务", "listen", a.Cfg.Listen,
-		"teriteri", a.Cfg.Teriteri.Enabled, "media", a.Cfg.Media.Enabled)
+	a.Log.Info("bili-saver 开始服务", "listen", a.Cfg.View().Listen,
+		"teriteri", a.Cfg.View().Teriteri.Enabled, "media", a.Cfg.View().Media.Enabled)
 	err := metrics.ListenAndServe(httpSrv)
 	if err == http.ErrServerClosed {
 		return nil

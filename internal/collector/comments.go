@@ -66,7 +66,7 @@ func (c *Collector) scanComments(ctx context.Context, aid int64, bvid string, ep
 	if err != nil {
 		return nil, err
 	}
-	policy := fmt.Sprintf("v2:%t:%d:%d:%d", c.Cfg.Collector.FullResyncComments, c.Cfg.Collector.CommentsMax, c.Cfg.Collector.SubRepliesMax, c.Cfg.Collector.CommentFullHours)
+	policy := fmt.Sprintf("v2:%t:%d:%d:%d", c.Cfg.View().Collector.FullResyncComments, c.Cfg.View().Collector.CommentsMax, c.Cfg.View().Collector.SubRepliesMax, c.Cfg.View().Collector.CommentFullHours)
 	now := store.Now()
 	session := c.API.SessionKey()
 	if scan != nil && (scan.Aid != aid || scan.Session != session || scan.Policy != policy || now-scan.StartedAt > int64(commentResumeTTL/time.Second) || scan.StartedAt > now) {
@@ -74,8 +74,8 @@ func (c *Collector) scanComments(ctx context.Context, aid int64, bvid string, ep
 		scan = nil
 	}
 	if scan == nil {
-		hours := c.Cfg.Collector.CommentFullHours
-		full := first || (c.Cfg.Collector.FullResyncComments && (history.LastFullAt == 0 || hours == 0 || now-history.LastFullAt >= int64(hours)*3600))
+		hours := c.Cfg.View().Collector.CommentFullHours
+		full := first || (c.Cfg.View().Collector.FullResyncComments && (history.LastFullAt == 0 || hours == 0 || now-history.LastFullAt >= int64(hours)*3600))
 		scan = &store.CommentScan{Bvid: bvid, Aid: aid, Epoch: epoch, StartedAt: now, Session: session, Policy: policy, Full: full, First: first, Floor: max(0, history.LatestMainCtime-86400), HighWater: history.LatestMainCtime, RootCursor: history.RootCursor}
 		var roots []*store.CommentScanRoot
 		if !full {
@@ -148,7 +148,7 @@ func (c *Collector) scanComments(ctx context.Context, aid int64, bvid string, ep
 		if err := ctx.Err(); err != nil {
 			return r, err
 		}
-		for !paused && inflight < n && (scan.Full || attempts < 10) && !(c.Cfg.Collector.CommentsMax > 0 && scan.Seen >= c.Cfg.Collector.CommentsMax) {
+		for !paused && inflight < n && (scan.Full || attempts < 10) && !(c.Cfg.View().Collector.CommentsMax > 0 && scan.Seen >= c.Cfg.View().Collector.CommentsMax) {
 			var req commentRequest
 			if !scan.MainDone && !mainBusy && (scan.Full || headRequests < 5) {
 				req = commentRequest{Main: true, Offset: scan.Offset}
@@ -284,7 +284,7 @@ func (c *Collector) commitMainComments(scan *store.CommentScan, data *biliapi.Re
 				root.NextPN = max(1, (old-1)/commentPageSize)
 			}
 		}
-		if maxSub := c.Cfg.Collector.SubRepliesMax; maxSub > 0 && len(preview) >= maxSub && !root.Done {
+		if maxSub := c.Cfg.View().Collector.SubRepliesMax; maxSub > 0 && len(preview) >= maxSub && !root.Done {
 			root.Done = true
 			next.Capped = true
 		}
@@ -312,7 +312,7 @@ func (c *Collector) commitMainComments(scan *store.CommentScan, data *biliapi.Re
 		c.Log.Warn("评论主楼分页未能继续，跳过完整核对", "bvid", scan.Bvid, "页数", next.MainPages, "重复且无新评论", stalled)
 	}
 	next.Offset = nextOffset
-	if err := c.St.CommitCommentPage(&next, comments, roots, nil, commentPageSize, c.Cfg.Collector.CommentsMax, c.Cfg.Collector.SubRepliesMax); err != nil {
+	if err := c.St.CommitCommentPage(&next, comments, roots, nil, commentPageSize, c.Cfg.View().Collector.CommentsMax, c.Cfg.View().Collector.SubRepliesMax); err != nil {
 		return err
 	}
 	*scan = next
@@ -329,7 +329,7 @@ func (c *Collector) commitSubComments(scan *store.CommentScan, root *store.Comme
 	for _, reply := range data.Replies {
 		comments = append(comments, originComment(reply, r.Root, scan))
 	}
-	if err := c.St.CommitCommentPage(&next, comments, nil, &r, commentPageSize, c.Cfg.Collector.CommentsMax, c.Cfg.Collector.SubRepliesMax); err != nil {
+	if err := c.St.CommitCommentPage(&next, comments, nil, &r, commentPageSize, c.Cfg.View().Collector.CommentsMax, c.Cfg.View().Collector.SubRepliesMax); err != nil {
 		return err
 	}
 	*scan = next

@@ -44,7 +44,10 @@ func (m *MediaLibrary) ParseRules() MatchRules {
 
 // Matches 判断视频是否路由到该库。tags 为该视频的 B 站原生标签。
 func (m *MediaLibrary) Matches(v *Video, tags []string) bool {
-	r := m.ParseRules()
+	r, err := m.CheckedRules()
+	if err != nil {
+		return false
+	}
 	if len(r.Tags) == 0 && len(r.Categories) == 0 && len(r.OwnerMids) == 0 && len(r.Orientation) == 0 {
 		return true // 默认库：全匹配
 	}
@@ -124,22 +127,31 @@ func (s *Store) UpsertMediaLibrary(l *MediaLibrary) (int64, error) {
 	if l.MatchRules == "" {
 		l.MatchRules = "{}"
 	}
-	res, err := s.DB.Exec(`INSERT INTO media_libraries(name, root_path, layout, link_mode, metadata_format, match_rules, enabled, created_at)
-		VALUES(?,?,?,?,?,?,?,?)
-		ON CONFLICT(name) DO UPDATE SET root_path=excluded.root_path, layout=excluded.layout,
-		  link_mode=excluded.link_mode, metadata_format=excluded.metadata_format,
-		  match_rules=excluded.match_rules, enabled=excluded.enabled`,
-		l.Name, l.RootPath, l.Layout, l.LinkMode, l.MetadataFormat, l.MatchRules,
-		boolInt(l.Enabled), l.CreatedAt)
+	if err := l.Validate(); err != nil {
+		return 0, err
+	}
+	tx, err := s.DB.Begin()
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
-	if err != nil || id == 0 {
-		var qid int64
-		if err2 := s.DB.QueryRow(`SELECT id FROM media_libraries WHERE name=?`, l.Name).Scan(&qid); err2 == nil {
-			id = qid
-		}
+	defer tx.Rollback()
+	var id int64
+	if l.ID > 0 {
+		err = tx.QueryRow(`UPDATE media_libraries SET name=?,root_path=?,layout=?,link_mode=?,metadata_format=?,match_rules=?,enabled=? WHERE id=? RETURNING id`, l.Name, l.RootPath, l.Layout, l.LinkMode, l.MetadataFormat, l.MatchRules, boolInt(l.Enabled), l.ID).Scan(&id)
+	} else {
+		err = tx.QueryRow(`INSERT INTO media_libraries(name,root_path,layout,link_mode,metadata_format,match_rules,enabled,created_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET root_path=excluded.root_path,layout=excluded.layout,link_mode=excluded.link_mode,metadata_format=excluded.metadata_format,match_rules=excluded.match_rules,enabled=excluded.enabled RETURNING id`, l.Name, l.RootPath, l.Layout, l.LinkMode, l.MetadataFormat, l.MatchRules, boolInt(l.Enabled), l.CreatedAt).Scan(&id)
+	}
+	if err == sql.ErrNoRows {
+		return 0, ErrNotFound
+	}
+	if err != nil {
+		return 0, err
+	}
+	if _, err = tx.Exec(`UPDATE settings_revision SET revision=revision+1 WHERE id=1`); err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
 	}
 	l.ID = id
 	return id, nil
@@ -191,3 +203,40 @@ func (s *Store) EnsureDefaultLibrary(root, layout, linkMode string) error {
 }
 
 var _ = strings.TrimSpace
+
+func (l *MediaLibrary) Validate() error {
+	if strings.TrimSpace(l.Name) == "" || strings.TrimSpace(l.RootPath) == "" {
+		return errors.New("library name and root are required")
+	}
+	valid := func(value string, options ...string) bool {
+		for _, v := range options {
+			if value == v {
+				return true
+			}
+		}
+		return false
+	}
+	if !valid(l.Layout, "movie", "show", "collection") {
+		return errors.New("unsupported library layout")
+	}
+	if !valid(l.LinkMode, "auto", "symlink", "hardlink", "copy", "strm") {
+		return errors.New("unsupported link mode")
+	}
+	if !valid(l.MetadataFormat, "nfo", "json", "none") {
+		return errors.New("unsupported metadata format")
+	}
+	_, err := l.CheckedRules()
+	return err
+}
+
+func (l *MediaLibrary) CheckedRules() (MatchRules, error) {
+	var rules MatchRules
+	raw := l.MatchRules
+	if strings.TrimSpace(raw) == "" {
+		raw = "{}"
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&rules)
+	return rules, err
+}

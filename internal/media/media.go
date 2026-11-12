@@ -304,17 +304,17 @@ func truncateRunes(s string, n int) string {
 
 // publicURL STRM 模式写入的核心访问地址。
 func (b *Bridge) publicURL() string {
-	if u := strings.TrimSpace(b.Cfg.Media.PublicURL); u != "" {
+	if u := strings.TrimSpace(b.Cfg.View().Media.PublicURL); u != "" {
 		return strings.TrimRight(u, "/")
 	}
-	return "http://127.0.0.1" + b.Cfg.Listen
+	return b.Cfg.LocalURL()
 }
 
 // emitVideo 按库链接方式落视频：strm 模式写 <base>.strm（内容为核心 HTTP 流地址，
 // Emby/Jellyfin/Kodi 跨机直接播放），其余走 symlink→hardlink→copy 降级链。
 func (b *Bridge) emitVideo(dst, src string, v *store.Video, lib *store.MediaLibrary) error {
 	if lib.LinkMode == "strm" {
-		rel, err := archivepath.Key(b.Cfg.DataDir, src)
+		rel, err := archivepath.Key(b.Cfg.View().DataDir, src)
 		if err != nil {
 			return err
 		}
@@ -340,7 +340,7 @@ func (b *Bridge) buildMovieEntry(v *store.Video, lib *store.MediaLibrary, res *R
 		res.Skipped++
 		return nil
 	}
-	src, resolveErr := archivepath.Resolve(b.Cfg.DataDir, v.LocalPath)
+	src, resolveErr := archivepath.Resolve(b.Cfg.View().DataDir, v.LocalPath)
 	if resolveErr != nil {
 		return resolveErr
 	}
@@ -394,7 +394,7 @@ func (b *Bridge) linkMultiPExtras(dir string, v *store.Video, lib *store.MediaLi
 		if err != nil {
 			continue
 		}
-		src, err := archivepath.Resolve(b.Cfg.DataDir, rel)
+		src, err := archivepath.Resolve(b.Cfg.View().DataDir, rel)
 		if err != nil {
 			return err
 		}
@@ -470,7 +470,7 @@ func (b *Bridge) writeMeta(dir, format string, m *vmeta, ep int, showBase string
 
 // artwork 从本地化封面复制一组标准图片（缺源则跳过）。
 func (b *Bridge) artwork(dir string, v *store.Video, names ...string) {
-	cover := filepath.Join(b.Cfg.DataDir, "media", sanitizeFS(v.Bvid), "cover.jpg")
+	cover := filepath.Join(b.Cfg.View().DataDir, "media", sanitizeFS(v.Bvid), "cover.jpg")
 	for _, n := range names {
 		_ = copyIfChanged(cover, filepath.Join(dir, n))
 	}
@@ -536,7 +536,7 @@ func (b *Bridge) linkSubtitles(dir, base string, v *store.Video, mode string, se
 
 // resolvePath 解析字幕文件位置（历史数据里 FilePath 可能含 data/ 前缀或为绝对路径）。
 func (b *Bridge) resolvePath(p string) string {
-	full, err := archivepath.Resolve(b.Cfg.DataDir, p)
+	full, err := archivepath.Resolve(b.Cfg.View().DataDir, p)
 	if err != nil {
 		return ""
 	}
@@ -597,7 +597,7 @@ func (b *Bridge) buildShowEntry(v *store.Video, plan *showPlan, lib *store.Media
 		res.Skipped++
 		return nil
 	}
-	src, resolveErr := archivepath.Resolve(b.Cfg.DataDir, v.LocalPath)
+	src, resolveErr := archivepath.Resolve(b.Cfg.View().DataDir, v.LocalPath)
 	if resolveErr != nil {
 		return resolveErr
 	}

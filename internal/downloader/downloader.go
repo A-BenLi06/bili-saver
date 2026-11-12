@@ -84,7 +84,7 @@ func (d *Downloader) logger() *slog.Logger {
 // videoQNs 把质量配置解析为允许的清晰度集合；nil=全部画质（默认，取账号可用的最高档）。
 // qualities 非空时忽略旧 quality 单档位；allow_4k=false 始终剔除 4K(120)。
 func (d *Downloader) videoQNs() map[int]bool {
-	c := &d.Cfg.Download
+	c := &d.Cfg.View().Download
 	var ids []int
 	if len(c.Qualities) > 0 {
 		for _, name := range c.Qualities {
@@ -119,7 +119,7 @@ func (d *Downloader) videoQNs() map[int]bool {
 
 // audioPrefChain 音频偏好链（高→低）：audio_qualities 指定集合优先，标准三档兜底。
 func (d *Downloader) audioPrefChain() []int {
-	names := d.Cfg.Download.AudioQualities
+	names := d.Cfg.View().Download.AudioQualities
 	if len(names) == 0 {
 		return audioPref
 	}
@@ -158,7 +158,7 @@ func (d *Downloader) resolveQuality() (qnHint, fnval int) {
 	fnval = 16
 	qns := d.videoQNs()
 	if qns == nil {
-		if d.Cfg.Download.Allow4K {
+		if d.Cfg.View().Download.Allow4K {
 			fnval |= 128
 		}
 		return 120, fnval
@@ -226,7 +226,7 @@ func (d *Downloader) codecAllowed(s *biliapi.DashStream) bool {
 	case 7: // AVC/H.264 兼容性最好
 		return true
 	case 12, 13: // HEVC / AV1 需显式允许
-		return d.Cfg.Download.AllowAV1
+		return d.Cfg.View().Download.AllowAV1
 	}
 	return false
 }
@@ -297,7 +297,7 @@ func (d *Downloader) DownloadVideo(ctx context.Context, bvid string, progress Pr
 // downloadPage 下载单个分P并合并为 mp4，返回相对 dataDir 的路径。
 func (d *Downloader) downloadPage(ctx context.Context, bvid string, v *store.Video, pg *store.Page, qn, fnval int, onPage func(float64)) (string, error) {
 	policy := d.policyHash()
-	service := assets.Service{Store: d.St, Root: d.Cfg.DataDir}
+	service := assets.Service{Store: d.St, Root: d.Cfg.View().DataDir}
 	if d.St != nil {
 		if a, e := d.St.FindAsset(bvid, pg.Cid, "video", policy); e == nil {
 			if _, e = service.Resolve(a); e == nil {
@@ -309,7 +309,7 @@ func (d *Downloader) downloadPage(ctx context.Context, bvid string, v *store.Vid
 		}
 		if _, e := d.St.FindAsset(bvid, pg.Cid, "video", ""); e == store.ErrNotFound {
 			if key, e := d.St.LegacyPartPath(bvid, pg.Cid); e == nil {
-				if legacy, e := archivepath.Resolve(d.Cfg.DataDir, key); e == nil {
+				if legacy, e := archivepath.Resolve(d.Cfg.View().DataDir, key); e == nil {
 					if fi, e := os.Stat(legacy); e == nil && fi.Mode().IsRegular() && fi.Size() > 0 {
 						a, e := service.IndexLegacy(ctx, legacy, store.Asset{Bvid: bvid, Cid: pg.Cid, Role: "video", Origin: "bilibili", Variant: "legacy", PolicyHash: policy, Provenance: "legacy-single-cid; stream quality unknown"})
 						if e != nil {
@@ -350,7 +350,7 @@ func (d *Downloader) downloadPage(ctx context.Context, bvid string, v *store.Vid
 		}
 		return 0
 	}())
-	dir := filepath.Join(d.Cfg.DataDir, "tmp", "downloads", sanitize(bvid), fmt.Sprint(pg.Cid), policy, variant)
+	dir := filepath.Join(d.Cfg.View().DataDir, "tmp", "downloads", sanitize(bvid), fmt.Sprint(pg.Cid), policy, variant)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -443,7 +443,7 @@ func (d *Downloader) downloadFile(ctx context.Context, s *biliapi.DashStream, pa
 
 	// 残留分段断点：分段写出的 .part 是稀疏文件，只有分段路径能安全续传
 	if _, err := os.Stat(segsPath); err == nil {
-		if d.Cfg.Download.Segments <= 1 {
+		if d.Cfg.View().Download.Segments <= 1 {
 			return fmt.Errorf("%s 存在未完成的分段断点，需 download.segments>1 续传；或删除 %s 与 .part 重下", segsPath, segsPath)
 		}
 		b, rerr := os.ReadFile(segsPath)
@@ -452,10 +452,10 @@ func (d *Downloader) downloadFile(ctx context.Context, s *biliapi.DashStream, pa
 			return fmt.Errorf("%s 断点损坏，删除 %s 与 .part 后重试", segsPath, segsPath)
 		}
 		d.Log.Info("续传分段下载", "file", filepath.Base(path), "size", sf.Size)
-		return downloadSegmented(ctx, client, ua, urls, path, sf.Size, d.Cfg.Download.Segments, d.Log, onFrac)
+		return downloadSegmented(ctx, client, ua, urls, path, sf.Size, d.Cfg.View().Download.Segments, d.Log, onFrac)
 	}
 
-	if d.Cfg.Download.Segments > 1 {
+	if d.Cfg.View().Download.Segments > 1 {
 		for _, u := range urls {
 			if u == "" {
 				continue
@@ -471,7 +471,7 @@ func (d *Downloader) downloadFile(ctx context.Context, s *biliapi.DashStream, pa
 			if !ranged || total < minSegSize {
 				break // 不支持 Range 或文件太小：单流即可
 			}
-			return downloadSegmented(ctx, client, ua, urls, path, total, d.Cfg.Download.Segments, d.Log, onFrac)
+			return downloadSegmented(ctx, client, ua, urls, path, total, d.Cfg.View().Download.Segments, d.Log, onFrac)
 		}
 	}
 
@@ -883,7 +883,7 @@ func (d *Downloader) merge(ctx context.Context, videoPath, audioPath, outPath st
 
 // downloadCover 下载封面到 media/{bvid}/cover.jpg。
 func (d *Downloader) downloadCover(ctx context.Context, bvid, picURL string) (string, error) {
-	dir := filepath.Join(d.Cfg.DataDir, "media", sanitize(bvid))
+	dir := filepath.Join(d.Cfg.View().DataDir, "media", sanitize(bvid))
 	path := filepath.Join(dir, "cover.jpg")
 	if st, err := os.Stat(path); err == nil && st.Size() > 0 {
 		return path, nil
@@ -930,7 +930,7 @@ func sanitize(s string) string {
 }
 
 func (d *Downloader) policyHash() string {
-	c := d.Cfg.Download
+	c := d.Cfg.View().Download
 	body, _ := json.Marshal(struct {
 		Qualities  []string
 		Quality    string

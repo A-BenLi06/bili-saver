@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<link rel="icon" href="data:,">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>bili-saver</title>
 <script>(function(){try{var t=localStorage.getItem('bili-theme');if(!t&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)t='dark';if(t)document.documentElement.dataset.theme=t;}catch(e){}})();</script>
@@ -4039,6 +4040,8 @@ const stSyncCombos = () => {
   }
 };
 let stInit = null;
+let stRevision = null;
+let stEnvironment = {};
 const stChecks = (prefix, vals) => {
   const cur = vals||[];
   const all = [...new Set([...(prefix==='stQ_'?QUAL_OPTS:AQUAL_OPTS), ...cur])];
@@ -4188,6 +4191,7 @@ async function renderSettings(m){
     </div>
   </div>
   <div id="setOut"></div>
+  <div id="stRestartNotice" class="banner info" ${c.pending_restart?.length?'':'hidden'}>部分设置将在下次启动时生效；当前运行中的任务保持原有并发与请求节奏。</div>
 
   ${settingsTabsHTML()}
 
@@ -4317,7 +4321,7 @@ async function renderSettings(m){
       </dl>
     </div>
     <div class="banner info" style="margin-top:10px">
-      提示：数据目录、监听端口及媒体库根路径为底层服务启动级参数，如需调整请在配置文件 <code>config.yaml</code> 中直接修改后重启服务。设置界面仅提供支持运行时动态更新的安全选项。
+      数据目录及监听地址由启动配置控制；媒体库路径在媒体库页面管理。运行参数随归档数据库保存，环境变量控制的项目显示为只读。
     </div>
   </div>
 
@@ -4327,13 +4331,17 @@ async function renderSettings(m){
     <button class="btn primary" id="stSave2" disabled>保存全部设置</button>
     <button class="btn" id="stReset2" style="display:none">放弃更改</button>
     <span id="stDirty2" class="meta-note" style="display:none;color:var(--warn)"></span>
-    <span class="meta-note">保存立即生效 · 原配置自动备份为 config.yaml.bak</span>
+    <span class="meta-note">运行参数保存到归档数据库 · 需重启的设置会单独提示</span>
   </div>
   </div>`;
 
   // 子页签切换事件绑定
   bindSettingsTabs();
 
+  stRevision = c.settings_revision ?? null;
+  stEnvironment = c.environment_controlled || {};
+  for(const [id,key] of ST_FIELDS){if(!stEnvironment[key])continue;const el=document.getElementById(id);if(!el)continue;el.disabled=true;el.title='由 '+stEnvironment[key]+' 控制';el.querySelectorAll?.('input,button,select').forEach(x=>x.disabled=true);}
+  for(const [key,prefix] of [['qualities','stQ_'],['audio_qualities','stAQ_']]){if(stEnvironment[key])document.querySelectorAll('[id^="'+prefix+'"]').forEach(x=>{x.disabled=true;x.title='由 '+stEnvironment[key]+' 控制';});}
   stInit = stCollect();
   const wrap = $('#stWrap');
   wrap.addEventListener('input', stRefresh);
@@ -4348,10 +4356,15 @@ async function renderSettings(m){
 }
 window.saveSettings = async () => {
   try{
-    await api('/config',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(stCollect())});
-    stInit = stCollect();
-    stRefresh();
-    toast('设置已保存并生效','ok');
+    const current=stCollect();
+    const changed=Object.fromEntries(Object.entries(current).filter(([key,value])=>!stEnvironment[key] && JSON.stringify(value)!==JSON.stringify(stInit?.[key])));
+    const headers={'Content-Type':'application/json'};
+    if(stRevision!==null)headers['If-Match']=String(stRevision);
+    const result=await api('/config',{method:'PATCH',headers,body:JSON.stringify(changed)});
+    stRevision=result.settings_revision??null;
+    stInit=current;stRefresh();
+    const notice=document.getElementById('stRestartNotice');if(notice)notice.hidden=!result.pending_restart?.length;
+    toast(result.pending_restart?.length?'设置已保存，部分项目将在下次启动时生效':'设置已保存并生效','ok');
   }catch(e){ toast('保存失败：'+e,'err'); }
 };
 

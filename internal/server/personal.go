@@ -62,7 +62,7 @@ func (s *Server) handlePersonalDownload(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if s.Deps.Mgr != nil {
-		if err = s.Deps.Mgr.PumpUserDownloads(s.Deps.Cfg.DataDir); err != nil {
+		if err = s.Deps.Mgr.PumpUserDownloads(s.Deps.Cfg.View().DataDir); err != nil {
 			errJSON(w, 500, err)
 			return
 		}

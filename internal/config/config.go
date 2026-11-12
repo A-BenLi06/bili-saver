@@ -3,6 +3,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +23,7 @@ type MediaServer struct {
 }
 
 type Config struct {
+	runtime *runtimeConfig
 	DataDir string `yaml:"data_dir"`
 	Listen  string `yaml:"listen"`
 
@@ -116,6 +119,7 @@ type Config struct {
 // Defaults 返回内置默认值。
 func Defaults() *Config {
 	var c Config
+	c.InitRuntime()
 	c.DataDir = "./data"
 	c.Listen = ":8080"
 	c.Log.Level = "info"
@@ -158,11 +162,15 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("读取配置 %s: %w", path, err)
 		}
-		if err := yaml.Unmarshal(b, c); err != nil {
+		decoder := yaml.NewDecoder(bytes.NewReader(b))
+		decoder.KnownFields(true)
+		if err := decoder.Decode(c); err != nil {
 			return nil, fmt.Errorf("解析配置 %s: %w", path, err)
 		}
 	}
-	applyEnv(c, "BILI_SAVER", reflect.ValueOf(c).Elem(), "")
+	if err := applyEnv(c, "BILI_SAVER", reflect.ValueOf(c).Elem(), ""); err != nil {
+		return nil, err
+	}
 	c.Normalize()
 	if err := c.Validate(); err != nil {
 		return nil, err
@@ -174,17 +182,20 @@ func Load(path string) (*Config, error) {
 // 注意：Marshal 会丢失原文件注释，属已知取舍（备份里仍有原文）。
 // 权限 0600：配置可能含 admin token / JWT secret 等敏感项。
 func SaveConfigFile(path string, c *Config) error {
+	c = c.View()
 	b, err := yaml.Marshal(c)
 	if err != nil {
 		return fmt.Errorf("序列化配置: %w", err)
 	}
-	if old, rerr := os.ReadFile(path); rerr == nil {
-		if werr := os.WriteFile(path+".bak", old, 0o600); werr != nil {
-			return fmt.Errorf("备份原配置失败: %w", werr)
+	if old, err := os.ReadFile(path); err == nil {
+		if err = writeConfigAtomic(path+".bak", old); err != nil {
+			return err
 		}
+	} else if !os.IsNotExist(err) {
+		return err
 	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		return fmt.Errorf("写入配置 %s: %w", path, err)
+	if err := writeConfigAtomic(path, b); err != nil {
+		return err
 	}
 	return nil
 }
@@ -248,41 +259,75 @@ func (c *Config) FFmpegPath() string {
 func (c *Config) CookiePath() string { return c.Bilibili.CookieFile }
 
 // applyEnv 递归地把 BILI_SAVER_<PATH> 环境变量覆盖到结构体字段上。
-func applyEnv(c *Config, prefix string, v reflect.Value, path string) {
+func applyEnv(c *Config, prefix string, v reflect.Value, path string) error {
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
+		if f.PkgPath != "" {
+			continue
+		}
 		fv := v.Field(i)
-		key := f.Tag.Get("yaml")
+		key := strings.Split(f.Tag.Get("yaml"), ",")[0]
 		if key == "" {
 			key = strings.ToLower(f.Name)
 		}
-		key = strings.SplitN(key, ",", 2)[0]
 		sub := key
 		if path != "" {
 			sub = path + "_" + key
 		}
+		if fv.Kind() == reflect.Struct {
+			if err := applyEnv(c, prefix, fv, sub); err != nil {
+				return err
+			}
+			continue
+		}
+		env := prefix + "_" + strings.ToUpper(sub)
+		value, ok := os.LookupEnv(env)
+		if !ok {
+			continue
+		}
 		switch fv.Kind() {
-		case reflect.Struct:
-			applyEnv(c, prefix, fv, sub)
-		case reflect.String, reflect.Bool, reflect.Int:
-			env := prefix + "_" + strings.ToUpper(sub)
-			if val, ok := os.LookupEnv(env); ok {
-				switch fv.Kind() {
-				case reflect.String:
-					fv.SetString(val)
-				case reflect.Bool:
-					b, err := strconv.ParseBool(val)
-					if err == nil {
-						fv.SetBool(b)
-					}
-				case reflect.Int:
-					n, err := strconv.Atoi(val)
-					if err == nil {
-						fv.SetInt(int64(n))
-					}
-				}
+		case reflect.String:
+			fv.SetString(value)
+		case reflect.Bool:
+			n, err := strconv.ParseBool(value)
+			if err != nil {
+				return fmt.Errorf("invalid %s: %w", env, err)
+			}
+			fv.SetBool(n)
+		case reflect.Int:
+			n, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return fmt.Errorf("invalid %s: %w", env, err)
+			}
+			fv.SetInt(n)
+		case reflect.Slice:
+			if err := json.Unmarshal([]byte(value), fv.Addr().Interface()); err != nil {
+				return fmt.Errorf("%s must be a JSON array: %w", env, err)
 			}
 		}
 	}
+	return nil
+}
+
+func writeConfigAtomic(path string, body []byte) error {
+	f, err := os.CreateTemp(filepath.Dir(path), ".config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err = f.Chmod(0600); err != nil {
+		return err
+	}
+	if _, err = f.Write(body); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), path)
 }

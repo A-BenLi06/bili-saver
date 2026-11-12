@@ -56,33 +56,43 @@ type Server struct {
 }
 
 func New(d Deps) *Server {
+	d.Cfg.InitRuntime()
+	if d.St != nil {
+		if values, _, err := d.St.RuntimeSettings(); err == nil {
+			_ = d.Cfg.Prepare(values)
+		}
+	}
+	d.Cfg.MarkApplied()
+
 	s := &Server{Deps: d, mux: http.NewServeMux()}
-	if d.Cfg.Teriteri.Enabled {
+	if d.Cfg.View().Teriteri.Enabled {
 		// 密码自助修改：经此回调写回配置文件（两套适配层共享同一账号体系）
 		passHook := func(npw string) error {
-			d.Cfg.Teriteri.AdminPass = npw
-			d.Cfg.Normalize()
-			if err := d.Cfg.Validate(); err != nil {
-				return err
-			}
-			if d.ConfigPath != "" {
-				return config.SaveConfigFile(d.ConfigPath, d.Cfg)
-			}
-			return nil
+			return d.Cfg.Update(func(next *config.Config) error {
+				next.Teriteri.AdminPass = npw
+				if err := next.Validate(); err != nil {
+					return err
+				}
+				if d.ConfigPath != "" {
+					return config.SaveConfigFile(d.ConfigPath, next)
+				}
+				return nil
+			})
 		}
+
 		s.teri = &teriteri.Adapter{
-			St: d.St, DataDir: d.Cfg.DataDir,
-			AdminUser: d.Cfg.Teriteri.AdminUser, AdminPass: d.Cfg.Teriteri.AdminPass,
-			JWTSecret:    d.Cfg.Teriteri.JWTSecret,
+			St: d.St, DataDir: d.Cfg.View().DataDir,
+			AdminUser: d.Cfg.View().Teriteri.AdminUser, AdminPass: d.Cfg.View().Teriteri.AdminPass,
+			JWTSecret:    d.Cfg.View().Teriteri.JWTSecret,
 			PasswordHook: passHook,
 			Log:          d.Log,
 		}
 		s.teri.Register(s.mux)
 		// teriteri-admin（管理员端）适配层：共用 JWT 与登录账号
 		admin := &teriteriadmin.Adapter{
-			St: d.St, DataDir: d.Cfg.DataDir,
-			AdminUser: d.Cfg.Teriteri.AdminUser, AdminPass: d.Cfg.Teriteri.AdminPass,
-			JWTSecret: d.Cfg.Teriteri.JWTSecret,
+			St: d.St, DataDir: d.Cfg.View().DataDir,
+			AdminUser: d.Cfg.View().Teriteri.AdminUser, AdminPass: d.Cfg.View().Teriteri.AdminPass,
+			JWTSecret: d.Cfg.View().Teriteri.JWTSecret,
 			Log:       d.Log,
 		}
 		admin.Register(s.mux)
@@ -148,13 +158,13 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if s.Deps.Cfg.Admin.Token != "" {
+		if s.Deps.Cfg.View().Admin.Token != "" {
 			tok := r.Header.Get("Authorization")
 			tok = strings.TrimPrefix(tok, "Bearer ")
 			if tok == "" {
 				tok = r.URL.Query().Get("token")
 			}
-			if tok == s.Deps.Cfg.Admin.Token {
+			if tok == s.Deps.Cfg.View().Admin.Token {
 				au = authUser{Role: "admin", Name: "token"}
 			}
 		}
@@ -196,8 +206,8 @@ func (s *Server) registerMedia() {
 			return
 		}
 		// URL 形如 /media/<local_path>，local_path 本身以 media/ 开头
-		full := filepath.Join(s.Deps.Cfg.DataDir, filepath.FromSlash(rel))
-		absData, err1 := filepath.Abs(s.Deps.Cfg.DataDir)
+		full := filepath.Join(s.Deps.Cfg.View().DataDir, filepath.FromSlash(rel))
+		absData, err1 := filepath.Abs(s.Deps.Cfg.View().DataDir)
 		absFull, err2 := filepath.Abs(full)
 		if err1 != nil || err2 != nil || !strings.HasPrefix(absFull, absData+string(filepath.Separator)) {
 			http.Error(w, "forbidden", http.StatusForbidden)

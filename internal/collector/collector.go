@@ -269,7 +269,7 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		if !comp {
 			complete = false
 		}
-		if c.Cfg.Download.DownloadDanmaku {
+		if c.Cfg.View().Download.DownloadDanmaku {
 			if err := c.writeDanmakuXMLContext(ctx, view.Bvid, p.Cid); err != nil {
 				c.Log.Warn("弹幕 XML 生成失败", "bvid", bvid, "cid", p.Cid, "err", err)
 			}

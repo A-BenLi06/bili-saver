@@ -1,3 +1,5 @@
+# Runtime settings changed in the console are stored transactionally in the archive database.
+# Startup configuration and BILI_SAVER_* environment variables override defaults; arrays use JSON.
 # bili-saver 示例配置。全部字段都可用环境变量 BILI_SAVER_<大写字段路径> 覆盖。
 data_dir: ./data
 listen: ":8080"
