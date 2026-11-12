@@ -74,6 +74,8 @@ func hotHumanize(n int) string {
 }
 
 func (s *Server) registerAdmin() {
+	s.mux.HandleFunc("GET /api/v1/guide", s.handleGuide)
+	s.mux.HandleFunc("GET /api/v1/archive/export", s.handleCoreExport)
 	s.mux.HandleFunc("GET /api/v1/archive/deliveries", s.handleDeliveries)
 	s.mux.HandleFunc("GET /api/v1/archive/catalog", func(w http.ResponseWriter, r *http.Request) {
 		value, err := archiveops.ExportCatalog(s.Deps.St)

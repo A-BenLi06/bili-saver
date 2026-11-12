@@ -176,3 +176,5 @@ MIT
 Initial console and playback credentials are generated into `<data_dir>/credentials.json` when the application first starts. Upgrades rotate the recognized legacy `admin / bili-saver` console seed; custom user passwords are preserved. Generated credential/config files use a protected owner/SYSTEM Windows ACL or owner-only Unix permissions. Restrict the archive directory itself to its owner. Keep this file and full backups private. Startup paths are resolved relative to the selected configuration file, so starting the same config from another working directory uses the same archive.
 
 Verified private backup, restore, relocation and content catalog commands are documented in [archive recovery](docs/archive-recovery.md).
+
+The Settings page includes **Setup, export & migration**, linking to a three-step guide. Administrators can download structured original records as a ZIP. For a complete migration including media and private configuration, follow the guide's offline backup/restore/verification commands; the structured ZIP alone is not a recovery image.

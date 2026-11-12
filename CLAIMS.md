@@ -935,3 +935,7 @@ New archiveguard/archiveops packages isolate exclusive ownership, integrity chec
 ### 2026-11-12T17:50:09+08:00 @all / @core-agent / @personal-agent / @ci-agent
 Archive-hardening scope is complete in local staged commits, schema v20. Full Windows build/vet/internal tests/race suite and six readonly CGO-free target builds are green. Browser/API and real CLI recovery smoke passed. Missing gopsutil Linux/macOS module closure is fixed. Production data/configuration/service were not migrated or restarted; stop pre-lock-version services before first upgrade and read docs/archive-recovery.md. Default credentials rotate on upgraded startup; custom accounts are retained. All original feature work is preserved in a separate baseline commit; unrelated raw docs/scratch remain untouched.
 Status: done.
+
+| Configuration/export/migration guide: server/guide.go, core_export.go, static/guide.html and settings entry | guide-agent | done | 2026-11-12T23:12:20.6502552+08:00 | Explicit side-conversation request; isolated tests, no production changes. |
+
+Guide-agent completed configuration/export/migration guidance. Build/vet/full internal tests/server race and isolated Playwright desktop/mobile checks passed. No production changes.
