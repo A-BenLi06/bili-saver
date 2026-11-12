@@ -183,7 +183,9 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		}
 	}
 	changedCids := map[int64]bool{}
+	currentPages := make([]*store.Page, 0, len(view.Pages))
 	for _, p := range view.Pages {
+		currentPages = append(currentPages, &store.Page{Bvid: view.Bvid, Cid: p.Cid, Page: p.Page})
 		if !prevCids[p.Cid] && prev != nil {
 			changedCids[p.Cid] = true // 全新视频不算变化
 		}
@@ -193,6 +195,9 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		}); err != nil {
 			return nil, err
 		}
+	}
+	if err := c.St.ObservePages(view.Bvid, currentPages, syncStart); err != nil {
+		return res, err
 	}
 	if len(changedCids) > 0 {
 		c.Log.Info("检测到分P/cid 变化（换源或重投稿）", "bvid", bvid, "cids", len(changedCids))

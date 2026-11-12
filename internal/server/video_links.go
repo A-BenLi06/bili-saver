@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"bili-saver/internal/archivepath"
 	"bili-saver/internal/config"
 	"bili-saver/internal/store"
 )
@@ -64,11 +65,23 @@ func (s *Server) videoFile(v *store.Video, page int) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	rel := filepath.Join("media", v.Bvid, fmt.Sprintf("p%d", page), fmt.Sprintf("%s-p%d.mp4", v.Bvid, page))
 	if page == 1 && v.LocalPath != "" {
-		rel = v.LocalPath
+		if _, e := archivepath.Resolve(root, v.LocalPath); e != nil {
+			return "", false
+		}
 	}
-	p := rel
+	rel, resolveErr := s.Deps.St.PartLocalPath(v.Bvid, page)
+	if resolveErr != nil {
+		if page == 1 {
+			rel = v.LocalPath
+		} else {
+			return "", false
+		}
+	}
+	p, pathErr := archivepath.Resolve(root, rel)
+	if pathErr != nil {
+		return "", false
+	}
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(root, p)
 	}

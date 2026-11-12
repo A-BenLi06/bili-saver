@@ -144,7 +144,12 @@ func (a *Adapter) card(v *store.Video) map[string]any {
 		"video": map[string]any{
 			"vid": v.Bvid, "title": v.Title, "coverUrl": a.coverURL(v),
 			"duration": v.Duration, "uploadDate": isoDate(v.Pubdate),
-			"status": reviewStatus(v),
+			"status": func() int {
+				if a.St.VideoHidden(v.Bvid) {
+					return 2
+				}
+				return 1
+			}(),
 		},
 		"user":     map[string]any{"uid": v.OwnerMid, "nickname": v.OwnerName, "avatar_url": v.OwnerFace},
 		"category": map[string]any{"mcId": 0, "mcName": "补档", "scId": 0, "scName": "归档"},
@@ -198,11 +203,11 @@ func (a *Adapter) byVstatus(vstatus int) []*store.Video {
 	for _, v := range videos {
 		switch vstatus {
 		case 1:
-			if v.Status == "ok" {
+			if !a.St.VideoHidden(v.Bvid) {
 				out = append(out, v)
 			}
 		case 3:
-			if v.Status != "ok" {
+			if a.St.VideoHidden(v.Bvid) {
 				out = append(out, v)
 			}
 		}
@@ -234,7 +239,12 @@ func (a *Adapter) videoGetone(w http.ResponseWriter, r *http.Request, _ int64) {
 			"duration": v.Duration, "uploadDate": isoDate(v.Pubdate),
 			"tags": strings.Join(tags["bilibili"], "\r\n"),
 			"type": 1, "auth": 1, "top": false,
-			"status": reviewStatus(v),
+			"status": func() int {
+				if a.St.VideoHidden(v.Bvid) {
+					return 2
+				}
+				return 1
+			}(),
 		},
 		"user":     map[string]any{"uid": v.OwnerMid, "nickname": v.OwnerName, "avatar_url": v.OwnerFace},
 		"category": map[string]any{"mcId": 0, "mcName": "补档", "scId": 0, "scName": "归档"},
@@ -276,13 +286,12 @@ func (a *Adapter) changeStatus(w http.ResponseWriter, r *http.Request, _ int64) 
 	if status == 1 {
 		newStatus = "ok"
 	}
-	res, err := a.St.DB.Exec(`UPDATE videos SET status=? WHERE bvid=?`, newStatus, vid)
-	if err != nil {
-		a.fail(w, 500, err.Error())
+	if _, err := a.St.GetVideo(vid); err != nil {
+		a.fail(w, 404, "视频不存在或未归档")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		a.fail(w, 404, "视频不存在或未归档")
+	if err := a.St.SetVideoHidden(vid, newStatus != "ok"); err != nil {
+		a.fail(w, 500, err.Error())
 		return
 	}
 	a.ok(w, true)

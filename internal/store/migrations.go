@@ -7,14 +7,14 @@ import (
 	"strconv"
 )
 
-const SchemaVersion = 16
+const SchemaVersion = 17
 
 type migration struct {
 	version   int
 	name, sql string
 }
 
-var migrations = []migration{{16, "archive observations and per-CID reconciliation", observationSchema}}
+var migrations = []migration{{16, "archive observations and per-CID reconciliation", observationSchema}, {17, "portable content assets and page projections", assetSchema}}
 
 func (s *Store) schemaVersion() (int, error) {
 	var exists bool

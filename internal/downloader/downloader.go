@@ -3,6 +3,7 @@ package downloader
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"bili-saver/internal/archivepath"
+	"bili-saver/internal/assets"
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/config"
 	"bili-saver/internal/fileio"
@@ -293,17 +296,29 @@ func (d *Downloader) DownloadVideo(ctx context.Context, bvid string, progress Pr
 
 // downloadPage 下载单个分P并合并为 mp4，返回相对 dataDir 的路径。
 func (d *Downloader) downloadPage(ctx context.Context, bvid string, v *store.Video, pg *store.Page, qn, fnval int, onPage func(float64)) (string, error) {
-	// 幂等：已完成的本P直接跳过（重试/重复任务不重复拉流，也不请求 playurl）。
-	// 0 字节空壳（历史故障产物，会令播放器永远转圈）视为未完成：删除后重下。
-	dir := filepath.Join(d.Cfg.DataDir, "media", sanitize(bvid), fmt.Sprintf("p%d", pg.Page))
-	outPath := filepath.Join(dir, fmt.Sprintf("%s-p%d.mp4", sanitize(bvid), pg.Page))
-	if st, err := os.Stat(outPath); err == nil {
-		if st.Size() == 0 {
-			_ = os.Remove(outPath)
-		} else {
-			if rel, rerr := filepath.Rel(d.Cfg.DataDir, outPath); rerr == nil {
+	policy := d.policyHash()
+	service := assets.Service{Store: d.St, Root: d.Cfg.DataDir}
+	if d.St != nil {
+		if a, e := d.St.FindAsset(bvid, pg.Cid, "video", policy); e == nil {
+			if _, e = service.Resolve(a); e == nil {
 				onPage(1)
-				return rel, nil
+				return a.StorageKey, nil
+			}
+		} else if e != store.ErrNotFound {
+			return "", e
+		}
+		if _, e := d.St.FindAsset(bvid, pg.Cid, "video", ""); e == store.ErrNotFound {
+			if key, e := d.St.LegacyPartPath(bvid, pg.Cid); e == nil {
+				if legacy, e := archivepath.Resolve(d.Cfg.DataDir, key); e == nil {
+					if fi, e := os.Stat(legacy); e == nil && fi.Mode().IsRegular() && fi.Size() > 0 {
+						a, e := service.IndexLegacy(ctx, legacy, store.Asset{Bvid: bvid, Cid: pg.Cid, Role: "video", Origin: "bilibili", Variant: "legacy", PolicyHash: policy, Provenance: "legacy-single-cid; stream quality unknown"})
+						if e != nil {
+							return "", e
+						}
+						onPage(1)
+						return a.StorageKey, nil
+					}
+				}
 			}
 		}
 	}
@@ -329,6 +344,13 @@ func (d *Downloader) downloadPage(ctx context.Context, bvid string, v *store.Vid
 		return "", fmt.Errorf("没有可用视频流")
 	}
 
+	variant := fmt.Sprintf("v%d-c%d-a%d", vs.ID, vs.Codecid, func() int {
+		if as != nil {
+			return as.ID
+		}
+		return 0
+	}())
+	dir := filepath.Join(d.Cfg.DataDir, "tmp", "downloads", sanitize(bvid), fmt.Sprint(pg.Cid), policy, variant)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -375,27 +397,25 @@ func (d *Downloader) downloadPage(ctx context.Context, bvid string, v *store.Vid
 		return "", fmt.Errorf("下载音频流: %w", errA)
 	}
 
-	outName := fmt.Sprintf("%s-p%d.mp4", sanitize(bvid), pg.Page)
-	outPath2 := filepath.Join(dir, outName)
-	merging := outPath2 + ".merging"
+	merging := filepath.Join(dir, "output.mp4.merging")
 	_ = os.Remove(merging)
 	if err := d.merge(ctx, vPath, aPath, merging); err != nil {
-		_ = os.Remove(merging)
-		return "", fmt.Errorf("ffmpeg 合并: %w", err)
+		return "", fmt.Errorf("ffmpeg merge: %w", err)
 	}
-	if err := os.Rename(merging, outPath); err != nil {
+	if d.St == nil {
+		return "", fmt.Errorf("asset store is required")
+	}
+	asset, err := service.Import(ctx, merging, store.Asset{Bvid: bvid, Cid: pg.Cid, Role: "video", Origin: "bilibili", Variant: variant, PolicyHash: policy, Provenance: "bilibili-playurl"})
+	if err != nil {
 		return "", err
 	}
+	_ = os.Remove(merging)
 	_ = os.Remove(vPath)
 	if aPath != "" {
 		_ = os.Remove(aPath)
 	}
-	rel, err := filepath.Rel(d.Cfg.DataDir, outPath)
-	if err != nil {
-		rel = outPath
-	}
 	onPage(1)
-	return rel, nil
+	return asset.StorageKey, nil
 }
 
 func (d *Downloader) streamURLs(s *biliapi.DashStream) []string {
@@ -504,6 +524,9 @@ func (d *Downloader) tryDownload(ctx context.Context, u, path string, have int64
 	switch resp.StatusCode {
 	case http.StatusPartialContent, http.StatusOK:
 	case http.StatusRequestedRangeNotSatisfiable:
+		if have <= 0 {
+			return 0, fmt.Errorf("server rejected an initial download range")
+		}
 		// 已下载完成或远端不认 Range：重新下载
 		have = 0
 		return d.tryDownload(ctx, u, path, 0, bandwidth, onFrac)
@@ -511,9 +534,16 @@ func (d *Downloader) tryDownload(ctx context.Context, u, path string, have int64
 		return 0, fmt.Errorf("http %d", resp.StatusCode)
 	}
 
+	if resp.StatusCode == http.StatusPartialContent {
+		var start, end, total int64
+		if _, e := fmt.Sscanf(resp.Header.Get("Content-Range"), "bytes %d-%d/%d", &start, &end, &total); e != nil || start != have || end < start || total <= end {
+			return 0, fmt.Errorf("invalid Content-Range for resume")
+		}
+	}
 	var flag int
 	if resp.StatusCode == http.StatusOK && have > 0 {
-		flag = os.O_TRUNC // 服务器不支持 Range，重来
+		have = 0
+		flag = os.O_CREATE | os.O_WRONLY | os.O_TRUNC // 服务器不支持 Range，重来
 	} else {
 		flag = os.O_CREATE | os.O_WRONLY
 		if resp.StatusCode == http.StatusPartialContent {
@@ -670,6 +700,9 @@ func downloadSegmented(ctx context.Context, client *http.Client, ua string, urls
 		return err
 	}
 
+	if err := saveSegs(segsPath, sf); err != nil {
+		return err
+	}
 	var mu sync.Mutex
 	var written int64
 	var lastRep time.Time
@@ -779,6 +812,10 @@ func trySegment(ctx context.Context, client *http.Client, ua, u string, f *os.Fi
 		return fmt.Errorf("服务器不支持 Range（对分段请求返回 200）")
 	default:
 		return fmt.Errorf("http %d", resp.StatusCode)
+	}
+	var responseStart, responseEnd, responseTotal int64
+	if _, err := fmt.Sscanf(resp.Header.Get("Content-Range"), "bytes %d-%d/%d", &responseStart, &responseEnd, &responseTotal); err != nil || responseStart != start || responseEnd != seg.End-1 || responseTotal < seg.End {
+		return fmt.Errorf("invalid Content-Range for segment")
 	}
 	if resp.ContentLength > 0 && resp.ContentLength != seg.End-start {
 		return fmt.Errorf("分段长度不符 %d != %d", resp.ContentLength, seg.End-start)
@@ -890,4 +927,15 @@ func sanitize(s string) string {
 		s = "unknown"
 	}
 	return s
+}
+
+func (d *Downloader) policyHash() string {
+	c := d.Cfg.Download
+	body, _ := json.Marshal(struct {
+		Qualities  []string
+		Quality    string
+		Audio      []string
+		AV1, FourK bool
+	}{c.Qualities, c.Quality, c.AudioQualities, c.AllowAV1, c.Allow4K})
+	return fmt.Sprintf("%x", sha256.Sum256(body))
 }

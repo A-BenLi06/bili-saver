@@ -193,7 +193,7 @@ func (s *Store) UpsertPage(p *Page) error {
 	return err
 }
 
-func (s *Store) ListPages(bvid string) ([]*Page, error) {
+func (s *Store) ListPageHistory(bvid string) ([]*Page, error) {
 	rows, err := s.DB.Query(`SELECT bvid, cid, page, part, duration, first_seen_at, last_seen_at FROM pages WHERE bvid=? ORDER BY page`, bvid)
 	if err != nil {
 		return nil, err
@@ -305,7 +305,7 @@ func (s *Store) FreshStatsDue(now int64, freshHours, freshMinutes, limit int) ([
 // ---- videos marked gone before download ----
 
 func (s *Store) SetVideoDownloaded(bvid, localPath string) error {
-	_, err := s.DB.Exec(`UPDATE videos SET downloaded=1, local_path=? WHERE bvid=?`, localPath, bvid)
+	_, err := s.DB.Exec(`UPDATE videos SET downloaded=1, local_path=? WHERE bvid=?`, strings.ReplaceAll(localPath, `\`, "/"), bvid)
 	if err != nil {
 		return err
 	}

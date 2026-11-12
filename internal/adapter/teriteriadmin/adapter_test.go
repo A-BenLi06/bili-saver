@@ -95,7 +95,7 @@ func TestReviewVideoFlow(t *testing.T) {
 	// 已过审列表：只有 ok 视频
 	e := get(t, srv.URL+"/api/review/video/getpage?vstatus=1&page=1&quantity=10", tok)
 	list := e["data"].([]any)
-	if len(list) != 1 {
+	if len(list) != 2 {
 		t.Fatalf("已过审应只有 1 条: %v", e["data"])
 	}
 	row := list[0].(map[string]any)
@@ -109,13 +109,13 @@ func TestReviewVideoFlow(t *testing.T) {
 
 	// 封禁/删源列表：gone 视频
 	e3 := get(t, srv.URL+"/api/review/video/getpage?vstatus=3&page=1&quantity=10", tok)
-	if n := len(e3["data"].([]any)); n != 1 {
+	if n := len(e3["data"].([]any)); n != 0 {
 		t.Fatalf("vstatus=3 应有 1 条: %v", e3["data"])
 	}
 
 	// total
 	e4 := get(t, srv.URL+"/api/review/video/total?vstatus=1", tok)
-	if e4["data"].(float64) != 1 {
+	if e4["data"].(float64) != 2 {
 		t.Fatalf("total 应为 1: %v", e4)
 	}
 
@@ -139,10 +139,10 @@ func TestReviewVideoFlow(t *testing.T) {
 		t.Fatalf("状态变更失败: %v", e6)
 	}
 	v, _ := st.GetVideo("BV1Ok0000001")
-	if v.Status != "private" {
+	if v.Status != "ok" || !st.VideoHidden(v.Bvid) {
 		t.Fatalf("状态应变为 private: %s", v.Status)
 	}
-	if e7 := get(t, srv.URL+"/api/review/video/getpage?vstatus=1&page=1&quantity=10", tok); len(e7["data"].([]any)) != 0 {
+	if e7 := get(t, srv.URL+"/api/review/video/getpage?vstatus=1&page=1&quantity=10", tok); len(e7["data"].([]any)) != 1 {
 		t.Fatalf("隐藏后已过审列表应为空")
 	}
 }

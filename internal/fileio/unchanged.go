@@ -44,6 +44,9 @@ func Write(path string, produce func(io.Writer) error) (changed bool, err error)
 			return false, err
 		}
 	}
+	if err := w.out.Sync(); err != nil {
+		return false, err
+	}
 	if err := w.out.Close(); err != nil {
 		return false, err
 	}

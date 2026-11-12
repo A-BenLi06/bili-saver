@@ -36,7 +36,7 @@ func TestDanmakuExportHistoryOrderAndUnchangedFile(t *testing.T) {
 	if err := c.writeDanmakuXML("BVExport", 1); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "media", "BVExport", "danmaku", "full.xml")
+	path := filepath.Join(dir, "derived", "BVExport", "danmaku", "1", "full.xml")
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestDanmakuExportHistoryOrderAndUnchangedFile(t *testing.T) {
 	if err := c.writeDanmakuXML("BVExport", 99); err != nil {
 		t.Fatal(err)
 	}
-	body, _ = os.ReadFile(path)
+	body, _ = os.ReadFile(filepath.Join(dir, "derived", "BVExport", "danmaku", "99", "full.xml"))
 	if err := xml.Unmarshal(body, &doc); err != nil {
 		t.Fatal(err)
 	}

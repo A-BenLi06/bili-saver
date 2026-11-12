@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"bili-saver/internal/archivepath"
 	"bili-saver/internal/config"
 	"bili-saver/internal/store"
 )
@@ -119,7 +120,7 @@ func (b *Bridge) rebuildAllLocked() (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	videos, err := b.St.ListVideos(0, "ok", 0, 0)
+	videos, err := b.St.ListVideos(0, "", 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +314,11 @@ func (b *Bridge) publicURL() string {
 // Emby/Jellyfin/Kodi 跨机直接播放），其余走 symlink→hardlink→copy 降级链。
 func (b *Bridge) emitVideo(dst, src string, v *store.Video, lib *store.MediaLibrary) error {
 	if lib.LinkMode == "strm" {
-		url := b.publicURL() + "/media/" + mediaURLEscape(v.LocalPath)
+		rel, err := archivepath.Key(b.Cfg.DataDir, src)
+		if err != nil {
+			return err
+		}
+		url := b.publicURL() + "/media/" + mediaURLEscape(rel)
 		return writeFileIfChanged(strings.TrimSuffix(dst, filepath.Ext(dst))+".strm", []byte(url))
 	}
 	return linkFile(src, dst, lib.LinkMode)
@@ -321,7 +326,7 @@ func (b *Bridge) emitVideo(dst, src string, v *store.Video, lib *store.MediaLibr
 
 // mediaURLEscape /media/ 相对路径的 URL 化（保留 /，转义空格与中文等）。
 func mediaURLEscape(rel string) string {
-	rel = filepath.ToSlash(rel)
+	rel = strings.ReplaceAll(rel, `\`, "/")
 	segs := strings.Split(rel, "/")
 	for i, sg := range segs {
 		segs[i] = url.PathEscape(sg)
@@ -335,7 +340,10 @@ func (b *Bridge) buildMovieEntry(v *store.Video, lib *store.MediaLibrary, res *R
 		res.Skipped++
 		return nil
 	}
-	src := filepath.Join(b.Cfg.DataDir, v.LocalPath)
+	src, resolveErr := archivepath.Resolve(b.Cfg.DataDir, v.LocalPath)
+	if resolveErr != nil {
+		return resolveErr
+	}
 	if _, err := os.Stat(src); err != nil {
 		res.Skipped++
 		return nil
@@ -358,45 +366,56 @@ func (b *Bridge) buildMovieEntry(v *store.Video, lib *store.MediaLibrary, res *R
 		b.writeMeta(dir, lib.MetadataFormat, b.gatherMetaWithTags(v, biliTags), 0, "")
 	}
 	b.artwork(dir, v, "poster.jpg", "fanart.jpg", "banner.jpg")
-	b.linkSubtitles(dir, base, v, lib.LinkMode)
-	b.linkMultiPExtras(dir, v, lib)
+	if err := b.linkSubtitles(dir, base, v, lib.LinkMode); err != nil {
+		return err
+	}
+	if err := b.linkMultiPExtras(dir, v, lib); err != nil {
+		return err
+	}
 	res.Created++
 	return nil
 }
 
 // linkMultiPExtras 多P投稿：已下载的 P2+ 作为 extras/ 特花收录
 // （Emby/Jellyfin 条目页“附加内容”区展示），文件名带分P标题。
-func (b *Bridge) linkMultiPExtras(dir string, v *store.Video, lib *store.MediaLibrary) {
+func (b *Bridge) linkMultiPExtras(dir string, v *store.Video, lib *store.MediaLibrary) error {
 	if v.PagesCount <= 1 {
-		return
+		return nil
 	}
 	pages, err := b.St.ListPages(v.Bvid)
 	if err != nil {
-		return
+		return err
 	}
-	var extrasDir string
 	for _, p := range pages {
 		if p.Page <= 1 {
 			continue
 		}
-		rel := fmt.Sprintf("media/%s/p%d/%s-p%d.mp4", v.Bvid, p.Page, v.Bvid, p.Page)
-		src := filepath.Join(b.Cfg.DataDir, filepath.FromSlash(rel))
-		if _, err := os.Stat(src); err != nil {
+		rel, err := b.St.PartLocalPath(v.Bvid, p.Page)
+		if err != nil {
 			continue
 		}
-		if extrasDir == "" {
-			extrasDir = filepath.Join(dir, "extras")
-			if err := os.MkdirAll(extrasDir, 0o755); err != nil {
-				return
-			}
+		src, err := archivepath.Resolve(b.Cfg.DataDir, rel)
+		if err != nil {
+			return err
 		}
-		name := sanitizeFS(p.Part)
-		if name == "" {
-			name = fmt.Sprintf("P%d", p.Page)
+		if _, err = os.Stat(src); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return err
 		}
-		dst := filepath.Join(extrasDir, fmt.Sprintf("P%d %s.mp4", p.Page, name))
-		_ = b.emitVideo(dst, src, v, lib)
+		extras := filepath.Join(dir, "extras")
+		if err = os.MkdirAll(extras, 0755); err != nil {
+			return err
+		}
+		name := fmt.Sprintf("P%d %s [%s]", p.Page, sanitizeFS(p.Part), v.Bvid)
+		if err = b.emitVideo(filepath.Join(extras, name+".mp4"), src, v, lib); err != nil {
+			return err
+		}
+		if err = b.linkSubtitles(extras, name, v, lib.LinkMode, p.Cid); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // writeMeta 按库配置输出元数据：kodi NFO / JSON sidecar / 无。
@@ -459,49 +478,72 @@ func (b *Bridge) artwork(dir string, v *store.Video, names ...string) {
 
 // linkSubtitles 把 B 站 CC 字幕（bcc/json，origin=bilibili）转 srt 外挂；
 // 已是 srt 的直接复制。命名 <视频名>.<语言>.srt 供 Emby/Jellyfin/Kodi 自动挂载。
-func (b *Bridge) linkSubtitles(dir, base string, v *store.Video, mode string) {
-	subs, err := b.St.ListSubtitles(v.Bvid, 0)
+func (b *Bridge) linkSubtitles(dir, base string, v *store.Video, mode string, selected ...int64) error {
+	cid := int64(0)
+	if len(selected) > 0 {
+		cid = selected[0]
+	} else if pages, err := b.St.ListPages(v.Bvid); err == nil && len(pages) > 0 {
+		cid = pages[0].Cid
+	}
+	subs, err := b.St.ListSubtitles(v.Bvid, cid)
 	if err != nil {
-		return
+		return err
+	}
+	if cid == 0 {
+		for _, sub := range subs {
+			if sub.Origin != "bilibili" {
+				continue
+			}
+			if cid == 0 {
+				cid = sub.Cid
+			} else if sub.Cid != cid {
+				return fmt.Errorf("subtitle part mapping is ambiguous for %s", v.Bvid)
+			}
+		}
 	}
 	for _, sub := range subs {
-		if sub.Origin != "bilibili" || sub.FilePath == "" {
+		if sub.Origin != "bilibili" || sub.FilePath == "" || sub.Cid != cid {
 			continue
 		}
 		src := b.resolvePath(sub.FilePath)
 		if src == "" {
-			continue
+			return fmt.Errorf("subtitle file missing: %s", sub.FilePath)
 		}
-		lang := sub.Lang
-		if lang == "" || lang == "ai-zh" {
-			lang = "zh"
+		lang := sanitizeFS(sub.Lang)
+		if lang == "" {
+			lang = "und"
 		}
 		dst := filepath.Join(dir, fmt.Sprintf("%s.%s.srt", base, lang))
 		switch strings.ToLower(sub.Format) {
 		case "srt":
-			_ = copyIfChanged(src, dst)
+			if err := copyIfChanged(src, dst); err != nil {
+				return err
+			}
 		case "bcc", "json":
-			if srt, err := bccToSRTFile(src); err == nil && srt != "" {
-				_ = writeFileIfChanged(dst, []byte(srt))
+			text, err := bccToSRTFile(src)
+			if err != nil {
+				return err
+			}
+			if text != "" {
+				if err = writeFileIfChanged(dst, []byte(text)); err != nil {
+					return err
+				}
 			}
 		}
 	}
+	return nil
 }
 
 // resolvePath 解析字幕文件位置（历史数据里 FilePath 可能含 data/ 前缀或为绝对路径）。
 func (b *Bridge) resolvePath(p string) string {
-	if filepath.IsAbs(p) {
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
+	full, err := archivepath.Resolve(b.Cfg.DataDir, p)
+	if err != nil {
 		return ""
 	}
-	for _, cand := range []string{p, filepath.Join(b.Cfg.DataDir, p)} {
-		if _, err := os.Stat(cand); err == nil {
-			return cand
-		}
+	if fi, err := os.Stat(full); err != nil || !fi.Mode().IsRegular() {
+		return ""
 	}
-	return ""
+	return full
 }
 
 // bccToSRTFile B站 CC 字幕（bcc/json：{"body":[{"from","to","content"}]}）转 SRT 文本。
@@ -555,7 +597,10 @@ func (b *Bridge) buildShowEntry(v *store.Video, plan *showPlan, lib *store.Media
 		res.Skipped++
 		return nil
 	}
-	src := filepath.Join(b.Cfg.DataDir, v.LocalPath)
+	src, resolveErr := archivepath.Resolve(b.Cfg.DataDir, v.LocalPath)
+	if resolveErr != nil {
+		return resolveErr
+	}
 	if _, err := os.Stat(src); err != nil {
 		res.Skipped++
 		return nil
@@ -586,7 +631,9 @@ func (b *Bridge) buildShowEntry(v *store.Video, plan *showPlan, lib *store.Media
 		b.writeMeta(seasonDir, lib.MetadataFormat, b.gatherMetaWithTags(v, biliTags), ep, base)
 	}
 	b.artwork(seasonDir, v, base+"-thumb.jpg")
-	b.linkSubtitles(seasonDir, base, v, lib.LinkMode)
+	if err := b.linkSubtitles(seasonDir, base, v, lib.LinkMode); err != nil {
+		return err
+	}
 	res.Created++
 	return nil
 }

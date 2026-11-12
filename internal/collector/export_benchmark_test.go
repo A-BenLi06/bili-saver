@@ -38,7 +38,7 @@ func BenchmarkRepeatedDanmakuExport(b *testing.B) {
 			if err := write(); err != nil {
 				b.Fatal(err)
 			}
-			path := filepath.Join(dir, "media", "BVExport", "danmaku", "full.xml")
+			path := filepath.Join(dir, "derived", "BVExport", "danmaku", "1", "full.xml")
 			at := time.Unix(1000, 0)
 			if err := os.Chtimes(path, at, at); err != nil {
 				b.Fatal(err)
@@ -96,7 +96,7 @@ func legacyDanmakuExport(c *Collector, bvid string, cid int64) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(c.pageDir(bvid, 0), "danmaku", "full.xml")
+	path := filepath.Join(c.Cfg.DataDir, "derived", bvid, "danmaku", fmt.Sprint(cid), "full.xml")
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return err
 	}

@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"bili-saver/internal/archivepath"
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/store"
 )
@@ -92,6 +93,30 @@ func (b *Backfiller) CommentLevelsFromSnapshots(ctx context.Context, progress fu
 			}
 			return nil
 		})
+	}
+	rows, err := b.St.DB.QueryContext(ctx, `SELECT DISTINCT body_path FROM snapshots WHERE endpoint IN ('/x/v2/reply/reply','/x/v2/reply/wbi/main')`)
+	if err != nil {
+		return 0, err
+	}
+	known := map[string]bool{}
+	for _, p := range files {
+		known[p] = true
+	}
+	for rows.Next() {
+		var key string
+		if err = rows.Scan(&key); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if full, e := archivepath.Resolve(b.DataDir, key); e == nil && !known[full] {
+			files = append(files, full)
+			known[full] = true
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, err
 	}
 	total := len(files)
 	if total == 0 {

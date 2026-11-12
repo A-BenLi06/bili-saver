@@ -280,16 +280,15 @@ type tFeedCard struct {
 
 // mediaURL 把本地文件转成可播的 /media URL（Path 缺省时用规则路径）。
 func (a *Adapter) mediaURL(v *store.Video, page int) string {
-	rel := ""
-	if page <= 1 && v.LocalPath != "" {
-		rel = filepath.ToSlash(v.LocalPath)
-	} else {
-		rel = fmt.Sprintf("media/%s/p%d/%s-p%d.mp4", v.Bvid, page, v.Bvid, page)
-		// p1 也允许回退到库内记录
+	rel, err := a.St.PartLocalPath(v.Bvid, page)
+	if err != nil {
 		if page <= 1 {
-			rel = fmt.Sprintf("media/%s/p1/%s-p1.mp4", v.Bvid, v.Bvid)
+			rel = v.LocalPath
+		} else {
+			return ""
 		}
 	}
+	rel = strings.ReplaceAll(rel, `\`, "/")
 	if _, err := os.Stat(filepath.Join(a.DataDir, filepath.FromSlash(rel))); err != nil {
 		// 文件尚未下载：仍然返回 URL（前端会 404，管理端可触发下载）
 		a.log().Debug("媒体文件缺失", "rel", rel)
@@ -338,6 +337,10 @@ func (a *Adapter) videoGetone(w http.ResponseWriter, r *http.Request, _ int64) {
 	v, err := a.St.GetVideo(bvid)
 	if err != nil {
 		a.fail(w, 404, "视频不存在或未归档")
+		return
+	}
+	if a.St.VideoHidden(bvid) {
+		a.fail(w, 404, "视频不可用")
 		return
 	}
 	pages, _ := a.St.ListPages(bvid)
@@ -416,13 +419,13 @@ func (a *Adapter) card(v *store.Video) tFeedCard {
 
 // randomVideos 随机取样（排除 vids）。
 func (a *Adapter) randomVideos(exclude map[string]bool, n int) []tFeedCard {
-	videos, err := a.St.ListVideos(0, "ok", 0, 0)
+	videos, err := a.St.ListVideos(0, "", 0, 0)
 	if err != nil {
 		return nil
 	}
 	var pool []*store.Video
 	for _, v := range videos {
-		if !exclude[v.Bvid] && v.Status == "ok" {
+		if !exclude[v.Bvid] && !a.St.VideoHidden(v.Bvid) {
 			pool = append(pool, v)
 		}
 	}
@@ -513,7 +516,7 @@ func (a *Adapter) search(w http.ResponseWriter, r *http.Request, _ int64) {
 	bvids := a.searchBvids(q, 50)
 	out := make([]tFeedCard, 0, len(bvids))
 	for _, b := range bvids {
-		if v, err := a.St.GetVideo(b); err == nil {
+		if v, err := a.St.GetVideo(b); err == nil && !a.St.VideoHidden(b) {
 			out = append(out, a.card(v))
 		}
 	}

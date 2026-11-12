@@ -11,9 +11,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"bili-saver/internal/archivepath"
+	"bili-saver/internal/fileio"
 	"bili-saver/internal/store"
 )
 
@@ -319,22 +322,35 @@ func (b *Bus) applyOp(ctx context.Context, m *Manifest, o op) error {
 		return b.writer.AddSummary(&p)
 	case "save_subtitle":
 		var p struct {
-			Bvid, Cid, Lang, LangDoc, Format, FilePath, Content, Model string
+			Bvid     string `json:"bvid"`
+			Cid      string `json:"cid"`
+			Lang     string `json:"lang"`
+			LangDoc  string `json:"lang_doc"`
+			Format   string `json:"format"`
+			FilePath string `json:"file_path"`
+			Content  string `json:"content"`
+			Model    string `json:"model"`
 		}
 		if err := json.Unmarshal(o.Params, &p); err != nil {
 			return err
 		}
+		if p.Bvid == "" || p.Bvid == "." || p.Bvid == ".." || sanitizeID(p.Bvid) != p.Bvid {
+			return fmt.Errorf("invalid subtitle video identity")
+		}
 		// 允许插件直接传 content，由核心落盘
 		if p.FilePath == "" && p.Content != "" {
 			// 需要知道 dataDir；通过 ctx
-			dir := filepath.Join(b.ctx.DataDir, "derived", sanitizeID(p.Bvid))
+			dir, err := archivepath.Resolve(b.ctx.DataDir, filepath.ToSlash(filepath.Join("derived", sanitizeID(p.Bvid))))
+			if err != nil {
+				return err
+			}
 			_ = os.MkdirAll(dir, 0o755)
 			ext := "srt"
 			if p.Format == "vtt" {
 				ext = "vtt"
 			}
-			path := filepath.Join(dir, fmt.Sprintf("%s.%s.%s", sanitizeID(p.Lang), origin2short(origin), ext))
-			if err := os.WriteFile(path, []byte(p.Content), 0o644); err != nil {
+			path := filepath.Join(dir, fmt.Sprintf("%s-%s.%s.%s", sanitizeID(p.Cid), sanitizeID(p.Lang), origin2short(origin), ext))
+			if _, err := fileio.WriteBytes(path, []byte(p.Content)); err != nil {
 				return err
 			}
 			p.FilePath = path
@@ -342,6 +358,14 @@ func (b *Bus) applyOp(ctx context.Context, m *Manifest, o op) error {
 		if p.FilePath == "" {
 			return fmt.Errorf("file_path 或 content 必填")
 		}
+		key, err := archivepath.Key(b.ctx.DataDir, p.FilePath)
+		if err != nil || !strings.HasPrefix(key, "derived/") {
+			return fmt.Errorf("plugin subtitles must be inside derived/")
+		}
+		if _, err = archivepath.Resolve(b.ctx.DataDir, key); err != nil {
+			return err
+		}
+		p.FilePath = key
 		var cid int64
 		fmt.Sscanf(p.Cid, "%d", &cid)
 		return b.writer.UpsertSubtitle(&store.Subtitle{

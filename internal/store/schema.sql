@@ -452,3 +452,18 @@ CREATE TABLE IF NOT EXISTS collection_status (
  complete_at INTEGER NOT NULL DEFAULT 0,state TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',
  PRIMARY KEY(bvid,cid,component)
 );
+-- v17: immutable media identities and local projections.
+
+CREATE TABLE IF NOT EXISTS archive_assets (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,bvid TEXT NOT NULL,cid INTEGER NOT NULL DEFAULT 0,
+ role TEXT NOT NULL,origin TEXT NOT NULL,variant TEXT NOT NULL DEFAULT '',policy_hash TEXT NOT NULL DEFAULT '',
+ sha256 TEXT NOT NULL,size INTEGER NOT NULL,storage_key TEXT NOT NULL,provenance TEXT NOT NULL,
+ created_at INTEGER NOT NULL,verified_at INTEGER NOT NULL,
+ UNIQUE(bvid,cid,role,origin,variant,policy_hash,sha256)
+);
+CREATE INDEX IF NOT EXISTS idx_assets_identity ON archive_assets(bvid,cid,role,policy_hash,id DESC);
+CREATE TABLE IF NOT EXISTS current_pages(bvid TEXT NOT NULL,page INTEGER NOT NULL,cid INTEGER NOT NULL,PRIMARY KEY(bvid,page),UNIQUE(bvid,cid));
+CREATE TABLE IF NOT EXISTS page_sets(bvid TEXT PRIMARY KEY,epoch INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS legacy_part_bindings(bvid TEXT NOT NULL,page INTEGER NOT NULL,cid INTEGER NOT NULL,PRIMARY KEY(bvid,page));
+CREATE TABLE IF NOT EXISTS video_policies(bvid TEXT PRIMARY KEY,hidden INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS storage_roots(id TEXT PRIMARY KEY,path TEXT NOT NULL);

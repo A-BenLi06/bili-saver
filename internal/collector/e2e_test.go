@@ -309,7 +309,7 @@ func TestArchiveE2E(t *testing.T) {
 		t.Fatalf("弹幕入库错误: %+v", dms)
 	}
 	// 弹幕 full.xml 与原始段
-	if _, err := os.Stat(filepath.Join(cfg.DataDir, "media", "BV1Test00001", "danmaku", "full.xml")); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "derived", "BV1Test00001", "danmaku", "222", "full.xml")); err != nil {
 		t.Fatal("full.xml 未生成:", err)
 	}
 	if _, err := os.Stat(filepath.Join(cfg.DataDir, "media", "BV1Test00001", "danmaku_raw", "222-seg-1.proto")); err != nil {
@@ -321,7 +321,7 @@ func TestArchiveE2E(t *testing.T) {
 	if len(subs) != 1 || subs[0].Origin != "bilibili" || subs[0].Lang != "ai-zh" {
 		t.Fatalf("字幕入库错误: %+v", subs)
 	}
-	if _, err := os.Stat(subs[0].FilePath); err != nil {
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, filepath.FromSlash(subs[0].FilePath))); err != nil {
 		t.Fatal("字幕文件不存在:", err)
 	}
 

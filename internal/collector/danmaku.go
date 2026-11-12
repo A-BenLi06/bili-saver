@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"bili-saver/internal/archivepath"
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/dmproto"
 	"bili-saver/internal/fileio"
@@ -128,9 +129,13 @@ func (c *Collector) collectSubtitles(ctx context.Context, bvid string, aid, cid 
 		if _, err := fileio.WriteBytes(path, raw); err != nil {
 			return err
 		}
+		key, keyErr := archivepath.Key(c.Cfg.DataDir, path)
+		if keyErr != nil {
+			return keyErr
+		}
 		if err := c.St.UpsertSubtitle(&store.Subtitle{
 			Bvid: bvid, Cid: cid, Lang: sub.Lan, LangDoc: sub.LanDoc,
-			Origin: "bilibili", Format: "bcc", FilePath: filepath.ToSlash(path), CreatedAt: store.Now(),
+			Origin: "bilibili", Format: "bcc", FilePath: key, CreatedAt: store.Now(),
 		}); err != nil {
 			return err
 		}

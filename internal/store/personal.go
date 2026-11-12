@@ -1,10 +1,10 @@
 package store
 
 import (
+	"bili-saver/internal/archivepath"
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -94,7 +94,7 @@ func (s *Store) UserDownload(userID int64, bvid string) (*DownloadRequest, error
 
 // VideoFilesPresent checks every current part, rather than trusting downloaded or P1 alone.
 func (s *Store) VideoFilesPresent(dataDir, bvid string) bool {
-	v, err := s.GetVideo(bvid)
+	_, err := s.GetVideo(bvid)
 	if err != nil {
 		return false
 	}
@@ -107,11 +107,14 @@ func (s *Store) VideoFilesPresent(dataDir, bvid string) bool {
 		return false
 	}
 	for _, p := range pages {
-		rel := filepath.Join("media", bvid, fmt.Sprintf("p%d", p.Page), fmt.Sprintf("%s-p%d.mp4", bvid, p.Page))
-		if p.Page == 1 && v.LocalPath != "" {
-			rel = v.LocalPath
+		rel, err := s.PartLocalPath(bvid, p.Page)
+		if err != nil {
+			return false
 		}
-		full := rel
+		full, err := archivepath.Resolve(root, rel)
+		if err != nil {
+			return false
+		}
 		if !filepath.IsAbs(full) {
 			full = filepath.Join(root, rel)
 		}
