@@ -30,6 +30,7 @@ import (
 
 	"bili-saver/internal/bilicats"
 	"bili-saver/internal/logging"
+	"bili-saver/internal/media"
 	"bili-saver/internal/resolver"
 	"bili-saver/internal/store"
 	"bili-saver/internal/sysres"
@@ -1207,6 +1208,15 @@ func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 400, errStr("name 与 root_path 必填"))
 		return
 	}
+	libs, err := s.Deps.St.ListMediaLibraries()
+	if err != nil {
+		errJSON(w, 500, err)
+		return
+	}
+	if err = media.ValidateRoot(s.Deps.Cfg.View().DataDir, &l, libs); err != nil {
+		errJSON(w, 400, err)
+		return
+	}
 	l.CreatedAt = store.Now()
 	id, err := s.Deps.St.UpsertMediaLibrary(&l)
 	if err != nil {
@@ -1256,6 +1266,15 @@ func (s *Server) handlePatchLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Enabled != nil {
 		l.Enabled = *req.Enabled
+	}
+	libs, listErr := s.Deps.St.ListMediaLibraries()
+	if listErr != nil {
+		errJSON(w, 500, listErr)
+		return
+	}
+	if err = media.ValidateRoot(s.Deps.Cfg.View().DataDir, l, libs); err != nil {
+		errJSON(w, 400, err)
+		return
 	}
 	if _, err := s.Deps.St.UpsertMediaLibrary(l); err != nil {
 		errJSON(w, 500, err)

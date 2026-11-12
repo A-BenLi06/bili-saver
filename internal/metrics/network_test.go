@@ -114,7 +114,15 @@ func TestNetworkAcceptedConnectionAndShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	idle := make(chan struct{}, 1)
+	srv := &http.Server{ConnState: func(_ net.Conn, state http.ConnState) {
+		if state == http.StateIdle {
+			select {
+			case idle <- struct{}{}:
+			default:
+			}
+		}
+	}, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		_, _ = w.Write(b)
 	})}
@@ -131,6 +139,12 @@ func TestNetworkAcceptedConnectionAndShutdown(t *testing.T) {
 	resp.Body.Close()
 	if err != nil || string(b) != "upload" {
 		t.Fatal(string(b), err)
+	}
+	// The client can receive bytes before the server Write returns and records them.
+	select {
+	case <-idle:
+	case <-time.After(3 * time.Second):
+		t.Fatal("server did not finish writing response")
 	}
 	if stats.recv.Load() <= 6 || stats.sent.Load() <= 6 {
 		t.Fatal("accepted socket not measured")

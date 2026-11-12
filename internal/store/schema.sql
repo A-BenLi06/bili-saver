@@ -478,3 +478,11 @@ CREATE TABLE IF NOT EXISTS event_deliveries(id INTEGER PRIMARY KEY AUTOINCREMENT
 CREATE INDEX IF NOT EXISTS idx_delivery_pending ON event_deliveries(state,next_at,id);
 CREATE TABLE IF NOT EXISTS derived_delivery_ops(delivery_id INTEGER NOT NULL,op_index INTEGER NOT NULL,checksum TEXT NOT NULL,PRIMARY KEY(delivery_id,op_index));
 
+
+
+CREATE TABLE IF NOT EXISTS library_outputs(library_id INTEGER NOT NULL,root TEXT NOT NULL,key TEXT NOT NULL,fingerprint TEXT NOT NULL,previous TEXT NOT NULL DEFAULT '',PRIMARY KEY(library_id,root,key));
+CREATE TABLE IF NOT EXISTS library_groups(library_id INTEGER NOT NULL,group_key TEXT NOT NULL,name TEXT NOT NULL,PRIMARY KEY(library_id,group_key));
+CREATE TABLE IF NOT EXISTS library_episodes(library_id INTEGER NOT NULL,group_key TEXT NOT NULL,bvid TEXT NOT NULL,episode INTEGER NOT NULL,PRIMARY KEY(library_id,group_key,bvid),UNIQUE(library_id,group_key,episode));
+CREATE TABLE IF NOT EXISTS source_tombstones(source_id INTEGER PRIMARY KEY,type TEXT NOT NULL,ext_id TEXT NOT NULL,title TEXT NOT NULL,extra TEXT NOT NULL,deleted_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS historical_source_videos(source_id INTEGER NOT NULL,bvid TEXT NOT NULL,PRIMARY KEY(source_id,bvid));
+

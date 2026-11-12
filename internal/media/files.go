@@ -31,6 +31,9 @@ func replaceFile(path string, write func(*os.File) error) error {
 		return err
 	}
 	writeErr := write(out)
+	if writeErr == nil {
+		writeErr = out.Sync()
+	}
 	closeErr := out.Close()
 	if writeErr != nil {
 		return writeErr

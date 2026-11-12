@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"bili-saver/internal/archivepath"
 	"bili-saver/internal/config"
@@ -34,10 +35,12 @@ type Bridge struct {
 	// 消除 linkFile 检查-删除-重建窗口的并发竞争）；
 	// stateMu 保护 running/dirty 标记，让下载完成回调能在重建进行中
 	// 即刻置脏并返回（合并批量下载的 N 次触发）。
-	rebuildMu    sync.Mutex
-	stateMu      sync.Mutex
-	rebuildBusy  bool
-	rebuildDirty bool
+	projectionSources map[string]string
+	projectionCopies  map[string]bool
+	rebuildMu         sync.Mutex
+	stateMu           sync.Mutex
+	rebuildBusy       bool
+	rebuildDirty      bool
 }
 
 func New(st *store.Store, cfg *config.Config, log *slog.Logger) *Bridge {
@@ -137,10 +140,29 @@ func (b *Bridge) rebuildAllLocked() (*Result, error) {
 		if !lib.Enabled {
 			continue
 		}
-		if err := os.MkdirAll(lib.RootPath, 0o755); err != nil {
+		if err := lib.Validate(); err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("library %s: %v", lib.Name, err))
+			continue
+		}
+		if err := ValidateRoot(b.Cfg.View().DataDir, lib, libs); err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("library %s: %v", lib.Name, err))
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(lib.RootPath), 0o755); err != nil {
 			res.Errors = append(res.Errors, fmt.Sprintf("库[%s]: %v", lib.Name, err))
 			continue
 		}
+		original := *lib
+		stage, err := os.MkdirTemp(filepath.Dir(lib.RootPath), ".bili-projection-*")
+		if err != nil {
+			return nil, err
+		}
+		libCopy := *lib
+		lib = &libCopy
+		lib.RootPath = stage
+		b.projectionSources = map[string]string{}
+		b.projectionCopies = map[string]bool{}
+		errorsBefore := len(res.Errors)
 		matched := []*store.Video{}
 		for _, v := range videos {
 			if lib.Matches(v, tagCache[v.Bvid]) {
@@ -154,20 +176,37 @@ func (b *Bridge) rebuildAllLocked() (*Result, error) {
 		showPlans := map[int64]*showPlan{}
 		if lib.Layout == "show" {
 			for owner, siblings := range byOwner {
-				if owner != 0 && len(siblings) >= 3 {
-					showPlans[owner] = b.planShow(siblings, tagCache, lib.MetadataFormat)
+				if owner != 0 {
+					plan := b.planShow(siblings, tagCache, lib.MetadataFormat)
+					ids := make([]string, 0, len(siblings))
+					for _, v := range siblings {
+						ids = append(ids, v.Bvid)
+					}
+					name, episodes, e := b.St.StableGroup(lib.ID, fmt.Sprintf("owner:%d", owner), plan.name+fmt.Sprintf(" [mid%d]", owner), ids)
+					if e != nil {
+						res.Errors = append(res.Errors, e.Error())
+						continue
+					}
+					plan.name = name
+					plan.episodes = episodes
+					showPlans[owner] = plan
 				}
 			}
 		}
 		libCreated0, libSkipped0 := res.Created, res.Skipped
 		for _, v := range matched {
 			layout := lib.Layout
-			if v.OwnerMid == 0 || len(byOwner[v.OwnerMid]) < 3 {
+			if lib.Layout == "show" && v.OwnerMid == 0 {
 				layout = "movie" // 单视频不足成剧，统一电影布局
 			}
 			var err error
 			switch layout {
+			case "collection":
+				err = b.buildCollectionEntries(v, lib, res, tagCache[v.Bvid])
 			case "show":
+				if showPlans[v.OwnerMid] == nil {
+					continue
+				}
 				err = b.buildShowEntry(v, showPlans[v.OwnerMid], lib, res, tagCache[v.Bvid])
 			default:
 				err = b.buildMovieEntry(v, lib, res, tagCache[v.Bvid])
@@ -176,6 +215,17 @@ func (b *Bridge) rebuildAllLocked() (*Result, error) {
 				res.Errors = append(res.Errors, fmt.Sprintf("库[%s] %s: %v", lib.Name, v.Bvid, err))
 			}
 		}
+		if len(res.Errors) == errorsBefore {
+			if err = b.publishProjection(&original, stage, b.projectionSources); err != nil {
+				res.Errors = append(res.Errors, fmt.Sprintf("library %s: %v", lib.Name, err))
+			}
+		}
+		if len(res.Errors) > errorsBefore {
+			res.Created = libCreated0
+		}
+		b.projectionSources = nil
+		b.projectionCopies = nil
+		_ = os.RemoveAll(stage) // Only the newly created staging directory is removed.
 		res.Libs = append(res.Libs, LibResult{
 			Name:    lib.Name,
 			Created: res.Created - libCreated0,
@@ -192,12 +242,13 @@ func (b *Bridge) Rebuild() (*Result, error) { return b.RebuildAll() }
 
 // vmeta 单视频全部 B 站原生数据（NFO 只写这些，绝不含派生/站内数据）。
 type vmeta struct {
-	v         *store.Video
-	biliTags  []string
-	stats     *store.StatsSnapshot // 最新一次统计快照
-	aiModel   string               // B站官方AI小结（origin=bilibili）
-	aiSummary string
-	setName   string // 来源为收藏夹/合集时作为合集（<set>）名
+	v           *store.Video
+	biliTags    []string
+	stats       *store.StatsSnapshot // 最新一次统计快照
+	aiModel     string               // B站官方AI小结（origin=bilibili）
+	aiSummary   string
+	collections []map[string]any
+	setName     string // 来源为收藏夹/合集时作为合集（<set>）名
 }
 
 func (b *Bridge) gatherMeta(v *store.Video) *vmeta {
@@ -217,12 +268,13 @@ func (b *Bridge) gatherMetaWithTags(v *store.Video, biliTags []string) *vmeta {
 	if model, summary, _, err := b.St.GetAIConclusion(v.Bvid); err == nil && summary != "" {
 		m.aiModel, m.aiSummary = model, summary
 	}
-	if v.SourceID > 0 {
-		if src, err := b.St.GetSource(v.SourceID); err == nil &&
-			(src.Type == "favlist" || src.Type == "season" || src.Type == "series") {
-			m.setName = src.Title
+	if collections, err := b.St.Collections(v.Bvid); err == nil && len(collections) > 0 {
+		m.setName = collections[0].Title
+		for _, src := range collections {
+			m.collections = append(m.collections, map[string]any{"source_id": src.ID, "type": src.Type, "external_id": src.ExtID, "title": src.Title})
 		}
 	}
+
 	return m
 }
 
@@ -321,7 +373,19 @@ func (b *Bridge) emitVideo(dst, src string, v *store.Video, lib *store.MediaLibr
 		url := b.publicURL() + "/media/" + mediaURLEscape(rel)
 		return writeFileIfChanged(strings.TrimSuffix(dst, filepath.Ext(dst))+".strm", []byte(url))
 	}
-	return linkFile(src, dst, lib.LinkMode)
+	mode := lib.LinkMode
+	if mode == "copy" && b.projectionSources != nil {
+		mode = "auto"
+		b.projectionCopies[dst] = true
+	}
+	if err := linkFile(src, dst, mode); err != nil {
+		return err
+	}
+	if b.projectionSources != nil {
+		abs, _ := filepath.Abs(src)
+		b.projectionSources[dst] = abs
+	}
+	return nil
 }
 
 // mediaURLEscape /media/ 相对路径的 URL 化（保留 /，转义空格与中文等）。
@@ -340,7 +404,17 @@ func (b *Bridge) buildMovieEntry(v *store.Video, lib *store.MediaLibrary, res *R
 		res.Skipped++
 		return nil
 	}
-	src, resolveErr := archivepath.Resolve(b.Cfg.View().DataDir, v.LocalPath)
+	local := v.LocalPath
+	if pages, e := b.St.ListPages(v.Bvid); e != nil {
+		return e
+	} else if len(pages) > 0 {
+		var e error
+		local, e = b.St.PartLocalPath(v.Bvid, pages[0].Page)
+		if e != nil {
+			return e
+		}
+	}
+	src, resolveErr := archivepath.Resolve(b.Cfg.View().DataDir, local)
 	if resolveErr != nil {
 		return resolveErr
 	}
@@ -363,9 +437,13 @@ func (b *Bridge) buildMovieEntry(v *store.Video, lib *store.MediaLibrary, res *R
 		return err
 	}
 	if lib.MetadataFormat != "none" {
-		b.writeMeta(dir, lib.MetadataFormat, b.gatherMetaWithTags(v, biliTags), 0, "")
+		if err := b.writeMeta(dir, lib.MetadataFormat, b.gatherMetaWithTags(v, biliTags), 0, ""); err != nil {
+			return err
+		}
 	}
-	b.artwork(dir, v, "poster.jpg", "fanart.jpg", "banner.jpg")
+	if err := b.artwork(dir, v, "poster.jpg", "fanart.jpg", "banner.jpg"); err != nil {
+		return err
+	}
 	if err := b.linkSubtitles(dir, base, v, lib.LinkMode); err != nil {
 		return err
 	}
@@ -420,17 +498,21 @@ func (b *Bridge) linkMultiPExtras(dir string, v *store.Video, lib *store.MediaLi
 
 // writeMeta 按库配置输出元数据：kodi NFO / JSON sidecar / 无。
 // format=nfo 写 NFO 与兼容 JSON sidecar；json 仅写 JSON；none 不写。
-func (b *Bridge) writeMeta(dir, format string, m *vmeta, ep int, showBase string) {
+func (b *Bridge) writeMeta(dir, format string, m *vmeta, ep int, showBase string) error {
 	if format == "none" {
-		return
+		return nil
 	}
 	v := m.v
 	switch {
 	case format != "nfo":
 	case ep == 0:
-		_ = writeFileIfChanged(filepath.Join(dir, "movie.nfo"), []byte(movieNFO(m)))
+		if err := writeFileIfChanged(filepath.Join(dir, "movie.nfo"), []byte(movieNFO(m))); err != nil {
+			return err
+		}
 	default:
-		_ = writeFileIfChanged(filepath.Join(dir, showBase+".nfo"), []byte(episodeNFO(m, ep)))
+		if err := writeFileIfChanged(filepath.Join(dir, showBase+".nfo"), []byte(episodeNFO(m, ep))); err != nil {
+			return err
+		}
 	}
 	// JSON sidecar（origin 数据全量）
 	if m != nil && dir != "" {
@@ -454,6 +536,7 @@ func (b *Bridge) writeMeta(dir, format string, m *vmeta, ep int, showBase string
 		}
 		if m.setName != "" {
 			meta["collection"] = m.setName
+			meta["collections"] = m.collections
 		}
 		if ep > 0 {
 			meta["season"], meta["episode"] = 1, ep
@@ -463,17 +546,26 @@ func (b *Bridge) writeMeta(dir, format string, m *vmeta, ep int, showBase string
 			if ep > 0 {
 				name = fmt.Sprintf("%s-S01E%02d.json", v.Bvid, ep)
 			}
-			_ = writeFileIfChanged(filepath.Join(dir, name), j)
+			if err = writeFileIfChanged(filepath.Join(dir, name), j); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // artwork 从本地化封面复制一组标准图片（缺源则跳过）。
-func (b *Bridge) artwork(dir string, v *store.Video, names ...string) {
+func (b *Bridge) artwork(dir string, v *store.Video, names ...string) error {
 	cover := filepath.Join(b.Cfg.View().DataDir, "media", sanitizeFS(v.Bvid), "cover.jpg")
-	for _, n := range names {
-		_ = copyIfChanged(cover, filepath.Join(dir, n))
+	if _, err := os.Stat(cover); os.IsNotExist(err) {
+		return nil
 	}
+	for _, n := range names {
+		if err := copyIfChanged(cover, filepath.Join(dir, n)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // linkSubtitles 把 B 站 CC 字幕（bcc/json，origin=bilibili）转 srt 外挂；
@@ -597,7 +689,17 @@ func (b *Bridge) buildShowEntry(v *store.Video, plan *showPlan, lib *store.Media
 		res.Skipped++
 		return nil
 	}
-	src, resolveErr := archivepath.Resolve(b.Cfg.View().DataDir, v.LocalPath)
+	local := v.LocalPath
+	if pages, e := b.St.ListPages(v.Bvid); e != nil {
+		return e
+	} else if len(pages) > 0 {
+		var e error
+		local, e = b.St.PartLocalPath(v.Bvid, pages[0].Page)
+		if e != nil {
+			return e
+		}
+	}
+	src, resolveErr := archivepath.Resolve(b.Cfg.View().DataDir, local)
 	if resolveErr != nil {
 		return resolveErr
 	}
@@ -620,17 +722,27 @@ func (b *Bridge) buildShowEntry(v *store.Video, plan *showPlan, lib *store.Media
 	// 每个 UP 主每轮仅写一次共享元数据与海报，避免 N 集 × N 标签查询。
 	if !plan.sharedWritten {
 		if lib.MetadataFormat == "nfo" {
-			_ = writeFileIfChanged(filepath.Join(showDir, "tvshow.nfo"), plan.nfo)
+			if err := writeFileIfChanged(filepath.Join(showDir, "tvshow.nfo"), plan.nfo); err != nil {
+				return err
+			}
 		}
-		b.artwork(showDir, plan.first, "poster.jpg", "fanart.jpg", "banner.jpg")
-		b.artwork(seasonDir, plan.first, "poster.jpg")
+		if err := b.artwork(showDir, plan.first, "poster.jpg", "fanart.jpg", "banner.jpg"); err != nil {
+			return err
+		}
+		if err := b.artwork(seasonDir, plan.first, "poster.jpg"); err != nil {
+			return err
+		}
 		plan.sharedWritten = true
 	}
 	// 集级 NFO 与视频同名；集缩略图 -thumb.jpg
 	if lib.MetadataFormat != "none" {
-		b.writeMeta(seasonDir, lib.MetadataFormat, b.gatherMetaWithTags(v, biliTags), ep, base)
+		if err := b.writeMeta(seasonDir, lib.MetadataFormat, b.gatherMetaWithTags(v, biliTags), ep, base); err != nil {
+			return err
+		}
 	}
-	b.artwork(seasonDir, v, base+"-thumb.jpg")
+	if err := b.artwork(seasonDir, v, base+"-thumb.jpg"); err != nil {
+		return err
+	}
 	if err := b.linkSubtitles(seasonDir, base, v, lib.LinkMode); err != nil {
 		return err
 	}
@@ -654,8 +766,29 @@ func sanitizeFS(s string) string {
 			b = append(b, s[i])
 		}
 	}
-	if len(b) > 120 { // 控制路径长度
-		b = b[:120]
+	if len(b) > 120 {
+		for len(b) > 120 {
+			_, n := utf8.DecodeLastRune(b)
+			b = b[:len(b)-n]
+		}
 	}
 	return string(b)
+}
+
+func (b *Bridge) buildCollectionEntries(v *store.Video, lib *store.MediaLibrary, res *Result, tags []string) error {
+	collections, err := b.St.Collections(v.Bvid)
+	if err != nil {
+		return err
+	}
+	if len(collections) == 0 {
+		return b.buildMovieEntry(v, lib, res, tags)
+	}
+	for _, src := range collections {
+		copy := *lib
+		copy.RootPath = filepath.Join(lib.RootPath, "Collections", fmt.Sprintf("%s [%s-%s]", sanitizeFS(src.Title), sanitizeFS(src.Type), sanitizeFS(src.ExtID)))
+		if err = b.buildMovieEntry(v, &copy, res, tags); err != nil {
+			return err
+		}
+	}
+	return nil
 }

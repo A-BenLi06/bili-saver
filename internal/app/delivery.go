@@ -39,6 +39,8 @@ func (a *App) DrainDeliveries(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	mediaRan := false
+	var mediaErr error
 	for _, d := range rows {
 		if err = ctx.Err(); err != nil {
 			return err
@@ -46,14 +48,18 @@ func (a *App) DrainDeliveries(ctx context.Context) error {
 		var runErr error
 		switch {
 		case d.Target == "media":
-			if a.Cfg.View().Media.Enabled {
-				var resultErr error
-				result, resultErr := a.Med.RebuildAll()
-				runErr = resultErr
-				if runErr == nil && len(result.Errors) > 0 {
-					runErr = fmt.Errorf("library projection incomplete: %v", result.Errors)
+			if !mediaRan {
+				mediaRan = true
+				if a.Cfg.View().Media.Enabled {
+					result, resultErr := a.Med.RebuildAll()
+					mediaErr = resultErr
+					if mediaErr == nil && len(result.Errors) > 0 {
+						mediaErr = fmt.Errorf("library projection incomplete: %v", result.Errors)
+					}
 				}
 			}
+			runErr = mediaErr
+
 		case strings.HasPrefix(d.Target, "plugin:"):
 			if !a.Cfg.View().Plugins.Enabled {
 				if err = a.St.FinishDelivery(d.ID, fmt.Errorf("plugin engine disabled")); err != nil {

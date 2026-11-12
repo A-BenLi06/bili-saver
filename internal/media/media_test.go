@@ -174,7 +174,7 @@ func TestEpisodeNFOExcludesDerivedTags(t *testing.T) {
 	if _, err := b.Rebuild(); err != nil {
 		t.Fatal(err)
 	}
-	showDir := filepath.Join(root, "Shows", "UP主")
+	showDir := filepath.Join(root, "Shows", "UP主 [mid42]")
 	if _, err := os.Stat(filepath.Join(showDir, "tvshow.nfo")); err != nil {
 		t.Fatalf("show 布局未生成 tvshow.nfo: %v", err)
 	}
