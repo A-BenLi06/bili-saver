@@ -113,7 +113,7 @@ func newMockBili(t *testing.T) *mockBili {
 
 	mux.HandleFunc("/x/web-interface/nav", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"code": 0, "data": map[string]any{
-			"isLogin": false,
+			"isLogin": true, // Authenticated fixture; production-domain cookies aren't sent to localhost.
 			"wbi_img": map[string]string{
 				"img_url": "https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b94feee.png",
 				"sub_url": "https://i0.hdslb.com/bfs/wbi/4932ca060261963d2e9c20273d95603c.png",
@@ -246,6 +246,7 @@ func TestArchiveE2E(t *testing.T) {
 	mock := newMockBili(t)
 
 	cfg := config.Defaults()
+	cfg.Collector.CommentFullHours = 0 // This test explicitly audits every round.
 	cfg.DataDir = t.TempDir()
 	cfg.Bilibili.MinReqMs = 1
 
@@ -407,6 +408,7 @@ func TestArchiveE2E(t *testing.T) {
 func TestArchiveWithOptions(t *testing.T) {
 	mock := newMockBili(t)
 	cfg := config.Defaults()
+	cfg.Collector.CommentFullHours = 0
 	cfg.DataDir = t.TempDir()
 	cfg.Bilibili.MinReqMs = 1
 	cfg.Download.DownloadDanmaku = false

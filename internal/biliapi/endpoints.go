@@ -136,10 +136,15 @@ func (c *Client) DanmakuSeg(ctx context.Context, cid int64, seg int) ([]dmproto.
 
 // ReplyMain 主楼评论（wbi，mode=3 按热度，翻页走 pagination offset）。
 func (c *Client) ReplyMain(ctx context.Context, aid int64, offset string) (*ReplyMainData, error) {
+	return c.ReplyMainMode(ctx, aid, offset, 3)
+}
+
+// ReplyMainMode 日常增量按时间(mode=2)，完整核对按热度(mode=3)。始终使用服务端游标。
+func (c *Client) ReplyMainMode(ctx context.Context, aid int64, offset string, mode int) (*ReplyMainData, error) {
 	p := url.Values{
 		"oid":            {strconv.FormatInt(aid, 10)},
 		"type":           {"1"},
-		"mode":           {"3"},
+		"mode":           {strconv.Itoa(mode)},
 		"pagination_str": {mustJSON(map[string]string{"offset": offset})},
 		"plat":           {"1"},
 		"web_location":   {"1315875"},

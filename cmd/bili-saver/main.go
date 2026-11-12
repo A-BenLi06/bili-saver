@@ -15,6 +15,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	"bili-saver/internal/config"
 	"bili-saver/internal/jobs"
 	"bili-saver/internal/logging"
+	"bili-saver/internal/metrics"
 	"bili-saver/internal/resolver"
 	"bili-saver/internal/store"
 
@@ -60,6 +62,8 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	// Initialize once, before any client or worker starts using the default pool.
+	http.DefaultTransport = metrics.InstrumentTransport(http.DefaultTransport.(*http.Transport))
 	a, err := app.New(cfg, log)
 	if err != nil {
 		fatal(err)

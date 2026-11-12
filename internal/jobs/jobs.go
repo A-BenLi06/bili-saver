@@ -14,6 +14,7 @@ import (
 
 	"bili-saver/internal/config"
 	"bili-saver/internal/store"
+	"bili-saver/internal/taskflow"
 )
 
 // Handler 是某类任务的执行体。
@@ -22,17 +23,36 @@ type Handler func(ctx context.Context, j *store.Job, progress ProgressFn) error
 // ProgressFn 汇报任务进度（0..1 与明细文本）。
 type ProgressFn func(f float64, detail string)
 
-// Manager 任务队列。
+// pendingJob 就绪队列条目：优先级降序、同优先级 FIFO。
+type pendingJob struct {
+	id   int64
+	prio int
+}
+
+// Manager 任务队列。worker 从优先级就绪队列取任务：
+// 优先级高者先执行（新添加补档插队），同优先级保持 FIFO。
 type Manager struct {
-	St       *store.Store
-	Log      *slog.Logger
-	workers  int
-	queue    chan int64
-	mu       sync.Mutex
-	handlers map[string]Handler
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
-	started  bool
+	St             *store.Store
+	Log            *slog.Logger
+	workers        int
+	mu             sync.Mutex
+	cond           *sync.Cond
+	pending        pendingQueue
+	resumed        resumedQueue
+	stopped        bool
+	handlers       map[string]Handler
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	started        bool
+	videoTypes     map[string]bool
+	videoKeys      map[int64]string
+	videoTokens    map[int64]int
+	activeVideos   map[string]int64
+	blockedVideos  map[string]*pendingQueue
+	controlTypes   map[string]bool
+	controlJobs    map[int64]bool
+	control        pendingQueue
+	controlResumed resumedQueue
 }
 
 func NewManager(st *store.Store, log *slog.Logger, workers int) *Manager {
@@ -42,11 +62,21 @@ func NewManager(st *store.Store, log *slog.Logger, workers int) *Manager {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Manager{
+	m := &Manager{
 		St: st, Log: log, workers: workers,
-		queue:    make(chan int64, 2048),
 		handlers: map[string]Handler{},
 	}
+	m.cond = sync.NewCond(&m.mu)
+	return m
+}
+
+// pushPendingLocked 按优先级降序插入就绪队列，同级放在末尾。调用方须持有 m.mu。
+func (m *Manager) pushPendingLocked(id int64, prio int) {
+	if key := m.videoKeys[id]; key != "" {
+		m.enqueueVideoLocked(pendingJob{id: id, prio: prio})
+		return
+	}
+	m.enqueueReadyLocked(id, prio)
 }
 
 // Register 注册任务类型（Start 之前调用）。
@@ -58,32 +88,30 @@ func (m *Manager) Register(jobType string, h Handler) {
 
 // Submit 入队一个任务；同类型同载荷的活动任务会去重。
 func (m *Manager) Submit(jobType string, payload any) (int64, error) {
+	return m.SubmitPrio(jobType, payload, 0)
+}
+
+// SubmitPrio 入队并指定优先级（>0 插队到就绪队列最前）。
+func (m *Manager) SubmitPrio(jobType string, payload any, priority int) (int64, error) {
 	pj, err := json.Marshal(payload)
 	if err != nil {
 		return 0, err
 	}
-	dup, err := m.St.HasActiveJob(jobType, string(pj))
+	// 去重、落库与内存入队同一把锁，避免并发提交或启动恢复重复装载。
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	id, err := m.St.CreateActiveJobPrio(jobType, string(pj), priority)
 	if err != nil {
 		return 0, err
 	}
-	if dup {
+	if id == 0 {
 		return 0, nil
 	}
-	id, err := m.St.CreateJob(jobType, string(pj))
-	if err != nil {
-		return 0, err
-	}
-	m.enqueue(id)
+	m.submittedVideoKeyLocked(id, jobType, pj)
+	m.setControlLocked(id, jobType)
+	m.pushPendingLocked(id, priority)
+	m.cond.Signal()
 	return id, nil
-}
-
-func (m *Manager) enqueue(id int64) {
-	select {
-	case m.queue <- id:
-	default:
-		// 队列满：留在 DB queued 状态，恢复循环会捡起
-		m.Log.Warn("任务队列已满，任务留在库中稍后执行", "job", id)
-	}
 }
 
 // Start 启动 worker 与崩溃恢复；返回调度器 context。
@@ -96,31 +124,54 @@ func (m *Manager) Start(ctx context.Context) {
 	m.started = true
 	ctx2, cancel := context.WithCancel(ctx)
 	m.cancel = cancel
-	m.mu.Unlock()
+	// 取消 context 时也唤醒空闲 worker，避免 cond.Wait 永久等待。
+	context.AfterFunc(ctx2, func() {
+		m.mu.Lock()
+		m.cond.Broadcast()
+		m.mu.Unlock()
+	})
 
-	// 崩溃恢复：running→queued，并重新入队所有 queued
+	// 崩溃恢复：running→queued，按执行顺序（优先级降序、FIFO）装载就绪队列
 	if _, err := m.St.DB.Exec(`UPDATE jobs SET state='queued', updated_at=? WHERE state='running'`, store.Now()); err != nil {
 		m.Log.Warn("任务恢复失败", "err", err)
 	}
-	if rows, err := m.St.ListJobs(1000, []string{"queued"}); err == nil {
-		for i := len(rows) - 1; i >= 0; i-- { // 旧任务先入队（FIFO）
-			m.enqueue(rows[i].ID)
+	if queued, err := m.St.QueuedJobs(); err != nil {
+		m.Log.Warn("任务恢复装载失败", "err", err)
+	} else {
+		// 数据库为恢复的唯一来源，包括 Start 前 Submit 的任务。
+		// 按 ID 升序进入各优先级 FIFO；只对优先级建堆，无需排序全部任务。
+		m.pending = pendingQueue{}
+		m.resumed = nil
+		m.control = pendingQueue{}
+		m.controlResumed = nil
+		m.controlJobs = nil
+		m.videoKeys = nil
+		m.videoTokens = nil
+		m.activeVideos = nil
+		m.blockedVideos = nil
+		for _, j := range queued {
+			m.setControlLocked(j.ID, j.Type)
+			m.setVideoKeyLocked(j.ID, j.Type, j.Bvid)
+			m.pushPendingLocked(j.ID, j.Priority)
 		}
 	}
 	for i := 0; i < m.workers; i++ {
 		m.wg.Add(1)
 		go m.worker(ctx2)
 	}
+	m.mu.Unlock()
 }
 
-// Stop 停止 worker。
+// Stop 停止 worker：唤醒等待者并退出；未执行任务留在 DB（下次启动恢复）。
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	if !m.started || m.cancel == nil {
 		m.mu.Unlock()
 		return
 	}
+	m.stopped = true
 	m.mu.Unlock()
+	m.cond.Broadcast()
 	m.cancel()
 	m.wg.Wait()
 }
@@ -128,14 +179,25 @@ func (m *Manager) Stop() {
 func (m *Manager) worker(ctx context.Context) {
 	defer m.wg.Done()
 	for {
-		select {
-		case <-ctx.Done():
+		m.mu.Lock()
+		for m.readySizeLocked() == 0 && !m.stopped && ctx.Err() == nil {
+			m.cond.Wait()
+		}
+		if m.stopped || ctx.Err() != nil {
+			m.mu.Unlock()
 			return
-		case id, ok := <-m.queue:
-			if !ok {
-				return
-			}
-			m.process(ctx, id)
+		}
+		pj := m.popReadyLocked()
+		if !m.reserveVideoLocked(pj) {
+			m.mu.Unlock()
+			continue
+		}
+		m.mu.Unlock()
+
+		m.process(ctx, pj.id)
+		m.finishReservation(pj.id)
+		if ctx.Err() != nil {
+			return
 		}
 	}
 }
@@ -152,41 +214,46 @@ func (m *Manager) process(ctx context.Context, id int64) {
 		_ = m.St.UpdateJobState(id, "failed", "", "未注册的任务类型 "+j.Type, 0)
 		return
 	}
-	_ = m.St.UpdateJobState(id, "running", "", "", j.Progress)
-	// 处理器 panic 视为任务失败，绝不允许带崩整个服务（worker 是共享长驻 goroutine）。
+	if err := m.St.UpdateJobState(id, "running", "", "", j.Progress); err != nil {
+		m.Log.Error("任务启动状态写入失败", "job", id, "err", err)
+		return
+	}
+	reporter := &progressReporter{latest: j.Progress, write: func(f float64, detail string) {
+		if err := m.St.UpdateJobState(id, "running", detail, "", f); err != nil {
+			m.Log.Warn("任务进度保存失败", "job", id, "err", err)
+		}
+	}}
+	// finish 与并发回调互斥，终态写入后迟到的回调不会恢复 running。
 	defer func() {
+		f, detail := reporter.finish()
 		if r := recover(); r != nil {
 			m.Log.Error("任务处理器 panic", "job", id, "type", j.Type, "panic", r, "stack", string(debug.Stack()))
-			_ = m.St.UpdateJobState(id, "failed", "", fmt.Sprintf("处理器 panic: %v", r), j.Progress)
+			_ = m.St.UpdateJobState(id, "failed", detail, fmt.Sprintf("处理器 panic: %v", r), f)
 		}
 	}()
-
-	var lastUp time.Time
-	progress := func(f float64, detail string) {
-		if f < 0 {
-			f = 0
-		}
-		if f > 1 {
-			f = 1
-		}
-		if time.Since(lastUp) < 500*time.Millisecond && f < 1 {
-			return
-		}
-		lastUp = time.Now()
-		_ = m.St.UpdateJobState(id, "running", detail, "", f)
+	m.mu.Lock()
+	control := m.controlJobs[id]
+	m.mu.Unlock()
+	var yield func(context.Context) error
+	if !control {
+		yield = m.runOneControl
 	}
-
-	err = h(ctx, j, progress)
+	ctx = taskflow.WithHooks(ctx, reporter.report, yield)
+	err = h(ctx, j, reporter.report)
+	f, detail := reporter.finish()
 	if ctx.Err() != nil {
-		_ = m.St.UpdateJobState(id, "queued", "", "服务停止，任务重新排队", j.Progress)
-		m.enqueue(id)
+		_ = m.St.UpdateJobState(id, "queued", detail, "服务停止，任务重新排队", f)
+		m.mu.Lock()
+		m.pending.push(id, j.Priority)
+		m.mu.Unlock()
+		m.cond.Signal()
 		return
 	}
 	if err != nil {
-		_ = m.St.UpdateJobState(id, "failed", "", err.Error(), j.Progress)
+		_ = m.St.UpdateJobState(id, "failed", detail, err.Error(), f)
 		return
 	}
-	_ = m.St.UpdateJobState(id, "done", "", "", 1)
+	_ = m.St.UpdateJobState(id, "done", detail, "", 1)
 }
 
 // Scheduler 定时把到期任务送入队列。
@@ -210,32 +277,11 @@ const (
 )
 
 func (s *Scheduler) syncSourceBlocked(srcID int64, now int64) bool {
-	rows, err := s.St.DB.Query(`SELECT state, payload_json, created_at FROM jobs WHERE type='sync_source' ORDER BY id DESC LIMIT 20`)
-	if err != nil {
-		return false
-	}
-	defer rows.Close()
-	fails, lastSeen := 0, int64(0)
-	for rows.Next() {
-		var state, payload string
-		var createdAt int64
-		if err := rows.Scan(&state, &payload, &createdAt); err != nil {
-			continue
-		}
-		var p struct {
-			SourceID int64 `json:"source_id"`
-		}
-		if err := json.Unmarshal([]byte(payload), &p); err != nil || p.SourceID != srcID {
-			continue
-		}
-		if lastSeen == 0 {
-			lastSeen = createdAt
-		}
-		if state != "failed" {
-			break
-		}
-		fails++
-	}
+	return s.sourceBlocked(s.sourceBackoffs()[srcID], now)
+}
+
+func (s *Scheduler) sourceBlocked(b sourceBackoff, now int64) bool {
+	fails, lastSeen := b.fails, b.lastSeen
 	if fails < backoffMinFails || lastSeen == 0 {
 		return false
 	}
@@ -283,6 +329,9 @@ func (s *Scheduler) Run(ctx context.Context) {
 }
 
 func (s *Scheduler) tick(ctx context.Context) {
+	if err := s.Mgr.PumpUserDownloads(s.Cfg.DataDir); err != nil {
+		s.Log.Warn("用户下载队列调度失败", "err", err)
+	}
 	s.pruneJobsIfDue()
 	if s.Cfg.Collector.AdaptiveSync {
 		s.freshSweep()
@@ -292,18 +341,22 @@ func (s *Scheduler) tick(ctx context.Context) {
 		s.Log.Warn("查询到期源失败", "err", err)
 		return
 	}
+	backoffs := s.sourceBackoffs()
 	for _, src := range due {
-		if s.syncSourceBlocked(src.ID, store.Now()) {
+		if ctx.Err() != nil {
+			return
+		}
+		if s.sourceBlocked(backoffs[src.ID], store.Now()) {
 			s.Log.Info("源 sync_source 连续失败，退避跳过本轮", "source", src.Title, "type", src.Type)
 			continue
 		}
-		if _, err := s.Mgr.Submit("sync_source", map[string]any{"source_id": src.ID}); err == nil && src.ID != 0 {
+		if id, err := s.Mgr.Submit("sync_source", map[string]any{"source_id": src.ID}); err == nil && id != 0 {
 			s.Log.Info("调度源同步", "source", src.Title, "type", src.Type)
 		}
 	}
 	if hours := s.Cfg.Collector.StatsResyncHours; hours > 0 {
 		if s.statsDue(hours) {
-			if _, err := s.Mgr.Submit("sync_stats_all", map[string]any{}); err == nil {
+			if id, err := s.Mgr.Submit("sync_stats_all", map[string]any{}); err == nil && id != 0 {
 				s.Log.Info("调度全库统计重同步")
 			}
 		}
@@ -350,7 +403,7 @@ func (s *Scheduler) freshSweep() {
 		return
 	}
 	for _, bvid := range bvids {
-		if _, err := s.Mgr.Submit("touch_stats", map[string]any{"bvid": bvid}); err == nil && bvid != "" {
+		if id, err := s.Mgr.Submit("touch_stats", map[string]any{"bvid": bvid}); err == nil && id != 0 {
 			s.Log.Info("新发视频统计加速", "bvid", bvid)
 		}
 	}

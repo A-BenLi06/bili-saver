@@ -4,17 +4,15 @@ package collector
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"bili-saver/internal/dmproto"
+	"bili-saver/internal/fileio"
 
 	"bili-saver/internal/store"
 )
@@ -56,8 +54,7 @@ func (c *Collector) collectDanmaku(ctx context.Context, bvid string, cid int64, 
 			return
 		}
 		path := filepath.Join(c.pageDir(bvid, 0), "danmaku_raw", fmt.Sprintf("%d-%s", cid, name))
-		_ = os.MkdirAll(filepath.Dir(path), 0o755)
-		if err := os.WriteFile(path, raw, 0o644); err != nil {
+		if _, err := fileio.WriteBytes(path, raw); err != nil {
 			c.Log.Warn("弹幕原始件落盘失败", "err", err)
 		}
 	}
@@ -98,45 +95,6 @@ func (c *Collector) collectDanmaku(ctx context.Context, bvid string, cid int64, 
 	return total, true, nil
 }
 
-// danmuXMLRow 是 full.xml 的 <d> 元素。
-type danmuXMLRow struct {
-	XMLName xml.Name
-	P       string `xml:"p,attr"`
-	Text    string `xml:",chardata"`
-}
-
-type danmuXMLDoc struct {
-	XMLName    xml.Name      `xml:"i"`
-	Chatserver string        `xml:"chatserver"`
-	Chatid     string        `xml:"chatid"`
-	Maxlimit   int           `xml:"maxlimit"`
-	Rows       []danmuXMLRow `xml:"d"`
-}
-
-// writeDanmakuXML 从库中导出兼容 B 站格式的 full.xml。
-func (c *Collector) writeDanmakuXML(bvid string, cid int64) error {
-	rows, err := c.St.ListDanmaku(cid, "")
-	if err != nil {
-		return err
-	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Timepoint < rows[j].Timepoint })
-	doc := danmuXMLDoc{Chatserver: "chat.bilibili.com", Chatid: strconv.FormatInt(cid, 10), Maxlimit: len(rows)}
-	for _, r := range rows {
-		p := fmt.Sprintf("%.5f,%d,%d,%d,%d,0,%d,0", float64(r.Timepoint)/1000, r.Mode, r.Fontsize, r.Color, r.Ctime, r.Dmid)
-		doc.Rows = append(doc.Rows, danmuXMLRow{P: p, Text: r.Content})
-	}
-	out, err := xml.MarshalIndent(&doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(c.pageDir(bvid, 0), "danmaku", "full.xml")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	body := append([]byte(xml.Header), out...)
-	return os.WriteFile(path, body, 0o644)
-}
-
 // pageDir 返回 dataDir/media/{bvid}/p{n}；n<=0 时用根目录（不区分分P的数据放这里）。
 func (c *Collector) pageDir(bvid string, n int) string {
 	if n <= 0 {
@@ -162,12 +120,9 @@ func (c *Collector) collectSubtitles(ctx context.Context, bvid string, aid, cid 
 			continue
 		}
 		dir := filepath.Join(c.pageDir(bvid, 0), "subs")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
 		name := fmt.Sprintf("%d-%s.bcc.json", cid, sanitizePath(sub.Lan))
 		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, raw, 0o644); err != nil {
+		if _, err := fileio.WriteBytes(path, raw); err != nil {
 			return err
 		}
 		if err := c.St.UpsertSubtitle(&store.Subtitle{

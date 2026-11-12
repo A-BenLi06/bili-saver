@@ -306,15 +306,33 @@ func (a *Adapter) foldersJSON(uid int64, folders []*store.FavFolder) []map[strin
 // ---- WS 弹幕：解析客户端帧 → 入库 → 回显（前端 push 进弹幕列表） ----
 
 // wsDanmuFrame 客户端发送格式 {token, data:{content,mode,color,fontsize,timePoint}}。
+// color 是 "#rrggbb" 字符串（发送端 ColorPicker），兼容整数。
 type wsDanmuFrame struct {
 	Token string `json:"token"`
 	Data  struct {
-		Content   string `json:"content"`
-		Mode      int    `json:"mode"`
-		Color     int64  `json:"color"`
-		Fontsize  int    `json:"fontsize"`
-		TimePoint int    `json:"timePoint"`
+		Content   string          `json:"content"`
+		Mode      int             `json:"mode"`
+		Color     json.RawMessage `json:"color"`
+		Fontsize  int             `json:"fontsize"`
+		TimePoint int             `json:"timePoint"`
 	} `json:"data"`
+}
+
+// parseColorInt 接受 "#rrggbb" / "rrggbb" / 十进制整数。
+func parseColorInt(raw json.RawMessage) int64 {
+	s := strings.TrimSpace(string(raw))
+	s = strings.Trim(s, `"`)
+	s = strings.TrimPrefix(s, "#")
+	if s == "" {
+		return 0xFFFFFF
+	}
+	if v, err := strconv.ParseInt(s, 16, 32); err == nil {
+		return v
+	}
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v
+	}
+	return 0xFFFFFF
 }
 
 // parseWSFrame 解析一条客户端→服务端文本帧（RFC6455，客户端帧必须掩码）。
@@ -460,7 +478,7 @@ func (a *Adapter) handleDanmuFrame(vid string, payload []byte, conn interface{ W
 	d := &store.SiteDanmaku{
 		Bvid: bvid, UID: uid,
 		TimePoint: f.Data.TimePoint, Mode: f.Data.Mode,
-		Fontsize: f.Data.Fontsize, Color: f.Data.Color,
+		Fontsize: f.Data.Fontsize, Color: parseColorInt(f.Data.Color),
 		Content: f.Data.Content, Ctime: store.Now(),
 	}
 	id, err := a.St.AddSiteDanmaku(d)
@@ -469,8 +487,8 @@ func (a *Adapter) handleDanmuFrame(vid string, payload []byte, conn interface{ W
 	}
 	d.ID = id
 	item, _ := json.Marshal(map[string]any{
-		"id": id, "uid": uid, "timePoint": d.TimePoint, "mode": d.Mode,
-		"fontsize": d.Fontsize, "color": d.Color, "content": d.Content,
+		"id": id, "uid": uid, "timePoint": d.TimePoint, "mode": dmModeNorm(d.Mode),
+		"fontsize": d.Fontsize, "color": dmColorHex(d.Color), "content": d.Content,
 		"createDate": isoDate(d.Ctime), "state": 0, "active": true,
 	})
 	_, _ = conn.Write(writeWSTextFrame(item))

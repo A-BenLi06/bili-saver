@@ -230,6 +230,7 @@ type Reply struct {
 
 type ReplyMainData struct {
 	Cursor struct {
+		AllCount        int   `json:"all_count"`
 		IsBegin         bool  `json:"is_begin"`
 		IsEnd           bool  `json:"is_end"`
 		Next            int64 `json:"next"`

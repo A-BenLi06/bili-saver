@@ -55,12 +55,18 @@ type MediaServerStatus struct {
 
 // probeMediaServerInstance 探测单个实例；online=在超时内收到任意 HTTP 响应。
 func probeMediaServerInstance(ctx context.Context, cfg config.MediaServer) MediaServerInstance {
-	inst := MediaServerInstance{Name: cfg.Name, URL: cfg.URL}
+	inst := MediaServerInstance{Name: cfg.Name, URL: safeMediaURL(cfg.URL)}
 	if cfg.URL == "" {
 		inst.Note = "未配置地址"
 		return inst
 	}
-	u := strings.TrimRight(cfg.URL, "/") + probePath(cfg.Type)
+	base, key, parseErr := mediaEndpoint(cfg)
+	if parseErr != nil {
+		inst.Note = "地址无效"
+		return inst
+	}
+	base.Path += probePath(cfg.Type)
+	u := base.String()
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -69,6 +75,9 @@ func probeMediaServerInstance(ctx context.Context, cfg config.MediaServer) Media
 		return inst
 	}
 	req.Header.Set("User-Agent", "bili-saver-probe/1.0")
+	if key != "" {
+		req.Header.Set("X-Emby-Token", key)
+	}
 	start := time.Now()
 	resp, err := probeClient.Do(req)
 	inst.LatencyMS = time.Since(start).Milliseconds()
@@ -120,7 +129,7 @@ func (s *Server) mediaServerStatuses(ctx context.Context) []MediaServerStatus {
 			row.Online = true
 			row.Note = "内置适配 · 随核心进程运行"
 			row.Instances = append(row.Instances, MediaServerInstance{
-				Name: "内置适配", URL: s.Deps.Cfg.Teriteri.FrontendURL, Online: true,
+				Name: "内置适配", URL: safeMediaURL(s.Deps.Cfg.Teriteri.FrontendURL), Online: true,
 				Note: "随核心进程运行",
 			})
 			mu.Lock()

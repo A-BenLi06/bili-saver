@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -48,9 +49,10 @@ type Deps struct {
 
 // Server HTTP 服务。
 type Server struct {
-	Deps Deps
-	mux  *http.ServeMux
-	teri *teriteri.Adapter
+	Deps       Deps
+	mux        *http.ServeMux
+	teri       *teriteri.Adapter
+	revealPath func(string) error // nil uses the platform file manager
 }
 
 func New(d Deps) *Server {
@@ -112,8 +114,19 @@ func (s *Server) currentUser(r *http.Request) authUser {
 // userAllowed 用户角色的端点白名单（多用户：仅 添加/识别/查看/管理自己的补档 + 认证）。
 func userAllowed(method, path string) bool {
 	switch {
+	case path == "/api/v1/account":
+		return method == "GET" || method == "PATCH"
+	case path == "/api/v1/account/avatar":
+		return method == "POST" || method == "DELETE"
+	case path == "/api/v1/account/password":
+		return method == "POST"
 	case method == "POST" && path == "/api/v1/add":
 		return true
+	case method == "GET" && path == "/api/v1/videos":
+		return true
+	case strings.HasPrefix(path, "/api/v1/videos/"):
+		parts := strings.Split(strings.TrimPrefix(path, "/api/v1/videos/"), "/")
+		return (method == "GET" && len(parts) == 1 && parts[0] != "") || (method == "POST" && len(parts) == 2 && parts[0] != "" && parts[1] == "download")
 	case method == "GET" && path == "/api/v1/sources":
 		return true
 	case (method == "PATCH" || method == "DELETE") && strings.HasPrefix(path, "/api/v1/sources/"):
@@ -172,13 +185,13 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	})
 }
 
-// registerMedia 提供本地媒体流（Range 支持），仅允许 dataDir 内的文件。
+// registerMedia 提供本地媒体流（Range 支持），仅公开 media 子目录的普通文件。
 func (s *Server) registerMedia() {
 	s.mux.HandleFunc("GET /media/", func(w http.ResponseWriter, r *http.Request) {
 		rel := strings.TrimPrefix(r.URL.Path, "/media/")
 		rel = filepath.ToSlash(filepath.Clean("/" + rel))
 		rel = strings.TrimPrefix(rel, "/")
-		if rel == "" || strings.Contains(rel, "..") {
+		if rel == "" || strings.Contains(rel, "..") || !strings.HasPrefix(rel, "media/") {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -188,6 +201,17 @@ func (s *Server) registerMedia() {
 		absFull, err2 := filepath.Abs(full)
 		if err1 != nil || err2 != nil || !strings.HasPrefix(absFull, absData+string(filepath.Separator)) {
 			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		mediaRoot, err := filepath.EvalSymlinks(filepath.Join(absData, "media"))
+		physical, err2 := filepath.EvalSymlinks(absFull)
+		if err != nil || err2 != nil || !withinPath(mediaRoot, physical) {
+			http.NotFound(w, r)
+			return
+		}
+		st, err := os.Stat(physical)
+		if err != nil || !st.Mode().IsRegular() {
+			http.NotFound(w, r)
 			return
 		}
 		http.ServeFile(&countingWriter{ResponseWriter: w}, r, absFull)

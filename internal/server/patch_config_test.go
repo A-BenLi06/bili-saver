@@ -70,16 +70,19 @@ func TestPatchConfig(t *testing.T) {
 	}
 
 	// 合法变更：多种类型字段一起提交
-	w := do(`{"sync_default_minutes":120,"adaptive_sync":false,"auto_download":true,
+	w := do(`{"sync_default_minutes":120,"adaptive_sync":false,"auto_download":true,"new_add_first":false,
 		"qualities":["1080p","720p"],"media_layout":"show","concurrency":3,
-		"frontend_url":"http://x.example"}`)
+		"frontend_url":"http://x.example","comment_concurrency":3,"comment_full_hours":336}`)
 	if w.Code != 200 {
 		t.Fatalf("合法 PATCH 应 200: %d %s", w.Code, w.Body.String())
 	}
 	var resp map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["comment_concurrency"] != float64(3) || resp["comment_full_hours"] != float64(336) {
+		t.Fatal(resp)
+	}
 	if resp["sync_default_minutes"].(float64) != 120 || resp["adaptive_sync"] != false ||
-		resp["media_layout"] != "show" || resp["concurrency"].(float64) != 3 {
+		resp["media_layout"] != "show" || resp["concurrency"].(float64) != 3 || resp["new_add_first"] != false {
 		t.Errorf("PATCH 响应未反映变更: %v", resp)
 	}
 
@@ -87,7 +90,10 @@ func TestPatchConfig(t *testing.T) {
 	rec2 := get("/api/v1/config")
 	var got map[string]any
 	_ = json.Unmarshal(rec2.Body.Bytes(), &got)
-	if got["sync_default_minutes"].(float64) != 120 || got["stats_resync_hours"].(float64) != 24 {
+	if got["comment_concurrency"] != float64(3) || got["comment_full_hours"] != float64(336) {
+		t.Fatal(got)
+	}
+	if got["sync_default_minutes"].(float64) != 120 || got["stats_resync_hours"].(float64) != 24 || got["new_add_first"] != false {
 		t.Errorf("GET 未反映 PATCH 结果: sync=%v stats=%v", got["sync_default_minutes"], got["stats_resync_hours"])
 	}
 
@@ -96,8 +102,11 @@ func TestPatchConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if reloaded.Collector.CommentConcurrency != 3 || reloaded.Collector.CommentFullHours != 336 {
+		t.Fatal("comment settings did not persist")
+	}
 	if reloaded.Collector.SyncDefaultMinutes != 120 || reloaded.Collector.AdaptiveSync ||
-		reloaded.Media.Layout != "show" || len(reloaded.Download.Qualities) != 2 {
+		reloaded.Media.Layout != "show" || len(reloaded.Download.Qualities) != 2 || reloaded.Queue.NewAddFirst {
 		t.Errorf("写盘内容与内存不一致: sync=%d adaptive=%v layout=%s quals=%v",
 			reloaded.Collector.SyncDefaultMinutes, reloaded.Collector.AdaptiveSync,
 			reloaded.Media.Layout, reloaded.Download.Qualities)
@@ -109,6 +118,11 @@ func TestPatchConfig(t *testing.T) {
 
 	// 非法值：逐个 400
 	for _, bad := range []string{
+		`{"comment_concurrency":0}`,
+		`{"comment_concurrency":5}`,
+		`{"comment_full_hours":-1}`,
+		`{"comment_full_hours":8761}`,
+		`{"new_add_first":true,"concurrency":0}`,
 		`{"concurrency":0}`,
 		`{"segments":-1}`,
 		`{"sync_default_minutes":-5}`,
@@ -130,5 +144,11 @@ func TestPatchConfig(t *testing.T) {
 	}
 	if reloaded2.Download.Concurrency != 3 {
 		t.Errorf("非法请求不应写盘，磁盘 concurrency=%d", reloaded2.Download.Concurrency)
+	}
+	if cfg.Queue.NewAddFirst || reloaded2.Queue.NewAddFirst {
+		t.Fatal("非法请求不应改变优先设置")
+	}
+	if w := do(`{"new_add_first":true}`); w.Code != 200 || !cfg.Queue.NewAddFirst {
+		t.Fatalf("应能重新开启优先设置: %d %s", w.Code, w.Body.String())
 	}
 }

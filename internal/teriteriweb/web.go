@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"bili-saver/internal/config"
+	"bili-saver/internal/metrics"
 )
 
 // Web 持有站点配置与运行状态。
@@ -90,7 +91,7 @@ func (w *Web) StartSites() {
 		w.mu.Unlock()
 		go func(name string) {
 			w.Log.Info("TeriTeri 站点开始服务", "site", name, "addr", s.addr, "dist", s.dist)
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			if err := metrics.ListenAndServe(srv); err != nil && err != http.ErrServerClosed {
 				w.Log.Error("TeriTeri 站点退出", "site", name, "err", err)
 				w.mu.Lock()
 				delete(w.serving, name)

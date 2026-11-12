@@ -5,6 +5,7 @@ package app
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -54,11 +55,14 @@ func TestHTTPWiring(t *testing.T) {
 
 	// v11 起 /api/v1 需登录：种子管理员登录拿会话
 	jar, _ := cookiejar.New(nil)
-	client := &http.Client{Jar: jar}
-	if lr, lerr := client.Post(srv.URL+"/api/v1/auth/login", "application/json",
-		strings.NewReader(`{"username":"admin","password":"bili-saver"}`)); lerr != nil || lr.StatusCode != 200 {
+	client := &http.Client{Jar: jar, Timeout: 10 * time.Second}
+	lr, lerr := client.Post(srv.URL+"/api/v1/auth/login", "application/json",
+		strings.NewReader(`{"username":"admin","password":"bili-saver"}`))
+	if lerr != nil || lr.StatusCode != 200 {
 		t.Fatalf("种子管理员登录失败: %v %v", lerr, lr)
 	}
+	_, _ = io.Copy(io.Discard, lr.Body)
+	lr.Body.Close()
 
 	// stats
 	resp, err := client.Get(srv.URL + "/api/v1/stats")
@@ -67,28 +71,37 @@ func TestHTTPWiring(t *testing.T) {
 	}
 	var stats map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&stats)
+	resp.Body.Close()
 	if stats["archive"] == nil {
 		t.Fatal("stats 无数据")
 	}
 
 	// videos 列表（分页富结果：{total,counts,items}）
-	resp2, _ := client.Get(srv.URL + "/api/v1/videos")
+	resp2, err := client.Get(srv.URL + "/api/v1/videos")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var vl struct {
 		Total  int64            `json:"total"`
 		Counts map[string]int64 `json:"counts"`
 		Items  []*store.Video   `json:"items"`
 	}
 	_ = json.NewDecoder(resp2.Body).Decode(&vl)
+	resp2.Body.Close()
 	if vl.Total != 1 || len(vl.Items) != 1 || vl.Items[0].Bvid != "BV1Test00001" {
 		t.Fatalf("videos 列表错误: %+v", vl)
 	}
 
 	// teriteri 适配层共存于同一 mux
-	resp3, _ := client.Get(srv.URL + "/api/video/getone?vid=BV1Test00001")
+	resp3, err := client.Get(srv.URL + "/api/video/getone?vid=BV1Test00001")
+	if err != nil {
+		t.Fatal(err)
+	}
 	var env struct {
 		Code int `json:"code"`
 	}
 	_ = json.NewDecoder(resp3.Body).Decode(&env)
+	resp3.Body.Close()
 	if env.Code != 200 {
 		t.Fatalf("teriteri getone 失败: %d", env.Code)
 	}
@@ -105,22 +118,36 @@ func TestHTTPWiring(t *testing.T) {
 	}
 	buf := make([]byte, 8)
 	n, _ := resp4.Body.Read(buf)
+	resp4.Body.Close()
 	if string(buf[:n]) != "0123" {
 		t.Fatalf("Range 内容错误: %q", string(buf[:n]))
 	}
 
 	// 越界路径禁止（HTTP 层会规范化为 404，处理器内为 403，均不得 200）
-	resp5, _ := http.Get(srv.URL + "/media/../bili-saver.db")
+	resp5, err := client.Get(srv.URL + "/media/../bili-saver.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp5.Body.Close()
 	if resp5.StatusCode == http.StatusOK {
 		t.Fatalf("路径穿越不得返回内容: %d", resp5.StatusCode)
 	}
-	resp5b, _ := http.Get(srv.URL + "/media/%2e%2e%2fbili-saver.db")
+	resp5b, err := client.Get(srv.URL + "/media/%2e%2e%2fbili-saver.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp5b.Body.Close()
 	if resp5b.StatusCode == http.StatusOK {
 		t.Fatalf("编码路径穿越不得返回内容: %d", resp5b.StatusCode)
 	}
 
 	// admin UI 首页
-	resp6, _ := http.Get(srv.URL + "/")
+	resp6, err := client.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp6.Body)
+	resp6.Body.Close()
 	if resp6.StatusCode != 200 {
 		t.Fatalf("首页应 200: %d", resp6.StatusCode)
 	}

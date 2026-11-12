@@ -186,6 +186,11 @@ func (s *Store) migrate() error {
 	)`); err != nil {
 		return err
 	}
+	// v12 增量：任务优先级（新添加补档插队）。
+	if err := s.ensureColumn("jobs", "priority", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+
 	// 种子：基础等级 + 初始管理员（admin / bili-saver，首次启动后请尽快改密）
 	var tierN, userN int
 	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM user_tiers`).Scan(&tierN); err != nil {
@@ -254,9 +259,24 @@ func (s *Store) migrate() error {
 			return err
 		}
 	}
+	if err := s.migrateCommentFTS(); err != nil {
+		return fmt.Errorf("升级评论全文索引: %w", err)
+	}
+	if err := s.ensureColumn("user_tiers", "max_daily_downloads", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("sources", "personal_scanned", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.migratePersonal(); err != nil {
+		return fmt.Errorf("升级个人补档: %w", err)
+	}
+	if err := s.ensureColumn("users", "avatar_path", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	// 仅信息展示（无代码读取）：真实 schema 版本靠上面的幂等基线 + ensureColumn
-	// 增量补列保证，此值与 §5 迁移历史人工同步（当前 v10：分区/横竖屏 + space_posts）。
-	_, err = s.DB.Exec(`INSERT INTO schema_meta(k,v) VALUES('schema','10') ON CONFLICT(k) DO UPDATE SET v='10'`)
+	// 增量补列保证，此值与 §5 迁移历史人工同步（当前 v15：个人账号资料）。
+	_, err = s.DB.Exec(`INSERT INTO schema_meta(k,v) VALUES('schema','15') ON CONFLICT(k) DO UPDATE SET v='15'`)
 	return err
 }
 

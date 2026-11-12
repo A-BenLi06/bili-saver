@@ -91,7 +91,9 @@ func (s *Store) MarkVideoGone(bvid string, status string) error {
 	if status == "" {
 		status = "gone"
 	}
-	_, err := s.DB.Exec(`UPDATE videos SET status=?, last_sync_at=? WHERE bvid=?`, status, Now(), bvid)
+	// 存在性检查也是一次统计尝试，推进冷却时钟，避免 gone 视频每轮重新入队。
+	now := Now()
+	_, err := s.DB.Exec(`UPDATE videos SET status=?, last_sync_at=MAX(last_sync_at,?), last_stats_at=MAX(last_stats_at,?) WHERE bvid=?`, status, now, now, bvid)
 	return err
 }
 
@@ -304,6 +306,10 @@ func (s *Store) FreshStatsDue(now int64, freshHours, freshMinutes, limit int) ([
 
 func (s *Store) SetVideoDownloaded(bvid, localPath string) error {
 	_, err := s.DB.Exec(`UPDATE videos SET downloaded=1, local_path=? WHERE bvid=?`, localPath, bvid)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.Exec(`UPDATE user_download_requests SET next_attempt_at=0 WHERE bvid=? AND state='waiting'`, bvid)
 	return err
 }
 
@@ -326,11 +332,14 @@ func ftsQuery(q string) string {
 
 // VideoWithCounts 视频主记录 + 各部分归档完整度计数（管理控制台视角）。
 type VideoWithCounts struct {
+	DownloadRequest *DownloadRequest `json:"download_request,omitempty"`
+	WatchURL        string           `json:"watch_url"`
 	Video
-	DanmakuCount    int `json:"danmaku_count"`
-	CommentsVisible int `json:"comments_visible"`
-	CommentsDeleted int `json:"comments_deleted"`
-	SubtitleCount   int `json:"subtitle_count"`
+	DanmakuCount    int                `json:"danmaku_count"`
+	CommentsVisible int                `json:"comments_visible"`
+	CommentsDeleted int                `json:"comments_deleted"`
+	SubtitleCount   int                `json:"subtitle_count"`
+	SyncAdvice      *CommentSyncAdvice `json:"sync_advice,omitempty"`
 }
 
 const countExpr = `,
@@ -408,8 +417,15 @@ func (s *Store) GetVideoWithCounts(bvid string) (*VideoWithCounts, error) {
 }
 
 // VideoStatusCounts 各状态视频数（管理端分类 Tab 徽标用）。
-func (s *Store) VideoStatusCounts() (map[string]int64, error) {
-	rows, err := s.DB.Query(`SELECT status, COUNT(*) FROM videos GROUP BY status`)
+func (s *Store) VideoStatusCounts() (map[string]int64, error) { return s.VideoStatusCountsForUser(nil) }
+func (s *Store) VideoStatusCountsForUser(userID *int64) (map[string]int64, error) {
+	query := `SELECT status, COUNT(*) FROM videos v`
+	args := []any{}
+	if userID != nil {
+		query += ` WHERE EXISTS(SELECT 1 FROM user_videos uv WHERE uv.bvid=v.bvid AND uv.user_id=?)`
+		args = append(args, *userID)
+	}
+	rows, err := s.DB.Query(query+` GROUP BY status`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -430,6 +446,10 @@ func (s *Store) VideoStatusCounts() (map[string]int64, error) {
 // q 模糊匹配 标题/简介/UP主/bvid；sort ∈ {title,pubdate,last_sync} 白名单，order=asc|desc
 // （title 默认升序，时间列默认降序）；返回 (页内记录, 过滤后总数)。
 func (s *Store) ListVideosPage(status, dl, q, sort, order string, limit, offset int) ([]*VideoWithCounts, int64, error) {
+	return s.ListVideosPageForUser(nil, status, dl, q, sort, order, limit, offset)
+}
+
+func (s *Store) ListVideosPageForUser(userID *int64, status, dl, q, sort, order string, limit, offset int) ([]*VideoWithCounts, int64, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -437,6 +457,10 @@ func (s *Store) ListVideosPage(status, dl, q, sort, order string, limit, offset 
 		offset = 0
 	}
 	where, args := []string{"1=1"}, []any{}
+	if userID != nil {
+		where = append(where, "EXISTS(SELECT 1 FROM user_videos uv WHERE uv.bvid=v.bvid AND uv.user_id=?)")
+		args = append(args, *userID)
+	}
 	switch status {
 	case "ok", "gone", "private":
 		where = append(where, "v.status=?")

@@ -187,7 +187,8 @@ type Job struct {
 	ID          int64   `json:"id"`
 	Type        string  `json:"type"`
 	PayloadJSON string  `json:"payload_json"`
-	State       string  `json:"state"` // queued|running|done|failed
+	State       string  `json:"state"`    // queued|running|done|failed
+	Priority    int     `json:"priority"` // >0 优先执行（新添加补档插队，v12）
 	Progress    float64 `json:"progress"`
 	Detail      string  `json:"detail"`
 	Error       string  `json:"error"`

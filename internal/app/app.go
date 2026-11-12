@@ -20,6 +20,7 @@ import (
 	"bili-saver/internal/jobs"
 	"bili-saver/internal/levels"
 	"bili-saver/internal/media"
+	"bili-saver/internal/metrics"
 	"bili-saver/internal/plugin"
 	"bili-saver/internal/resolver"
 	"bili-saver/internal/server"
@@ -66,6 +67,8 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 		st.Close()
 		return nil, err
 	}
+	// CDN has its own transport; keep its cookie jar and timeout policy intact.
+	api.DownloadClient().Transport = metrics.InstrumentTransport(api.DownloadClient().Transport.(*http.Transport))
 	bus := plugin.NewBus(st, st, cfg.Plugins.Dir, log, plugin.Context{
 		DataDir: cfg.DataDir,
 		APIBase: "http://127.0.0.1" + cfg.Listen,
@@ -137,11 +140,13 @@ func mkdirs(cfg *config.Config) error {
 
 // registerJobs 注册任务类型。
 func (a *App) registerJobs() {
-	a.Mgr.Register("archive", a.jobArchive)
-	a.Mgr.Register("download", a.jobDownload)
+	a.Mgr.RegisterVideo("archive", a.jobArchive)
+	a.Mgr.RegisterVideo("download", a.jobDownload)
+	a.Mgr.RegisterVideo("user_download", a.jobUserDownload)
 	a.Mgr.Register("sync_source", a.jobSyncSource)
 	a.Mgr.Register("sync_stats_all", a.jobSyncStatsAll)
-	a.Mgr.Register("touch_stats", a.jobTouchStats)
+	a.Mgr.RegisterVideo("touch_stats", a.jobTouchStats)
+	a.Mgr.PreferAtYield("sync_source", "touch_stats")
 	a.Mgr.Register("fetch_images", a.jobFetchImages)
 	a.Mgr.Register("fetch_levels", a.jobFetchLevels)
 }
@@ -167,20 +172,32 @@ func (a *App) jobArchive(ctx context.Context, j *store.Job, progress jobs.Progre
 			RefreshSubtitles: boolOr(p.RefreshSubtitles),
 		}
 	}
+	progress(0.01, "开始归档")
 	res, err := a.Col.ArchiveVideoOpts(ctx, p.Bvid, opts)
 	if err != nil {
 		return err
 	}
+	userSource := false
 	if p.SourceID != 0 {
+		if src, err := a.St.GetSource(p.SourceID); err == nil {
+			if err := a.attachSourceVideo(src, res.Bvid, false, j.Priority); err != nil {
+				return err
+			}
+			if u, err := a.St.GetUser(src.UserID); err == nil {
+				userSource = u.Role == "user"
+			}
+		}
 		_, _ = a.St.DB.Exec(`UPDATE videos SET source_id=? WHERE bvid=? AND source_id=0`, p.SourceID, res.Bvid)
 	}
 	// 图片本地化（封面/头像落盘 media/，绕开图床防盗链；失败不阻塞归档）
 	if !res.Gone {
+		progress(0.36, "本地化封面与头像")
 		if n, err := a.Img.SyncVideo(ctx, res.Bvid); err != nil {
 			a.Log.Warn("图片本地化失败", "bvid", res.Bvid, "err", err)
 		} else if n > 0 {
 			a.Log.Info("图片本地化完成", "bvid", res.Bvid, "新增", n)
 		}
+		progress(0.38, "补齐UP主等级")
 		if err := a.Lv.EnsureOwnerLevel(ctx, res.Bvid); err != nil {
 			a.Log.Warn("UP主等级拉取失败", "bvid", res.Bvid, "err", err)
 		}
@@ -191,7 +208,7 @@ func (a *App) jobArchive(ctx context.Context, j *store.Job, progress jobs.Progre
 	if p.Download != nil {
 		dl = *p.Download
 	}
-	if dl && !res.Gone {
+	if dl && !res.Gone && !userSource {
 		if err := a.Dl.DownloadVideo(ctx, res.Bvid, func(f float64, detail string) {
 			progress(0.4+f*0.6, detail)
 		}); err != nil {
@@ -266,6 +283,9 @@ func (a *App) jobFetchImages(ctx context.Context, j *store.Job, progress jobs.Pr
 }
 
 func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.ProgressFn) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var p struct {
 		SourceID int64 `json:"source_id"`
 		Download *bool `json:"download"`
@@ -282,8 +302,16 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 	if err != nil {
 		return err
 	}
+	userSource := false
+	if u, err := a.St.GetUser(src.UserID); err == nil {
+		userSource = u.Role == "user"
+	}
+	var personalScanned bool
+	if err := a.St.DB.QueryRow(`SELECT personal_scanned FROM sources WHERE id=?`, src.ID).Scan(&personalScanned); err != nil {
+		return err
+	}
 	total := len(res.Bvids)
-	if total == 0 {
+	if total == 0 && src.Type != "space" {
 		_ = a.St.SetSourceSynced(src.ID, store.Now())
 		progress(1, "源为空")
 		return nil
@@ -294,14 +322,40 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 		dl = *p.Download
 	}
 	// 触发器：手动指定 download 参数的同步不产生跟踪记录（跟踪列表只记自动触发）
-	trigger := !manual && triggerOn(src.AutoDownload, dl)
+	if userSource {
+		dl = false
+	}
+	trigger := !userSource && !manual && triggerOn(src.AutoDownload, dl)
 	now := store.Now()
+	videos, err := a.St.VideosByBvids(res.Bvids)
+	if err != nil {
+		return fmt.Errorf("读取源视频同步状态: %w", err)
+	}
+	var recent map[string][]*store.StatsSnapshot
+	if a.Cfg.Collector.AdaptiveSync {
+		recent, err = a.St.RecentStatsBatch(res.Bvids)
+		if err != nil {
+			return fmt.Errorf("读取源视频活跃度: %w", err)
+		}
+	}
+	visited := make(map[string]bool, total)
 	archived := 0
 	for i, bvid := range res.Bvids {
-		v, verr := a.St.GetVideo(bvid)
-		if verr != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if bvid == "" || visited[bvid] {
+			continue
+		}
+		visited[bvid] = true
+		v := videos[bvid]
+		allowAuto := userSource && src.AutoDownload != -1 && (src.LastSyncAt == 0 || personalScanned || v == nil)
+		if err := a.attachSourceVideo(src, bvid, allowAuto, j.Priority); err != nil {
+			return err
+		}
+		if v == nil {
 			// 新视频：触发器补档，全量归档；命中触发则计入跟踪列表
-			if _, err := a.Mgr.Submit("archive", map[string]any{"bvid": bvid, "download": trigger || manual && dl, "source_id": src.ID}); err == nil {
+			if _, err := a.Mgr.SubmitPrio("archive", map[string]any{"bvid": bvid, "download": trigger || manual && dl, "source_id": src.ID}, j.Priority); err == nil {
 				archived++
 				if trigger {
 					if terr := a.St.TrackAdd(bvid, src.ID, now); terr != nil {
@@ -311,16 +365,24 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 			}
 		} else {
 			// 已有视频：按源的分类型间隔计算到期范围
-			stats, comments, danmaku, subs := a.dueParts(src, v, now)
+			mult := 1.0
+			if a.Cfg.Collector.AdaptiveSync {
+				mult = ageFactor(now, v.Pubdate) * activityFactor(recent[bvid])
+			}
+			stats, comments, danmaku, subs := a.duePartsWithMultiplier(src, v, now, mult)
 			if comments || danmaku || subs {
-				if _, err := a.Mgr.Submit("archive", map[string]any{
+				if _, err := a.Mgr.SubmitPrio("archive", map[string]any{
 					"bvid": bvid, "download": dl, "source_id": src.ID,
 					"refresh_comments": comments, "refresh_danmaku": danmaku, "refresh_subtitles": subs,
-				}); err == nil {
+				}, j.Priority); err == nil {
 					archived++
 				}
 			} else if stats {
-				if _, err := a.Mgr.Submit("touch_stats", map[string]any{"bvid": bvid}); err == nil {
+				payload := map[string]any{"bvid": bvid}
+				if v.Status == "gone" {
+					payload["recover_parts"], payload["source_id"], payload["download"] = true, src.ID, dl
+				}
+				if _, err := a.Mgr.SubmitPrio("touch_stats", payload, j.Priority); err == nil {
 					archived++
 				}
 			}
@@ -343,10 +405,14 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 					} else if sc.DynamicVideo {
 						dynNew := 0
 						for _, bvid := range dynBvids {
+							allowAuto := userSource && src.AutoDownload != -1 && (src.LastSyncAt == 0 || personalScanned)
+							if err := a.attachSourceVideo(src, bvid, allowAuto, j.Priority); err != nil {
+								return err
+							}
 							if _, verr := a.St.GetVideo(bvid); verr == nil {
 								continue // 已在库（投稿视频链路覆盖）
 							}
-							if _, err := a.Mgr.Submit("archive", map[string]any{"bvid": bvid, "download": dl, "source_id": src.ID}); err == nil {
+							if _, err := a.Mgr.SubmitPrio("archive", map[string]any{"bvid": bvid, "download": dl, "source_id": src.ID}, j.Priority); err == nil {
 								dynNew++
 								archived++
 							}
@@ -359,6 +425,7 @@ func (a *App) jobSyncSource(ctx context.Context, j *store.Job, progress jobs.Pro
 			}
 		}
 	}
+	_, _ = a.St.DB.Exec(`UPDATE sources SET personal_scanned=1 WHERE id=?`, src.ID)
 	_ = a.St.SetSourceSynced(src.ID, store.Now())
 	// 仅一次模式：完成首次同步后自动停止监控
 	if src.SyncMode == "once" {
@@ -385,6 +452,10 @@ func triggerOn(srcAuto int, global bool) bool {
 // dueParts 计算某视频当前到期需要刷新的部分。
 // 间隔语义：-1=从不；0=跟随源主间隔；主间隔 0=全局默认。统计始终跟随主间隔。
 func (a *App) dueParts(src *store.Source, v *store.Video, now int64) (stats, comments, danmaku, subs bool) {
+	return a.duePartsWithMultiplier(src, v, now, a.syncMultiplier(v, now))
+}
+
+func (a *App) duePartsWithMultiplier(src *store.Source, v *store.Video, now int64, mult float64) (stats, comments, danmaku, subs bool) {
 	master := src.SyncIntervalMinutes
 	if master <= 0 {
 		master = a.Cfg.Collector.SyncDefaultMinutes
@@ -406,11 +477,14 @@ func (a *App) dueParts(src *store.Source, v *store.Video, now int64) (stats, com
 	}
 	// 自适应冷却：按视频新发程度与统计增速伸缩各部分有效间隔
 	// （adaptive_sync=false 时倍率恒 1，等价固定间隔）。倍率每视频只算一次。
-	mult := a.syncMultiplier(v, now)
 	stats = due(v.LastStatsAt, stretchInterval(master, mult))
 	comments = due(v.LastCommentsAt, stretchInterval(iv(src.IntervalCommentsMin), mult))
 	danmaku = due(v.LastDanmakuAt, stretchInterval(iv(src.IntervalDanmakuMin), mult))
 	subs = due(v.LastSubsAt, stretchInterval(iv(src.IntervalSubsMin), mult))
+	if v.Status == "gone" {
+		// 已消失视频只做轻量存在性检查；恢复后下轮再补采其他到期部分。
+		comments, danmaku, subs = false, false, false
+	}
 	return
 }
 
@@ -419,7 +493,10 @@ func (a *App) dueParts(src *store.Source, v *store.Video, now int64) (stats, com
 // jobTouchStats 单视频轻量统计刷新。
 func (a *App) jobTouchStats(ctx context.Context, j *store.Job, progress jobs.ProgressFn) error {
 	var p struct {
-		Bvid string `json:"bvid"`
+		Bvid         string `json:"bvid"`
+		RecoverParts bool   `json:"recover_parts"`
+		SourceID     int64  `json:"source_id"`
+		Download     *bool  `json:"download"`
 	}
 	if err := json.Unmarshal([]byte(j.PayloadJSON), &p); err != nil {
 		return err
@@ -427,33 +504,71 @@ func (a *App) jobTouchStats(ctx context.Context, j *store.Job, progress jobs.Pro
 	if err := a.Col.SyncVideoStats(ctx, p.Bvid); err != nil {
 		return err
 	}
+	if p.RecoverParts {
+		if err := a.queueRestoredParts(ctx, p.Bvid, p.SourceID, p.Download, j.Priority); err != nil {
+			return err
+		}
+	}
 	progress(1, "完成")
 	return nil
 }
 
 func boolOr(b *bool) bool { return b != nil && *b }
 
+// jobSyncStatsAll 按固定大小分页；统计网络请求仍串行，遵守原接口限速。
 func (a *App) jobSyncStatsAll(ctx context.Context, j *store.Job, progress jobs.ProgressFn) error {
-	videos, err := a.St.ListVideos(0, "", 0, 0)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	total, before, err := a.St.StatsSweepWindow(ctx)
 	if err != nil {
 		return err
 	}
+	const pageSize = 400
 	now := store.Now()
-	skipped := 0
-	for i, v := range videos {
-		// 自适应冷却：沉寂/老旧视频的统计快照拉长周期，跳过本轮（见 adaptive.go）。
-		if a.statsSkipAdaptive(v, now) {
-			skipped++
-			progress(float64(i+1)/float64(len(videos)), fmt.Sprintf("%d/%d 冷却跳过", i+1, len(videos)))
-			continue
+	done, skipped := 0, 0
+	for before > 0 {
+		videos, err := a.St.StatsSweepPage(ctx, before, pageSize)
+		if err != nil {
+			return err
 		}
-		if err := a.Col.SyncVideoStats(ctx, v.Bvid); err != nil {
-			a.Log.Warn("统计重同步失败", "bvid", v.Bvid, "err", err)
+		if len(videos) == 0 {
+			break
 		}
-		progress(float64(i+1)/float64(len(videos)), fmt.Sprintf("%d/%d", i+1, len(videos)))
+		var recent map[string][]*store.StatsSnapshot
+		if a.Cfg.Collector.AdaptiveSync && a.Cfg.Collector.StatsResyncHours > 0 {
+			ids := make([]string, 0, len(videos))
+			for _, v := range videos {
+				if v.LastStatsAt != 0 {
+					ids = append(ids, v.Bvid)
+				}
+			}
+			recent, err = a.St.RecentStatsBatch(ids)
+			if err != nil {
+				return fmt.Errorf("读取统计刷新活跃度: %w", err)
+			}
+		}
+		for _, v := range videos {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			done++
+			mult := ageFactor(now, v.Pubdate) * activityFactor(recent[v.Bvid])
+			candidate := store.Video{Bvid: v.Bvid, Pubdate: v.Pubdate, LastStatsAt: v.LastStatsAt}
+			if a.statsSkipWithMultiplier(&candidate, now, mult) {
+				skipped++
+				progress(float64(done)/float64(total), fmt.Sprintf("%d/%d 冷却跳过", done, total))
+				continue
+			}
+			if err := a.Col.SyncVideoStats(ctx, v.Bvid); err != nil {
+				a.Log.Warn("统计重同步失败", "bvid", v.Bvid, "err", err)
+			}
+			progress(float64(done)/float64(total), fmt.Sprintf("%d/%d", done, total))
+		}
+		before = videos[len(videos)-1].RowID - 1
 	}
-	a.Log.Info("全库统计完成", "总数", len(videos), "刷新", len(videos)-skipped, "冷却跳过", skipped)
-	return nil
+	a.Log.Info("全库统计完成", "总数", total, "已检查", done, "刷新", done-skipped, "冷却跳过", skipped)
+	return ctx.Err()
 }
 
 // jobFetchLevels 等级补档：评论等级从 raw 快照离线回填；UP主等级走 space 接口（需登录）。
@@ -518,7 +633,7 @@ func (a *App) Serve(ctx context.Context) error {
 	}()
 	a.Log.Info("bili-saver 开始服务", "listen", a.Cfg.Listen,
 		"teriteri", a.Cfg.Teriteri.Enabled, "media", a.Cfg.Media.Enabled)
-	err := httpSrv.ListenAndServe()
+	err := metrics.ListenAndServe(httpSrv)
 	if err == http.ErrServerClosed {
 		return nil
 	}

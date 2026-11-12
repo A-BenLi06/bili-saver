@@ -137,7 +137,11 @@ func (c *Client) HTTPClient() *http.Client { return c.hc }
 func (c *Client) DownloadClient() *http.Client { return c.dl }
 
 // SetSnapshotHook 注册原始快照回调。
-func (c *Client) SetSnapshotHook(h SnapshotHook) { c.snap = h }
+func (c *Client) SetSnapshotHook(h SnapshotHook) {
+	c.snapMu.Lock()
+	c.snap = h
+	c.snapMu.Unlock()
+}
 
 func (c *Client) snapshot(endpoint string, params url.Values, status int, body []byte) {
 	c.snapMu.Lock()

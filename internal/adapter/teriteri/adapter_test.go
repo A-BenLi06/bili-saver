@@ -53,7 +53,7 @@ func seed(t *testing.T) *store.Store {
 		t.Fatal(err)
 	}
 	for _, d := range []*store.Danmaku{
-		{Dmid: 1, Bvid: "BV1Test00001", Cid: 222, Timepoint: 5000, Content: "弹幕", FirstSeenAt: now, LastSeenAt: now},
+		{Dmid: 1, Bvid: "BV1Test00001", Cid: 222, Timepoint: 5000, Content: "弹幕", Mode: 1, Color: 0xFFFFFF, FirstSeenAt: now, LastSeenAt: now},
 	} {
 		if err := st.UpsertDanmaku(d); err != nil {
 			t.Fatal(err)

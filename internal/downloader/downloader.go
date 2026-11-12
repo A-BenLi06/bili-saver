@@ -20,6 +20,7 @@ import (
 
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/config"
+	"bili-saver/internal/fileio"
 	"bili-saver/internal/metrics"
 	"bili-saver/internal/store"
 )
@@ -292,13 +293,18 @@ func (d *Downloader) DownloadVideo(ctx context.Context, bvid string, progress Pr
 
 // downloadPage 下载单个分P并合并为 mp4，返回相对 dataDir 的路径。
 func (d *Downloader) downloadPage(ctx context.Context, bvid string, v *store.Video, pg *store.Page, qn, fnval int, onPage func(float64)) (string, error) {
-	// 幂等：已完成的本P直接跳过（重试/重复任务不重复拉流，也不请求 playurl）
+	// 幂等：已完成的本P直接跳过（重试/重复任务不重复拉流，也不请求 playurl）。
+	// 0 字节空壳（历史故障产物，会令播放器永远转圈）视为未完成：删除后重下。
 	dir := filepath.Join(d.Cfg.DataDir, "media", sanitize(bvid), fmt.Sprintf("p%d", pg.Page))
 	outPath := filepath.Join(dir, fmt.Sprintf("%s-p%d.mp4", sanitize(bvid), pg.Page))
-	if _, err := os.Stat(outPath); err == nil {
-		if rel, rerr := filepath.Rel(d.Cfg.DataDir, outPath); rerr == nil {
-			onPage(1)
-			return rel, nil
+	if st, err := os.Stat(outPath); err == nil {
+		if st.Size() == 0 {
+			_ = os.Remove(outPath)
+		} else {
+			if rel, rerr := filepath.Rel(d.Cfg.DataDir, outPath); rerr == nil {
+				onPage(1)
+				return rel, nil
+			}
 		}
 	}
 	pu, err := d.API.PlayURL(ctx, bvid, v.Aid, pg.Cid, qn, fnval)
@@ -825,11 +831,26 @@ func (d *Downloader) merge(ctx context.Context, videoPath, audioPath, outPath st
 	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
+	// 产物完整性：0 字节/极小的 mp4 是失败合并（会令播放器永远加载），按失败处理
+	if st, serr := os.Stat(outPath); serr != nil || st.Size() < 1024 {
+		_ = os.Remove(outPath)
+		return fmt.Errorf("ffmpeg 产物异常（%d 字节）: %s", func() int64 {
+			if st2, e2 := os.Stat(outPath); e2 == nil {
+				return st2.Size()
+			}
+			return -1
+		}(), strings.TrimSpace(string(out)))
+	}
 	return nil
 }
 
 // downloadCover 下载封面到 media/{bvid}/cover.jpg。
 func (d *Downloader) downloadCover(ctx context.Context, bvid, picURL string) (string, error) {
+	dir := filepath.Join(d.Cfg.DataDir, "media", sanitize(bvid))
+	path := filepath.Join(dir, "cover.jpg")
+	if st, err := os.Stat(path); err == nil && st.Size() > 0 {
+		return path, nil
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, picURL, nil)
 	if err != nil {
 		return "", err
@@ -844,17 +865,17 @@ func (d *Downloader) downloadCover(ctx context.Context, bvid, picURL string) (st
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("http %d", resp.StatusCode)
 	}
-	dir := filepath.Join(d.Cfg.DataDir, "media", sanitize(bvid))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, "cover.jpg")
-	f, err := os.Create(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	const maxCoverBytes = 20 << 20
+	if _, err := fileio.Write(path, func(w io.Writer) error {
+		n, err := io.Copy(w, io.LimitReader(resp.Body, maxCoverBytes+1))
+		if err != nil {
+			return err
+		}
+		if n == 0 || n > maxCoverBytes {
+			return fmt.Errorf("封面大小异常(%d字节)", n)
+		}
+		return nil
+	}); err != nil {
 		return "", err
 	}
 	return path, nil

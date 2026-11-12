@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -17,12 +18,12 @@ var ErrAuth = errors.New("认证失败")
 const pwIterations = 20000
 
 func HashPassword(password, salt string) string {
-	b := []byte(salt + password)
-	for i := 0; i < pwIterations; i++ {
-		h := sha256.Sum256(b)
-		b = h[:]
+	// 同一固定数组复用，避免循环里的 h 切片逃逸产生 20000 次分配。
+	h := sha256.Sum256([]byte(salt + password))
+	for i := 1; i < pwIterations; i++ {
+		h = sha256.Sum256(h[:])
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(h[:])
 }
 
 func newSalt() string {
@@ -32,14 +33,16 @@ func newSalt() string {
 }
 
 type User struct {
-	ID        int64  `json:"id"`
-	Username  string `json:"username"`
-	PassHash  string `json:"-"`
-	Salt      string `json:"-"`
-	Role      string `json:"role"` // admin | user
-	TierID    int64  `json:"tier_id"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt int64  `json:"created_at"`
+	AvatarPath string `json:"-"`
+	AvatarURL  string `json:"avatar_url"`
+	ID         int64  `json:"id"`
+	Username   string `json:"username"`
+	PassHash   string `json:"-"`
+	Salt       string `json:"-"`
+	Role       string `json:"role"` // admin | user
+	TierID     int64  `json:"tier_id"`
+	Enabled    bool   `json:"enabled"`
+	CreatedAt  int64  `json:"created_at"`
 	// 仅查询时填充（不出现在表里）
 	TierName  string `json:"tier_name,omitempty"`
 	TodayAdds int    `json:"today_adds,omitempty"`
@@ -52,18 +55,19 @@ type Session struct {
 }
 
 type UserTier struct {
-	ID             int64  `json:"id"`
-	Name           string `json:"name"`
-	MaxDailyAdds   int    `json:"max_daily_adds"`       // 每日可添加补档数
-	MinIntervalMin int    `json:"min_interval_minutes"` // 检查频率下限（分钟），用户设更小则钳到该值
+	MaxDailyDownloads int    `json:"max_daily_downloads"`
+	ID                int64  `json:"id"`
+	Name              string `json:"name"`
+	MaxDailyAdds      int    `json:"max_daily_adds"`       // 每日可添加补档数
+	MinIntervalMin    int    `json:"min_interval_minutes"` // 检查频率下限（分钟），用户设更小则钳到该值
 }
 
-const userCols = `id, username, pass_hash, salt, role, tier_id, enabled, created_at`
+const userCols = `id, username, pass_hash, salt, role, tier_id, enabled, created_at, avatar_path`
 
 func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 	var u User
 	var enabled int
-	err := row.Scan(&u.ID, &u.Username, &u.PassHash, &u.Salt, &u.Role, &u.TierID, &enabled, &u.CreatedAt)
+	err := row.Scan(&u.ID, &u.Username, &u.PassHash, &u.Salt, &u.Role, &u.TierID, &enabled, &u.CreatedAt, &u.AvatarPath)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -71,6 +75,7 @@ func scanUser(row interface{ Scan(...any) error }) (*User, error) {
 		return nil, err
 	}
 	u.Enabled = enabled == 1
+	u.AvatarURL = UserAvatarURL(u.AvatarPath)
 	return &u, nil
 }
 
@@ -98,10 +103,11 @@ func (s *Store) ListUsers() ([]*User, error) {
 		var u User
 		var enabled int
 		var tierName string
-		if err := rows.Scan(&u.ID, &u.Username, &u.PassHash, &u.Salt, &u.Role, &u.TierID, &enabled, &u.CreatedAt, &tierName, &u.TodayAdds); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.PassHash, &u.Salt, &u.Role, &u.TierID, &enabled, &u.CreatedAt, &u.AvatarPath, &tierName, &u.TodayAdds); err != nil {
 			return nil, err
 		}
 		u.Enabled = enabled == 1
+		u.AvatarURL = UserAvatarURL(u.AvatarPath)
 		u.TierName = tierName
 		out = append(out, &u)
 	}
@@ -110,7 +116,7 @@ func (s *Store) ListUsers() ([]*User, error) {
 
 func userColsWithPrefix(prefix string) string {
 	return prefix + ".id, " + prefix + ".username, " + prefix + ".pass_hash, " + prefix + ".salt, " +
-		prefix + ".role, " + prefix + ".tier_id, " + prefix + ".enabled, " + prefix + ".created_at"
+		prefix + ".role, " + prefix + ".tier_id, " + prefix + ".enabled, " + prefix + ".created_at" + ", " + prefix + ".avatar_path"
 }
 
 // CreateUser 建用户（唯一用户名）。
@@ -139,23 +145,42 @@ func (s *Store) UpdateUser(id int64, password *string, tierID *int64, enabled *b
 	if u.Role == "admin" && enabled != nil && !*enabled {
 		return errors.New("不能停用管理员账号")
 	}
+	sets := []string{}
+	args := []any{}
 	if password != nil && *password != "" {
-		u.Salt = newSalt()
-		u.PassHash = HashPassword(*password, u.Salt)
+		if err := ValidateNewPassword(*password); err != nil {
+			return err
+		}
+		salt := newSalt()
+		sets = append(sets, "pass_hash=?", "salt=?")
+		args = append(args, HashPassword(*password, salt), salt)
 	}
 	if tierID != nil {
-		u.TierID = *tierID
+		sets = append(sets, "tier_id=?")
+		args = append(args, *tierID)
 	}
 	if enabled != nil {
-		if *enabled {
-			u.Enabled = true
-		} else {
-			u.Enabled = false
+		sets = append(sets, "enabled=?")
+		args = append(args, boolInt(*enabled))
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	args = append(args, id)
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`UPDATE users SET `+strings.Join(sets, ",")+` WHERE id=?`, args...); err != nil {
+		return err
+	}
+	if password != nil && *password != "" || enabled != nil && !*enabled {
+		if _, err = tx.Exec(`DELETE FROM sessions WHERE user_id=?`, id); err != nil {
+			return err
 		}
 	}
-	_, err = s.DB.Exec(`UPDATE users SET pass_hash=?, salt=?, tier_id=?, enabled=? WHERE id=?`,
-		u.PassHash, u.Salt, u.TierID, boolInt(u.Enabled), id)
-	return err
+	return tx.Commit()
 }
 
 // DeleteUser 删除用户；其名下补档归管理员（user_id=0），会话一并清除。
@@ -169,14 +194,8 @@ func (s *Store) DeleteUser(id int64) error {
 			return errors.New("至少保留一个管理员账号")
 		}
 	}
-	if _, err := s.DB.Exec(`UPDATE sources SET user_id=0 WHERE user_id=?`, id); err != nil {
-		return err
-	}
-	if _, err := s.DB.Exec(`DELETE FROM sessions WHERE user_id=?`, id); err != nil {
-		return err
-	}
-	_, err = s.DB.Exec(`DELETE FROM users WHERE id=?`, id)
-	return err
+	return s.deletePersonalUser(id)
+
 }
 
 func (s *Store) countAdmins() int {
@@ -228,11 +247,11 @@ func (s *Store) DeleteSession(token string) {
 
 // ---- 等级 ----
 
-const tierCols = `id, name, max_daily_adds, min_interval_minutes`
+const tierCols = `id, name, max_daily_adds, min_interval_minutes, max_daily_downloads`
 
 func scanTier(row interface{ Scan(...any) error }) (*UserTier, error) {
 	var t UserTier
-	err := row.Scan(&t.ID, &t.Name, &t.MaxDailyAdds, &t.MinIntervalMin)
+	err := row.Scan(&t.ID, &t.Name, &t.MaxDailyAdds, &t.MinIntervalMin, &t.MaxDailyDownloads)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -262,12 +281,15 @@ func (s *Store) GetTier(id int64) (*UserTier, error) {
 
 func (s *Store) UpsertTier(t *UserTier) (int64, error) {
 	if t.ID > 0 {
-		_, err := s.DB.Exec(`UPDATE user_tiers SET name=?, max_daily_adds=?, min_interval_minutes=? WHERE id=?`,
-			t.Name, t.MaxDailyAdds, t.MinIntervalMin, t.ID)
+		_, err := s.DB.Exec(`UPDATE user_tiers SET name=?, max_daily_adds=?, min_interval_minutes=?, max_daily_downloads=? WHERE id=?`,
+			t.Name, t.MaxDailyAdds, t.MinIntervalMin, t.MaxDailyDownloads, t.ID)
+		if err == nil {
+			_, err = s.DB.Exec(`UPDATE user_download_requests SET next_attempt_at=0 WHERE state='waiting' AND user_id IN (SELECT id FROM users WHERE tier_id=?)`, t.ID)
+		}
 		return t.ID, err
 	}
-	res, err := s.DB.Exec(`INSERT INTO user_tiers(name, max_daily_adds, min_interval_minutes) VALUES(?,?,?)`,
-		t.Name, t.MaxDailyAdds, t.MinIntervalMin)
+	res, err := s.DB.Exec(`INSERT INTO user_tiers(name, max_daily_adds, min_interval_minutes, max_daily_downloads) VALUES(?,?,?,?)`,
+		t.Name, t.MaxDailyAdds, t.MinIntervalMin, t.MaxDailyDownloads)
 	if err != nil {
 		return 0, err
 	}

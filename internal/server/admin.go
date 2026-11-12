@@ -29,6 +29,7 @@ import (
 	"bili-saver/internal/logging"
 	"bili-saver/internal/resolver"
 	"bili-saver/internal/store"
+	"bili-saver/internal/sysres"
 )
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -72,12 +73,18 @@ func (s *Server) registerAdmin() {
 	m := s.mux
 	m.HandleFunc("GET /api/v1/stats", s.handleStats)
 	m.HandleFunc("GET /api/v1/live", s.handleLive)
+	m.HandleFunc("GET /api/v1/system/res", s.handleSystemRes)
 	m.HandleFunc("POST /api/v1/add", s.handleAdd)
 	m.HandleFunc("GET /api/v1/resolve", s.handleResolve)
 	m.HandleFunc("GET /api/v1/sources", s.handleListSources)
 	m.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	m.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 	m.HandleFunc("GET /api/v1/auth/me", s.handleMe)
+	m.HandleFunc("GET /api/v1/account", s.handleAccount)
+	m.HandleFunc("PATCH /api/v1/account", s.handleAccount)
+	m.HandleFunc("POST /api/v1/account/avatar", s.handleAccountAvatar)
+	m.HandleFunc("DELETE /api/v1/account/avatar", s.handleAccountAvatar)
+	m.HandleFunc("POST /api/v1/account/password", s.handleAccountPassword)
 	m.HandleFunc("GET /api/v1/users", s.handleListUsers)
 	m.HandleFunc("POST /api/v1/users", s.handleCreateUser)
 	m.HandleFunc("PATCH /api/v1/users/{id}", s.handlePatchUser)
@@ -94,6 +101,9 @@ func (s *Server) registerAdmin() {
 	m.HandleFunc("PATCH /api/v1/sources/{id}", s.handlePatchSource)
 	m.HandleFunc("GET /api/v1/videos", s.handleListVideos)
 	m.HandleFunc("GET /api/v1/videos/{bvid}", s.handleVideoDetail)
+	m.HandleFunc("POST /api/v1/videos/{bvid}/local-open", s.handleLocalOpen)
+	m.HandleFunc("GET /api/v1/videos/{bvid}/play/{server}", s.handleMediaPlay)
+	m.HandleFunc("POST /api/v1/libraries/{id}/local-open", s.handleLibraryLocalOpen)
 	m.HandleFunc("GET /api/v1/videos/{bvid}/comments", s.handleVideoComments)
 	m.HandleFunc("GET /api/v1/videos/{bvid}/danmaku", s.handleVideoDanmaku)
 	m.HandleFunc("POST /api/v1/jobs/{id}/retry", s.handleJobRetry)
@@ -251,11 +261,11 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		IntervalSubsMin:     req.IntervalSubs,
 		CreatedAt:           store.Now(),
 	}
+	src.UserID = au.ID
 	if userMode {
-		src.UserID = au.ID
-		// 用户建的补档默认不自动下载新视频（磁盘消耗由管理员控制）；检查频率钳到等级下限
-		src.AutoDownload = -1
-		if tier != nil && src.SyncIntervalMinutes > 0 && src.SyncIntervalMinutes < tier.MinIntervalMin {
+		// 普通用户下载走持久配额队列；检查频率钳到等级下限。
+		src.AutoDownload = 1
+		if tier != nil && src.SyncIntervalMinutes < tier.MinIntervalMin {
 			src.SyncIntervalMinutes = tier.MinIntervalMin
 		}
 		if download {
@@ -264,7 +274,7 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	// 勾选态即源级触发器初值：勾=1 开启自动下载，不勾=-1 明确关闭。
 	// 否则源保持 0（跟随全局，默认开），出现"本次不下载、日后新视频仍被自动下载"的语义陷阱。
-	if req.Download != nil {
+	if req.Download != nil && !userMode {
 		if *req.Download {
 			src.AutoDownload = 1
 		} else {
@@ -285,23 +295,45 @@ func (s *Server) handleAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Type == resolver.TypeVideo {
+		if err := s.Deps.St.AddUserVideo(au.ID, in.ExtID); err != nil {
+			errJSON(w, 500, err)
+			return
+		}
+		if _, err := s.Deps.St.DB.Exec(`INSERT OR IGNORE INTO source_videos(source_id,bvid) VALUES(?,?)`, src.ID, in.ExtID); err != nil {
+			errJSON(w, 500, err)
+			return
+		}
+		if userMode {
+			if _, err := s.Deps.St.RequestUserDownload(au.ID, in.ExtID, 1, false); err != nil {
+				errJSON(w, 500, err)
+				return
+			}
+		}
+	}
+	// 新添加补档优先执行（queue.new_add_first，默认开）：首次任务及其归档子任务
+	// 先于普通排队任务执行，不抢占运行中任务；调度/重试按常规优先级入队。
+	prio := 0
+	if s.Deps.Cfg.Queue.NewAddFirst {
+		prio = 1
+	}
+	if in.Type == resolver.TypeVideo {
 		if syncMode == "once" {
 			// 仅一次模式走 sync_source：归档完成后自动停止监控
-			if _, err := s.Deps.Mgr.Submit("sync_source", map[string]any{"source_id": src.ID, "download": download}); err != nil {
+			if _, err := s.Deps.Mgr.SubmitPrio("sync_source", map[string]any{"source_id": src.ID, "download": download}, prio); err != nil {
 				errJSON(w, 500, err)
 				return
 			}
 			writeJSON(w, 200, map[string]any{"ok": true, "type": string(in.Type), "ext_id": in.ExtID, "queued": true, "mode": "once"})
 			return
 		}
-		if _, err := s.Deps.Mgr.Submit("archive", map[string]any{"bvid": in.ExtID, "download": download}); err != nil {
+		if _, err := s.Deps.Mgr.SubmitPrio("archive", map[string]any{"bvid": in.ExtID, "download": download, "source_id": src.ID}, prio); err != nil {
 			errJSON(w, 500, err)
 			return
 		}
 		writeJSON(w, 200, map[string]any{"ok": true, "type": string(in.Type), "ext_id": in.ExtID, "queued": true})
 		return
 	}
-	if _, err := s.Deps.Mgr.Submit("sync_source", map[string]any{"source_id": src.ID, "download": download}); err != nil {
+	if _, err := s.Deps.Mgr.SubmitPrio("sync_source", map[string]any{"source_id": src.ID, "download": download}, prio); err != nil {
 		errJSON(w, 500, err)
 		return
 	}
@@ -366,7 +398,12 @@ func (s *Server) handleListVideos(w http.ResponseWriter, r *http.Request) {
 	qp := r.URL.Query()
 	limit, _ := strconv.Atoi(qp.Get("limit"))
 	offset, _ := strconv.Atoi(qp.Get("offset"))
-	items, total, err := s.Deps.St.ListVideosPage(qp.Get("status"), qp.Get("dl"), qp.Get("q"),
+	au := s.currentUser(r)
+	var userID *int64
+	if au.Role == "user" || qp.Get("scope") == "mine" {
+		userID = &au.ID
+	}
+	items, total, err := s.Deps.St.ListVideosPageForUser(userID, qp.Get("status"), qp.Get("dl"), qp.Get("q"),
 		qp.Get("sort"), qp.Get("order"), limit, offset)
 	if err != nil {
 		errJSON(w, 500, err)
@@ -375,7 +412,27 @@ func (s *Server) handleListVideos(w http.ResponseWriter, r *http.Request) {
 	if items == nil {
 		items = []*store.VideoWithCounts{}
 	}
-	counts, err := s.Deps.St.VideoStatusCounts()
+	now := store.Now()
+	ids := make([]string, 0, len(items))
+	for _, v := range items {
+		if v.Status == "ok" && v.Pubdate > 0 && now-v.Pubdate >= 30*86400 {
+			ids = append(ids, v.Bvid)
+		}
+	}
+	if history, err := s.Deps.St.CommentAdviceStats(ids, now); err == nil {
+		for _, v := range items {
+			v.SyncAdvice = store.SuggestCommentSync(&v.Video, history[v.Bvid], now)
+		}
+	}
+	for _, v := range items {
+		v.WatchURL = s.teriteriVideoURL(r, v.Bvid)
+		if au.Role == "user" {
+			v.LocalPath = ""
+			v.SourceID = 0
+			v.DownloadRequest, _ = s.Deps.St.UserDownload(au.ID, v.Bvid)
+		}
+	}
+	counts, err := s.Deps.St.VideoStatusCountsForUser(userID)
 	if err != nil {
 		errJSON(w, 500, err)
 		return
@@ -384,6 +441,10 @@ func (s *Server) handleListVideos(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVideoDetail(w http.ResponseWriter, r *http.Request) {
+	if s.currentUser(r).Role == "user" {
+		s.handlePersonalVideo(w, r)
+		return
+	}
 	bvid := r.PathValue("bvid")
 	v, err := s.Deps.St.GetVideo(bvid)
 	if err != nil {
@@ -414,10 +475,13 @@ func (s *Server) handleVideoDetail(w http.ResponseWriter, r *http.Request) {
 			source = src
 		}
 	}
+	adviceHistory, _ := s.Deps.St.CommentAdviceStats([]string{bvid}, store.Now())
 	writeJSON(w, 200, map[string]any{
 		"video": v, "pages": pages, "stats_history": stats,
 		"media_url": mediaRel, "source": source,
-		"subtitles": subs, "tags": tags, "summaries": summaries,
+		"file_links":  s.videoLinks(r, v, pages),
+		"sync_advice": store.SuggestCommentSync(v, adviceHistory[bvid], store.Now()),
+		"subtitles":   subs, "tags": tags, "summaries": summaries,
 		"comments": map[string]int{"visible": vis, "deleted": del},
 		"ai_conclusion": func() any {
 			if conclErr != nil {
@@ -461,6 +525,10 @@ func (s *Server) handleArchiveVideo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDownloadVideo(w http.ResponseWriter, r *http.Request) {
+	if s.currentUser(r).Role == "user" {
+		s.handlePersonalDownload(w, r)
+		return
+	}
 	bvid := r.PathValue("bvid")
 	jobID, err := s.Deps.Mgr.Submit("download", map[string]any{"bvid": bvid})
 	if err != nil {
@@ -651,13 +719,16 @@ func configPayload(c *config.Config) map[string]any {
 		"download_danmaku": c.Download.DownloadDanmaku,
 		"comments_max":     c.Collector.CommentsMax, "sub_replies_max": c.Collector.SubRepliesMax,
 		"full_resync_comments": c.Collector.FullResyncComments,
+		"comment_concurrency":  c.Collector.CommentConcurrency,
+		"comment_full_hours":   c.Collector.CommentFullHours,
 		"sync_default_minutes": c.Collector.SyncDefaultMinutes,
 		"stats_resync_hours":   c.Collector.StatsResyncHours,
 		"hot_video_views":      c.Collector.HotVideoViews, "hot_video_replies": c.Collector.HotVideoReplies,
 		"adaptive_sync": c.Collector.AdaptiveSync,
+		"new_add_first": c.Queue.NewAddFirst,
 		"min_req_ms":    c.Bilibili.MinReqMs,
 		"media_enabled": c.Media.Enabled, "media_layout": c.Media.Layout, "media_root": c.Media.Root,
-		"media_servers":   c.Media.Servers,
+		"media_servers":   publicMediaServers(c.Media.Servers),
 		"media_link_mode": c.Media.LinkMode, "media_public_url": c.Media.PublicURL,
 		"teriteri_enabled": c.Teriteri.Enabled,
 		"frontend_url":     c.Teriteri.FrontendURL,
@@ -680,9 +751,12 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		SyncDefaultMinutes *int      `json:"sync_default_minutes"`
 		StatsResyncHours   *int      `json:"stats_resync_hours"`
 		AdaptiveSync       *bool     `json:"adaptive_sync"`
+		NewAddFirst        *bool     `json:"new_add_first"`
 		CommentsMax        *int      `json:"comments_max"`
 		SubRepliesMax      *int      `json:"sub_replies_max"`
 		FullResyncComments *bool     `json:"full_resync_comments"`
+		CommentConcurrency *int      `json:"comment_concurrency"`
+		CommentFullHours   *int      `json:"comment_full_hours"`
 		HotVideoViews      *int      `json:"hot_video_views"`
 		HotVideoReplies    *int      `json:"hot_video_replies"`
 		AutoDownload       *bool     `json:"auto_download"`
@@ -721,6 +795,14 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.SubRepliesMax != nil && *req.SubRepliesMax < 0 {
 		bad("sub_replies_max 不能为负")
+		return
+	}
+	if req.CommentConcurrency != nil && (*req.CommentConcurrency < 1 || *req.CommentConcurrency > 4) {
+		bad("comment_concurrency 必须在 1 到 4 之间")
+		return
+	}
+	if req.CommentFullHours != nil && (*req.CommentFullHours < 0 || *req.CommentFullHours > 8760) {
+		bad("comment_full_hours 必须在 0 到 8760 小时之间")
 		return
 	}
 	if req.HotVideoViews != nil && *req.HotVideoViews < 0 {
@@ -762,6 +844,9 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		if req.AdaptiveSync != nil {
 			c.Collector.AdaptiveSync = *req.AdaptiveSync
 		}
+		if req.NewAddFirst != nil {
+			c.Queue.NewAddFirst = *req.NewAddFirst
+		}
 		if req.CommentsMax != nil {
 			c.Collector.CommentsMax = *req.CommentsMax
 		}
@@ -770,6 +855,12 @@ func (s *Server) handlePatchConfig(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.FullResyncComments != nil {
 			c.Collector.FullResyncComments = *req.FullResyncComments
+		}
+		if req.CommentConcurrency != nil {
+			c.Collector.CommentConcurrency = *req.CommentConcurrency
+		}
+		if req.CommentFullHours != nil {
+			c.Collector.CommentFullHours = *req.CommentFullHours
 		}
 		if req.HotVideoViews != nil {
 			c.Collector.HotVideoViews = *req.HotVideoViews
@@ -1049,16 +1140,24 @@ func (s *Server) handleLevelsBackfill(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{"job": jobID})
 }
 
-func (s *Server) handleListLibraries(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleListLibraries(w http.ResponseWriter, r *http.Request) {
 	libs, err := s.Deps.St.ListMediaLibraries()
 	if err != nil {
 		errJSON(w, 500, err)
 		return
 	}
-	if libs == nil {
-		libs = []*store.MediaLibrary{}
+	rows := make([]map[string]any, 0, len(libs))
+	for _, lib := range libs {
+		b, _ := json.Marshal(lib)
+		row := map[string]any{}
+		_ = json.Unmarshal(b, &row)
+		p, err := filepath.Abs(lib.RootPath)
+		st, statErr := os.Stat(p)
+		row["local_path"] = p
+		row["can_open"] = err == nil && statErr == nil && st.IsDir() && localBrowser(r)
+		rows = append(rows, row)
 	}
-	writeJSON(w, 200, libs)
+	writeJSON(w, 200, rows)
 }
 
 func (s *Server) handleCreateLibrary(w http.ResponseWriter, r *http.Request) {
@@ -1257,6 +1356,10 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 		errJSON(w, 404, errStr("补档不存在"))
 		return
 	}
+	if userMode {
+		req.SyncMode, req.IntervalCommentsMin, req.IntervalDanmakuMin, req.IntervalSubsMin = nil, nil, nil, nil
+		req.AutoDownload, req.SpaceScope = nil, nil
+	}
 	if req.Watch != nil {
 		src.Watch = *req.Watch
 	}
@@ -1284,7 +1387,7 @@ func (s *Server) handlePatchSource(w http.ResponseWriter, r *http.Request) {
 	}
 	if userMode {
 		// 用户仅可改 监控开关 与 检查频率（钳到等级下限，注意在赋值后重写）；其余字段忽略
-		if req.IntervalMin != nil && *req.IntervalMin > 0 {
+		if req.IntervalMin != nil {
 			floor := 60
 			if tier, err := s.Deps.St.GetTier(au.TierID); err == nil && tier.MinIntervalMin > 0 {
 				floor = tier.MinIntervalMin
@@ -1408,6 +1511,15 @@ func (s *Server) handleLive(w http.ResponseWriter, _ *http.Request) {
 		"download_bps": metrics.Download.BPS(), "upload_bps": metrics.Upload.BPS(),
 		"download_total": metrics.Download.Total(), "upload_total": metrics.Upload.Total(),
 	})
+}
+
+// handleSystemRes 系统/进程资源快照（总览页资源监控，前端 2s 轮询做差分与绘图）。
+func (s *Server) handleSystemRes(w http.ResponseWriter, _ *http.Request) {
+	snap, procs := sysres.ReadCached(8)
+	writeJSON(w, 200, map[string]any{"snapshot": snap, "top": procs,
+		"process_network": metrics.ReadNetwork(),
+		"storage":         sysres.ReadStorageCached(s.Deps.Cfg.DataDir),
+		"archive_storage": sysres.ReadArchiveStorageCached(s.Deps.Cfg.DataDir)})
 }
 
 // handleSourcePosts UP主源的动态/图文（专栏）归档列表（v10）。
@@ -1651,15 +1763,22 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"username": au.Name, "role": au.Role}
 	if u, err := s.Deps.St.GetUser(au.ID); err == nil {
 		out["user_id"] = u.ID
+		out["uid"] = u.ID
+		out["avatar_url"] = u.AvatarURL
+		out["created_at"] = u.CreatedAt
 		out["tier_id"] = u.TierID
 		if t, err := s.Deps.St.GetTier(u.TierID); err == nil {
 			out["tier_name"] = t.Name
 			out["max_daily_adds"] = t.MaxDailyAdds
 			out["min_interval_minutes"] = t.MinIntervalMin
+			out["max_daily_downloads"] = t.MaxDailyDownloads
 		}
 		if n, err := s.Deps.St.CountUserAddsToday(u.ID); err == nil {
 			out["today_adds"] = n
 		}
+	}
+	if quota, err := s.Deps.St.DownloadQuota(au.ID, store.Now()); err == nil {
+		out["download_quota"] = quota
 	}
 	writeJSON(w, 200, out)
 }
@@ -1783,9 +1902,10 @@ func (s *Server) handleUpsertTier(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Name           string `json:"name"`
-		MaxDailyAdds   int    `json:"max_daily_adds"`
-		MinIntervalMin int    `json:"min_interval_minutes"`
+		Name              string `json:"name"`
+		MaxDailyAdds      int    `json:"max_daily_adds"`
+		MaxDailyDownloads *int   `json:"max_daily_downloads"`
+		MinIntervalMin    int    `json:"min_interval_minutes"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		errJSON(w, 400, err)
@@ -1801,8 +1921,21 @@ func (s *Server) handleUpsertTier(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := &store.UserTier{Name: req.Name, MaxDailyAdds: req.MaxDailyAdds, MinIntervalMin: req.MinIntervalMin}
+	t.MaxDailyDownloads = req.MaxDailyAdds
+	if req.MaxDailyDownloads != nil {
+		if *req.MaxDailyDownloads < 0 {
+			errJSON(w, 400, errStr("每日下载配额不能为负"))
+			return
+		}
+		t.MaxDailyDownloads = *req.MaxDailyDownloads
+	}
 	if p := r.PathValue("id"); p != "" {
 		t.ID, _ = strconv.ParseInt(p, 10, 64)
+		if req.MaxDailyDownloads == nil {
+			if old, err := s.Deps.St.GetTier(t.ID); err == nil {
+				t.MaxDailyDownloads = old.MaxDailyDownloads
+			}
+		}
 	}
 	id, err := s.Deps.St.UpsertTier(t)
 	if err != nil {

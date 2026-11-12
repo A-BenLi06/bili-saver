@@ -14,8 +14,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"bili-saver/internal/fileio"
 	"bili-saver/internal/store"
 )
 
@@ -69,7 +71,9 @@ type Localizer struct {
 	// Pace 相邻两次网络拉取的间隔（图床限速友好）。
 	Pace time.Duration
 
-	client *http.Client
+	client   *http.Client
+	mu       sync.Mutex
+	inflight map[string]*imageFlight
 }
 
 func New(st *store.Store, dataDir, ua string, log *slog.Logger) *Localizer {
@@ -110,13 +114,16 @@ func (l *Localizer) SyncVideo(ctx context.Context, bvid string) (int, error) {
 		return n, err
 	}
 	for _, f := range faces {
+		if err := ctx.Err(); err != nil {
+			return n, err
+		}
 		if ok, err := l.fetchMissing(ctx, FaceRel(f.Mid), f.URL); err != nil {
 			l.Log.Warn("评论头像本地化失败", "mid", f.Mid, "err", err)
 		} else if ok {
 			n++
 		}
 	}
-	return n, nil
+	return n, ctx.Err()
 }
 
 // Backfill 全库补齐：全部视频（封面+UP主头像）+ 全部评论者头像。
@@ -148,6 +155,9 @@ func (l *Localizer) Backfill(ctx context.Context, progress func(done, total int)
 		}
 	}
 	for _, f := range faces {
+		if err := ctx.Err(); err != nil {
+			return n, err
+		}
 		if ok, err := l.fetchMissing(ctx, FaceRel(f.Mid), f.URL); err != nil {
 			l.Log.Debug("头像本地化失败", "mid", f.Mid, "err", err)
 		} else if ok {
@@ -183,7 +193,7 @@ func (l *Localizer) syncVideoMeta(ctx context.Context, v *store.Video) (int, err
 
 // fetchMissing 下载 url 到 rel（dataDir 相对路径），原子落盘；已存在直接跳过。
 // 返回是否新写入。
-func (l *Localizer) fetchMissing(ctx context.Context, rel, url string) (bool, error) {
+func (l *Localizer) fetchFile(ctx context.Context, rel, url string) (bool, error) {
 	full := filepath.Join(l.DataDir, filepath.FromSlash(rel))
 	if _, err := os.Stat(full); err == nil {
 		return false, nil
@@ -201,7 +211,15 @@ func (l *Localizer) fetchMissing(ctx context.Context, rel, url string) (bool, er
 	}
 	req.Header.Set("User-Agent", l.UA)
 	req.Header.Set("Referer", "https://www.bilibili.com/") // 图床对无 B 站 Referer 的浏览器请求放行，但带上最稳
-	time.Sleep(l.Pace)
+	if l.Pace > 0 {
+		timer := time.NewTimer(l.Pace)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-timer.C:
+		}
+	}
 	resp, err := l.client.Do(req)
 	if err != nil {
 		return false, err
@@ -210,23 +228,17 @@ func (l *Localizer) fetchMissing(ctx context.Context, rel, url string) (bool, er
 	if resp.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("http %d", resp.StatusCode)
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, maxImageBytes))
-	if err != nil {
-		return false, err
-	}
-	if len(b) < 64 {
-		return false, fmt.Errorf("响应过小(%d字节)，疑似非图片", len(b))
-	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return false, err
-	}
-	tmp := full + ".part"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return false, err
-	}
-	if err := os.Rename(tmp, full); err != nil {
-		_ = os.Remove(tmp)
-		return false, err
-	}
-	return true, nil
+	return fileio.Write(full, func(w io.Writer) error {
+		n, err := io.Copy(w, io.LimitReader(resp.Body, maxImageBytes+1))
+		if err != nil {
+			return err
+		}
+		if n < 64 {
+			return fmt.Errorf("响应过小(%d字节)，疑似非图片", n)
+		}
+		if n > maxImageBytes {
+			return fmt.Errorf("图片超过大小上限(%d字节)", maxImageBytes)
+		}
+		return nil
+	})
 }

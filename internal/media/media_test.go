@@ -129,6 +129,32 @@ func TestLinkModes(t *testing.T) {
 	}
 }
 
+func TestRebuildRefreshesOriginTags(t *testing.T) {
+	b, st, root := setupBridge(t, "movie")
+	for _, added := range []bool{false, true} {
+		if added {
+			if err := st.AddTags("BV1Test00001", []string{"新增官方标签"}, "bilibili"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := b.RebuildAll(); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := os.ReadDir(filepath.Join(root, "Movies"))
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("movie entries: %v %v", entries, err)
+		}
+		data, err := os.ReadFile(filepath.Join(root, "Movies", entries[0].Name(), "movie.nfo"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		nfo := string(data)
+		if strings.Contains(nfo, "新增官方标签") != added || strings.Contains(nfo, "AI标签") {
+			t.Fatalf("tags must refresh each round and exclude plugin origin: %s", nfo)
+		}
+	}
+}
+
 func TestEpisodeNFOExcludesDerivedTags(t *testing.T) {
 	b, st, root := setupBridge(t, "show")
 	// show 布局需要同一 UP 主 ≥3 个视频才按剧集处理；这里直接构造

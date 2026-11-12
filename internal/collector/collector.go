@@ -3,26 +3,19 @@
 package collector
 
 import (
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
-	"net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/bilicats"
 	"bili-saver/internal/config"
 	"bili-saver/internal/store"
+	"bili-saver/internal/taskflow"
 )
 
 // Emitter 由插件总线实现；collector 只依赖接口避免循环引用。
@@ -36,11 +29,13 @@ func (noopEmitter) Emit(string, map[string]any) {}
 
 // Collector 归档执行器。
 type Collector struct {
-	St      *store.Store
-	API     *biliapi.Client
-	Cfg     *config.Config
-	Log     *slog.Logger
-	Emitter Emitter
+	St           *store.Store
+	API          *biliapi.Client
+	Cfg          *config.Config
+	Log          *slog.Logger
+	Emitter      Emitter
+	gates        videoGates
+	commentSlots chan struct{}
 }
 
 // New 组装 collector，默认 emitter 为空实现。
@@ -51,48 +46,8 @@ func New(st *store.Store, api *biliapi.Client, cfg *config.Config, log *slog.Log
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Collector{St: st, API: api, Cfg: cfg, Log: log, Emitter: em}
-}
-
-// ---- 快照（origin 层原始响应） ----
-
-// SnapshotHook 返回挂到 biliapi.Client 的快照回调：gzip 落盘 + 记录行。
-func (c *Collector) SnapshotHook() biliapi.SnapshotHook {
-	return func(endpoint string, params url.Values, status int, body []byte) {
-		ep := strings.TrimPrefix(endpoint, "/")
-		ep = strings.ReplaceAll(ep, "/", "_")
-		paramsJSON := params.Encode()
-		sum := sha256.Sum256(body)
-		hash := hex.EncodeToString(sum[:])
-		dir := filepath.Join(c.Cfg.DataDir, "raw", ep, hash[:16])
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			c.Log.Warn("快照目录创建失败", "err", err)
-			return
-		}
-		name := fmt.Sprintf("%d-%s.json.gz", time.Now().Unix(), hash[:12])
-		full := filepath.Join(dir, name)
-		rel, err := filepath.Rel(c.Cfg.DataDir, full)
-		if err != nil {
-			rel = full
-		}
-		f, err := os.Create(full)
-		if err != nil {
-			c.Log.Warn("快照写入失败", "err", err)
-			return
-		}
-		gz := gzip.NewWriter(f)
-		_, _ = gz.Write(body)
-		_ = gz.Close()
-		_ = f.Close()
-		_ = c.St.AddSnapshot(&store.Snapshot{
-			Endpoint:   endpoint,
-			ParamsJSON: paramsJSON,
-			RespHash:   hash,
-			BodyPath:   rel,
-			StatusCode: status,
-			FetchedAt:  store.Now(),
-		})
-	}
+	n := max(1, min(4, cfg.Collector.CommentConcurrency))
+	return &Collector{St: st, API: api, Cfg: cfg, Log: log, Emitter: em, commentSlots: make(chan struct{}, n)}
 }
 
 // ---- 主流程 ----
@@ -130,6 +85,7 @@ func (c *Collector) ArchiveVideo(ctx context.Context, id string) (*Result, error
 // ArchiveVideoOpts 按范围归档。换源兼容：即使范围跳过弹幕/字幕，
 // 只要检测到新增/变化的 cid（UP 重新投稿、改分P），这些分P仍会强制补采。
 func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts CollectOptions) (*Result, error) {
+	taskflow.Report(ctx, 0.01, "读取视频信息")
 	res := &Result{Bvid: id}
 	// 统一转成 bvid
 	bvid := id
@@ -143,6 +99,11 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		res.Bvid = bvid
 	}
 
+	release, err := c.gates.acquire(ctx, bvid)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	_ = c.API.EnsureBuvid(ctx)
 
 	syncStart := store.Now()
@@ -246,6 +207,7 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		return nil, err
 	}
 
+	taskflow.Report(ctx, 0.05, "保存视频信息与统计")
 	// 标签
 	if tags, err := c.API.VideoTags(ctx, view.Aid, view.Bvid); err == nil {
 		names := make([]string, 0, len(tags))
@@ -272,6 +234,7 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		}
 	}
 
+	taskflow.Report(ctx, 0.08, "采集弹幕")
 	// 弹幕：范围外跳过，但变化的 cid 强制补采
 	complete := true
 	danmakuDone := false
@@ -294,13 +257,14 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 			complete = false
 		}
 		if c.Cfg.Download.DownloadDanmaku {
-			if err := c.writeDanmakuXML(view.Bvid, p.Cid); err != nil {
+			if err := c.writeDanmakuXMLContext(ctx, view.Bvid, p.Cid); err != nil {
 				c.Log.Warn("弹幕 XML 生成失败", "bvid", bvid, "cid", p.Cid, "err", err)
 			}
 		}
 	}
 	res.Complete = complete
 
+	taskflow.Report(ctx, 0.12, "采集字幕")
 	// 字幕（B 站 CC）；无 CC 字幕的分P发 subtitle.missing 事件（whisper 等插件订阅）
 	subsDone := false
 	for _, p := range view.Pages {
@@ -322,33 +286,41 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 
 	// 评论
 	commentsDone := false
+	var commentScan *commentScanResult
+	commentsComplete := false
 	if opts.RefreshComments {
-		seen, comp, err := c.collectComments(ctx, view.Aid, view.Bvid, syncStart, isNew)
-		commentsDone = true
+		taskflow.Report(ctx, 0.15, "开始评论扫描")
+		var err error
+		commentScan, err = c.scanComments(ctx, view.Aid, view.Bvid, syncStart, isNew)
+		commentsDone = err == nil
 		if err != nil {
 			c.Log.Warn("评论抓取不完整", "bvid", bvid, "err", err)
-			complete = false
+			if ctx.Err() != nil {
+				return res, err
+			}
 		}
-		res.CommentsSeen = seen
-		res.Complete = res.Complete && comp
+		if commentScan != nil {
+			res.CommentsSeen = commentScan.Scan.Seen
+			commentsComplete = commentScan.Complete && err == nil
+		}
 		// 评论全文索引批量补齐（每轮一次，幂等；失败不阻断，下轮自愈）
-		if n, err := c.St.HealCommentsFTS(); err != nil {
+		if n, err := c.St.HealVideoCommentsFTS(view.Bvid); err != nil {
 			c.Log.Warn("评论FTS索引补齐失败", "bvid", bvid, "err", err)
 		} else if n > 0 {
 			c.Log.Info("评论FTS索引补齐", "bvid", bvid, "新增", n)
 		}
-	} else {
-		complete = false // 未全量对账，不做消失检测
 	}
+	res.Complete = complete && commentsComplete
 
+	taskflow.Report(ctx, 0.35, "保存同步结果与核对状态")
 	// 分类型同步时间戳（完成的部分才更新）
 	if err := c.St.UpdateVideoSyncTimes(view.Bvid, true, commentsDone, danmakuDone, subsDone, syncStart); err != nil {
 		c.Log.Warn("同步时间戳更新失败", "bvid", bvid, "err", err)
 	}
 
-	// 消失检测（仅本轮分页完整时执行；带假消失防御）
-	if res.Complete {
-		delC, anomalous, err := c.St.MarkMissingCommentsGuarded(view.Bvid, syncStart, isNew, res.CommentsSeen)
+	// Each data type requires its own complete coverage before reconciliation.
+	if commentsComplete {
+		delC, anomalous, err := c.St.CompleteCommentScan(commentScan.Scan, store.Now())
 		if err != nil {
 			return res, err
 		}
@@ -357,6 +329,12 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 				"bvid", bvid, "本轮见到", res.CommentsSeen)
 		}
 		res.CommentsDeleted = delC
+	} else if commentScan != nil && commentScan.Finished {
+		if err := c.finishCommentScan(commentScan, 0); err != nil {
+			return res, err
+		}
+	}
+	if complete {
 		for _, p := range view.Pages {
 			delD, anomD, err := c.St.MarkMissingDanmakuGuarded(view.Bvid, p.Cid, syncStart, isNew, cidSeen[p.Cid])
 			if err != nil {
@@ -368,13 +346,13 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 			}
 			res.DanmakuDeleted += delD
 		}
-		if res.CommentsDeleted > 0 || res.DanmakuDeleted > 0 {
-			c.Emitter.Emit("comments.resynced", map[string]any{
-				"bvid":             view.Bvid,
-				"deleted_comments": res.CommentsDeleted,
-				"deleted_danmaku":  res.DanmakuDeleted,
-			})
-		}
+	}
+	if res.CommentsDeleted > 0 || res.DanmakuDeleted > 0 {
+		c.Emitter.Emit("comments.resynced", map[string]any{
+			"bvid":             view.Bvid,
+			"deleted_comments": res.CommentsDeleted,
+			"deleted_danmaku":  res.DanmakuDeleted,
+		})
 	}
 
 	// 更新 FTS
@@ -396,6 +374,11 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 
 // SyncVideoStats 轻量重同步：仅更新元数据与统计序列（不做评论全量翻页）。
 func (c *Collector) SyncVideoStats(ctx context.Context, bvid string) error {
+	release, err := c.gates.acquire(ctx, bvid)
+	if err != nil {
+		return err
+	}
+	defer release()
 	view, err := c.API.VideoView(ctx, bvid)
 	if err != nil {
 		if c.handleGone(bvid, err, &Result{Bvid: bvid}) {
@@ -412,29 +395,8 @@ func (c *Collector) SyncVideoStats(ctx context.Context, bvid string) error {
 	}); err != nil {
 		return err
 	}
-	prev, err := c.St.GetVideo(view.Bvid)
-	if err != nil {
-		return err
-	}
-	prev.LastSyncAt = now
-	if prev.Status != "ok" {
-		prev.Status = "ok"
-	}
-	// 顺带自愈老数据的分区/横竖屏（仅在新值可信时覆盖，避免空值抹掉旧值）。
-	if view.TID != 0 {
-		prev.Tid = int64(view.TID)
-	}
-	if t := pickTname(view); t != "" {
-		prev.Tname = t
-	}
-	if o := orientationOf(view.Dimension); o != "" {
-		prev.Orientation = o
-	}
-	if err := c.St.UpsertVideo(prev); err != nil {
-		return err
-	}
-	// 统计时间戳必须反映本次轻量刷新，否则统计类冷却判断（adaptive）失真。
-	return c.St.UpdateVideoSyncTimes(view.Bvid, true, false, false, false, now)
+	// 一次窄 UPDATE 替代 GetVideo + 全字段 Upsert + 同步时间 UPDATE。
+	return c.St.UpdateStatsMetadata(view.Bvid, now, int64(view.TID), pickTname(view), orientationOf(view.Dimension))
 }
 
 // pickTname 分区名：官方 tname 优先，空串时回退 tname_v2，再回退本地分区表
@@ -478,8 +440,9 @@ func (c *Collector) handleGone(bvid string, err error, res *Result) bool {
 	}
 	switch apiErr.Code {
 	case -404, 62002, 62004, -403, -409:
-		if _, dbErr := c.St.GetVideo(bvid); dbErr == nil {
-			_ = c.St.MarkVideoGone(bvid, "gone")
+		// UPDATE 对未归档视频为空操作，无需再读取整行（简介等大字段）。
+		if dbErr := c.St.MarkVideoGone(bvid, "gone"); dbErr != nil {
+			c.Log.Warn("视频消失状态保存失败", "bvid", bvid, "err", dbErr)
 		}
 		res.Gone = true
 		c.Log.Info("视频已不可见", "bvid", bvid, "code", apiErr.Code)

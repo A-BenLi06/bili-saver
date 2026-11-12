@@ -1,4 +1,31 @@
 -- bili-saver SQLite schema v1
+-- v13: restartable comment scans; only operational state is pruned, never origin rows.
+CREATE TABLE IF NOT EXISTS comment_sync_state (
+  bvid TEXT PRIMARY KEY,
+  last_full_at INTEGER NOT NULL DEFAULT 0,
+  latest_main_ctime INTEGER NOT NULL DEFAULT 0,
+  root_cursor INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS comment_scan_state (
+  bvid TEXT PRIMARY KEY,
+  state_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS comment_scan_roots (
+  bvid TEXT NOT NULL,
+  root INTEGER NOT NULL,
+  next_pn INTEGER NOT NULL DEFAULT 1,
+  done INTEGER NOT NULL DEFAULT 0,
+  state_json TEXT NOT NULL,
+  PRIMARY KEY(bvid,root)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_scan_ready ON comment_scan_roots(bvid,done,next_pn,root);
+CREATE TABLE IF NOT EXISTS comment_scan_seen (
+  bvid TEXT NOT NULL,
+  rpid INTEGER NOT NULL,
+  paged INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(bvid,rpid)
+);
+
 CREATE TABLE IF NOT EXISTS sources (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   type TEXT NOT NULL CHECK(type IN ('video','space','favlist','season','series')),
@@ -15,7 +42,10 @@ CREATE TABLE IF NOT EXISTS sources (
   auto_download INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   last_sync_at INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(type, ext_id)
+  user_id INTEGER NOT NULL DEFAULT 0,
+  space_scope TEXT NOT NULL DEFAULT '',
+  personal_scanned INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(user_id, type, ext_id)
 );
 
 CREATE TABLE IF NOT EXISTS videos (
@@ -91,6 +121,7 @@ CREATE TABLE IF NOT EXISTS comments (
   raw_json TEXT NOT NULL DEFAULT ''
 );
 -- 跟踪列表（v7）：源触发器发现新视频并自动下载的记录。
+CREATE INDEX IF NOT EXISTS idx_comment_root_sweep ON comments(bvid,rpid) WHERE root_rpid=0 AND reply_count>0;
 CREATE TABLE IF NOT EXISTS video_tracks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   bvid TEXT NOT NULL UNIQUE,
@@ -102,8 +133,12 @@ CREATE TABLE IF NOT EXISTS video_tracks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_comments_bvid ON comments(bvid, status);
+-- 本地化只扫描头像索引，避免读取大型 raw_json 评论行。
+CREATE INDEX IF NOT EXISTS idx_comments_faces ON comments(bvid, member_mid, member_face) WHERE member_mid>0 AND member_face<>'';
 CREATE INDEX IF NOT EXISTS idx_comments_root ON comments(root_rpid);
-CREATE INDEX IF NOT EXISTS idx_comments_seen ON comments(bvid, last_seen_at);
+-- 消失对账只查 visible 行，覆盖计数与时间范围，历史 deleted 不参与扫描。
+CREATE INDEX IF NOT EXISTS idx_comments_reconcile ON comments(bvid, last_seen_at) WHERE status='visible';
+DROP INDEX IF EXISTS idx_comments_seen;
 
 CREATE TABLE IF NOT EXISTS danmaku (
   dmid INTEGER PRIMARY KEY,
@@ -121,7 +156,12 @@ CREATE TABLE IF NOT EXISTS danmaku (
   deleted_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_danmaku_cid ON danmaku(cid, status);
-CREATE INDEX IF NOT EXISTS idx_danmaku_seen ON danmaku(cid, last_seen_at);
+-- XML 顺序导出无需临时排序；不索引每次同步变化的 last_seen_at。
+CREATE INDEX IF NOT EXISTS idx_danmaku_export ON danmaku(cid, timepoint);
+CREATE INDEX IF NOT EXISTS idx_danmaku_reconcile ON danmaku(cid, last_seen_at) WHERE status='visible';
+DROP INDEX IF EXISTS idx_danmaku_seen;
+-- 控制台列表/卡片按视频计数，cid 索引无法支持该查询。
+CREATE INDEX IF NOT EXISTS idx_danmaku_bvid_status ON danmaku(bvid, status);
 
 CREATE TABLE IF NOT EXISTS subtitles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,6 +251,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   type TEXT NOT NULL,
   payload_json TEXT NOT NULL DEFAULT '{}',
   state TEXT NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','running','done','failed')),
+  priority INTEGER NOT NULL DEFAULT 0,
   progress REAL NOT NULL DEFAULT 0,
   detail TEXT NOT NULL DEFAULT '',
   error TEXT NOT NULL DEFAULT '',
@@ -239,6 +280,10 @@ CREATE TABLE IF NOT EXISTS plugin_runs (
 
 CREATE VIRTUAL TABLE IF NOT EXISTS videos_fts USING fts5(bvid UNINDEXED, title, description);
 CREATE VIRTUAL TABLE IF NOT EXISTS comments_fts USING fts5(rpid UNINDEXED, content);
+
+-- 仅活动任务进入去重索引；终态历史不增加排发查找成本。
+CREATE INDEX IF NOT EXISTS idx_jobs_active_payload ON jobs(type,payload_json) WHERE state IN ('queued','running');
+CREATE INDEX IF NOT EXISTS idx_jobs_type_id ON jobs(type,id DESC);
 
 CREATE TABLE IF NOT EXISTS media_libraries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -332,4 +377,65 @@ CREATE TABLE IF NOT EXISTS site_profile (
   description TEXT NOT NULL DEFAULT '',
   gender INTEGER NOT NULL DEFAULT 2,
   avatar TEXT NOT NULL DEFAULT ''
+);
+
+-- v14: personal membership is retained after removing a monitor source.
+CREATE TABLE IF NOT EXISTS user_tiers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  max_daily_adds INTEGER NOT NULL DEFAULT 10,
+  min_interval_minutes INTEGER NOT NULL DEFAULT 60,
+  max_daily_downloads INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS user_videos (
+  user_id INTEGER NOT NULL,
+  bvid TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(user_id,bvid)
+);
+CREATE TABLE IF NOT EXISTS user_download_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  bvid TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'waiting',
+  job_id INTEGER NOT NULL DEFAULT 0,
+  priority INTEGER NOT NULL DEFAULT 0,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  error TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(user_id,bvid)
+);
+CREATE INDEX IF NOT EXISTS idx_user_download_pending ON user_download_requests(state,next_attempt_at,id);
+CREATE INDEX IF NOT EXISTS idx_user_download_bvid ON user_download_requests(bvid,state);
+CREATE TABLE IF NOT EXISTS user_download_usage (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  day TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_download_day ON user_download_usage(user_id,day,state);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_download_reservation ON user_download_usage(request_id) WHERE state='reserved';
+
+CREATE TABLE IF NOT EXISTS source_videos (
+  source_id INTEGER NOT NULL,
+  bvid TEXT NOT NULL,
+  PRIMARY KEY(source_id,bvid)
+);
+CREATE INDEX IF NOT EXISTS idx_source_videos_bvid ON source_videos(bvid,source_id);
+
+-- v15: mutable profile fields are separate from stable users.id.
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  pass_hash TEXT NOT NULL,
+  salt TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
+  tier_id INTEGER NOT NULL DEFAULT 1,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  avatar_path TEXT NOT NULL DEFAULT ''
 );

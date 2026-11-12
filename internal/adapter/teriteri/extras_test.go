@@ -489,3 +489,26 @@ func TestSiteInteractionFlow(t *testing.T) {
 	}
 	_ = st
 }
+
+// TestDanmuColorAndMode 弹幕渲染契约：color 必须是 #rrggbb 字符串（整数是非法
+// CSS 值会全屏回退深色）；mode 必须是前端语义（1滚动/2顶部/3底部，B站 4/5 需转换）。
+func TestDanmuColorAndMode(t *testing.T) {
+	_, srv := newAdapterServer(t)
+	_, e := get(t, srv.URL+"/api/danmu-list/BV1Test00001", nil)
+	var items []struct {
+		Color string `json:"color"`
+		Mode  int    `json:"mode"`
+	}
+	if err := json.Unmarshal(e.Data, &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("应有 1 条弹幕: %d", len(items))
+	}
+	if items[0].Color != "#ffffff" {
+		t.Fatalf("color 应为 #rrggbb 字符串: %+v", items[0])
+	}
+	if items[0].Mode != 1 {
+		t.Fatalf("mode 应为前端语义: %+v", items[0])
+	}
+}

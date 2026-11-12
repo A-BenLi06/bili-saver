@@ -70,21 +70,23 @@ type PluginStore interface {
 
 // Bus 管理插件注册与事件派发。
 type Bus struct {
-	st       PluginStore
-	writer   Writer
-	dir      string
-	log      *slog.Logger
-	mu       sync.RWMutex
-	manifest map[string]*Manifest
-	ctx      Context
-	asyncWG  sync.WaitGroup
+	st           PluginStore
+	writer       Writer
+	dir          string
+	log          *slog.Logger
+	mu           sync.RWMutex
+	manifest     map[string]*Manifest
+	ctx          Context
+	asyncWG      sync.WaitGroup
+	processSlots chan struct{}
+	asyncSlots   chan struct{}
 }
 
 func NewBus(st PluginStore, writer Writer, dir string, log *slog.Logger, ctx Context) *Bus {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Bus{st: st, writer: writer, dir: dir, log: log, manifest: map[string]*Manifest{}, ctx: ctx}
+	return &Bus{st: st, writer: writer, dir: dir, log: log, manifest: map[string]*Manifest{}, ctx: ctx, processSlots: make(chan struct{}, 4), asyncSlots: make(chan struct{}, 16)}
 }
 
 // Reload 重新扫描插件目录并同步注册表。
@@ -126,32 +128,50 @@ func (b *Bus) Emit(event string, payload map[string]any) {
 	if len(targets) == 0 {
 		return
 	}
-	// 查启用状态
-	enabled := map[string]bool{}
+	// 每个事件一次读取，同时获取启用状态与配置，避免每个插件重复扫表。
+	rowsByID := map[string]*store.PluginRow{}
 	if rows, err := b.st.ListPlugins(); err == nil {
 		for _, r := range rows {
-			enabled[r.ID] = r.Enabled
+			rowsByID[r.ID] = r
 		}
 	}
 	var wg sync.WaitGroup
 	for _, m := range targets {
-		if !enabled[m.ID] {
+		row := rowsByID[m.ID]
+		if row == nil || !row.Enabled {
 			continue
 		}
+		cfg := mergeConfig(m.Config, row.ConfigJSON)
+		b.processSlots <- struct{}{}
 		wg.Add(1)
-		go func(m *Manifest) {
+		go func(m *Manifest, cfg map[string]any) {
+			defer func() { <-b.processSlots }()
 			defer wg.Done()
-			b.runPlugin(m, event, payload)
-		}(m)
+			b.runPlugin(m, event, payload, cfg)
+		}(m, cfg)
 	}
 	wg.Wait()
 }
 
-// EmitAsync 异步派发（不阻塞业务路径）。Wait 可等待全部派发完成。
+// EmitAsync 异步派发，最多 16 个在途事件；满时背压而不丢失，Wait 等待完成。
 func (b *Bus) EmitAsync(event string, payload map[string]any) {
+	b.mu.RLock()
+	subscribed := false
+	for _, m := range b.manifest {
+		if manifestSubscribes(m, event) {
+			subscribed = true
+			break
+		}
+	}
+	b.mu.RUnlock()
+	if !subscribed {
+		return
+	}
+	b.asyncSlots <- struct{}{}
 	b.asyncWG.Add(1)
 	go func() {
 		defer b.asyncWG.Done()
+		defer func() { <-b.asyncSlots }()
 		b.Emit(event, payload)
 	}()
 }
@@ -169,9 +189,9 @@ func manifestSubscribes(m *Manifest, event string) bool {
 }
 
 // runPlugin 启动插件进程，写事件 JSON，逐行读取 op 并执行。
-func (b *Bus) runPlugin(m *Manifest, event string, payload map[string]any) {
+func (b *Bus) runPlugin(m *Manifest, event string, payload map[string]any, cfg map[string]any) {
 	start := time.Now()
-	runErr := b.execPlugin(m, event, payload)
+	runErr := b.execPlugin(m, event, payload, cfg)
 	dur := time.Since(start).Milliseconds()
 	pr := &store.PluginRun{PluginID: m.ID, Event: event, DurationMs: dur, CreatedAt: store.Now()}
 	if runErr != nil {
@@ -183,38 +203,32 @@ func (b *Bus) runPlugin(m *Manifest, event string, payload map[string]any) {
 	_ = b.st.AddPluginRun(pr)
 }
 
-func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any) error {
-	cfg := m.Config
-	// 合并持久化的 per-plugin 配置
-	if rows, err := b.st.ListPlugins(); err == nil {
-		for _, r := range rows {
-			if r.ID == m.ID && r.ConfigJSON != "" && r.ConfigJSON != "{}" {
-				var persisted map[string]any
-				if json.Unmarshal([]byte(r.ConfigJSON), &persisted) == nil && len(persisted) > 0 {
-					merged := map[string]any{}
-					for k, v := range cfg {
-						merged[k] = v
-					}
-					for k, v := range persisted {
-						merged[k] = v
-					}
-					cfg = merged
-				}
-			}
-		}
+func mergeConfig(defaults map[string]any, persistedJSON string) map[string]any {
+	var persisted map[string]any
+	if persistedJSON == "" || persistedJSON == "{}" || json.Unmarshal([]byte(persistedJSON), &persisted) != nil || len(persisted) == 0 {
+		return defaults
 	}
+	merged := make(map[string]any, len(defaults)+len(persisted))
+	for k, v := range defaults {
+		merged[k] = v
+	}
+	for k, v := range persisted {
+		merged[k] = v
+	}
+	return merged
+}
 
+func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any, cfg map[string]any) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(m.TimeoutSec)*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, m.Entry[0], m.Entry[1:]...)
 	cmd.Dir = filepath.Join(b.dir, m.ID)
-	if len(m.Env) > 0 {
-		env := os.Environ()
-		for k, v := range m.Env {
-			env = append(env, k+"="+v)
-		}
-		cmd.Env = env
+	// The line-JSON protocol is UTF-8, including Python redirected stdout on Windows.
+	env := append(os.Environ(), "PYTHONIOENCODING=utf-8")
+	for k, v := range m.Env {
+		env = append(env, k+"="+v)
 	}
+	cmd.Env = env
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -239,7 +253,7 @@ func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any) erro
 
 	// 逐行读 op
 	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 1024*1024), 64*1024*1024)
+	sc.Buffer(make([]byte, 32*1024), 64*1024*1024)
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {
@@ -253,6 +267,11 @@ func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any) erro
 		if err := b.applyOp(ctx, m, o); err != nil {
 			b.log.Warn("插件 op 执行失败", "plugin", m.ID, "op", o.Op, "err", err)
 		}
+	}
+	if err := sc.Err(); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("读取插件输出: %w", err)
 	}
 	waitErr := cmd.Wait()
 	if waitErr != nil {

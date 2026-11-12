@@ -51,3 +51,7 @@ Validation:
 The current user explicitly requires a commit after completed changes. Only the
 CI/CD files and this agent's claim/handoff entries are staged, preserving earlier
 uncommitted collaboration work.
+
+## 2026-11-12T15:40:16+08:00 — Preserve application baseline for archive hardening
+
+The user requested the full reliability plan. The working tree contains previously completed but uncommitted application features (personal accounts/quotas, comment continuation, scheduling and performance changes). Preserve these application sources in an explicit baseline commit before implementing hardening so later changes can be reviewed and rolled back independently. Unrelated scratch files and runtime data/configuration are not part of this baseline. Windows maintained-source build, vet and internal tests passed during the audit; Linux dependency closure is a known pending issue to fix in this work.

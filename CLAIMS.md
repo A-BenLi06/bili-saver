@@ -11,7 +11,220 @@
 
 
 
+### 2026-10-23T22:59:19+08:00 personal-agent（原归档入口恢复，done）
+- 人类在 :18089 测试预览误以为原归档消失。只读核对正式 data/bili-saver.db：740 视频、13 源、754 分P；测试库仅26视频。正式端口8080原先未监听，没有证据表明由本轮开发停止。
+- 使用原有10/18正式 bili-saver.exe 与原config.yaml重新启动，PID48780，22:58:30开始监听8080/8081/8082，HTTP均200；未替换为新构建、未手工迁移或修改正式配置/数据。服务按原配置正常续跑采集与清理任务。
+- Codex内置浏览器登录原管理员后可见“全部740”，已保留正式 :8080/#/videos 标签；截图 Temp/bili-personal-20261022/original-archive-restored.png。最新账号/个人视频/额度功能仍在隔离预览，尚未部署正式。无代码改动、无Git操作。
+
+### 2026-10-23T22:31:00+08:00 personal-agent（个人账号设置，done-review）
+- 新增账号设置页：头像上传/移除、唯一用户名修改、固定 UID、当前密码校验后修改密码；侧栏头像可进入。B站采集与 teriteri 账号仍独立，个人归属/等级/配额保持。
+- schema v15 基线与老库幂等补 avatar_path；头像按内容解码、尺寸/体积限制并重编码 256×256 PNG。个人接口仅有效会话自身可用、拒绝越权字段/跨站；改密及管理员重置/禁用事务撤销全部旧会话，CAS 防并发重置被覆盖。
+- 新增 7 个测试函数；维护源码 build/vet、全量 internal tests、store/server race 全绿。最终 UI 修整后再次构建、两段 JS 语法/gofmt/diff 检查通过；内置浏览器真实文件选择器上传/移除及 1440/390 布局验证，无页面横溢和 console warn/error。
+- 直接隔离 HTTP 验证 bob 改名保留 UID/视频、两个旧会话改密后失效、新密码登录，并恢复测试账号。正式 data/服务未改，未 commit/push；预览 :18089/#/account，v6 隔离进程保留，截图 Temp/bili-personal-20261022/account-desktop.png 和 account-mobile.png。详情见本人 raw。
+
+### 2026-10-23T21:10:12+08:00 personal-agent（纠正：真实 teriteri-client 接入验收，done-review）
+- 人类明确指出 teriteri 与 bili-saver 内置播放站不同。此前个人按钮在隔离配置缺失时错误回退 /static/teriteri.html；已取消回退，watch_url 只用 frontend_url/正在托管的实例/配置中的 teriteri 服务，缺失返回空并明确提示，管理端亦不再把内置站标为 teriteri。
+- 真正的本机 teriteri-client dist 复制到 Temp 隔离目录；仅两处冻结 WS 地址按 QA 端口改写，正式 dist/data 未修改。生成 6 秒有效 H264/AAC MP4，内置浏览器从补档站按钮实际打开 :18090/video/BVqa00000016，品牌/title=teriteri；游客点击推荐可播放其他用户 BVqa00000024，readyState=4/videoWidth=640/error=null，console warn/error 为空，Range206/ftyp 验证通过。
+- 维护源码 build/vet、全量 internal tests、server race、JS语法全部通过；新增缺失前端不链接内置站/配置媒体服务器地址的回归。真实截图 real-teriteri-desktop.png 在 Temp/bili-personal-20261022；真实前端预览标签已保留。正式服务未启动/替换，未 commit/push。
+
+### 2026-10-23T20:08:19+08:00 personal-agent（个人视频、配额与内置浏览器验证，done-review）
+- 按已批准方案完成 v14：源按用户唯一并 RETURNING ID；个人视频/来源持久关联；普通用户自有列表、只读详情与下载申请；管理员全部/我的切换，teriteri 游客全库与独立账号保持。
+- 下载请求/额度账本与入队同事务；全分 P 检查、共享 BV 不重复扣费、次日继续、失败退避上限、禁用暂停与删除取消。旧库可靠回填、源 ID/自增高水位保留、无历史下载追溯；旧任务重放不重开已完成请求或释放新预留。公开 /media 限定媒体普通文件并防 symlink 越界，不再公开数据库/cookie/raw。
+- 验证：新增 11 用例；build/vet 显式覆盖 ./internal/... ./cmd/...、全量 go test -count=1 ./internal/...、store/jobs/server/app race 全绿；JS 语法与改动文件格式通过。根目录 go build ./... 长时间无结果，已停止本人挂起进程，采用仓库先例的维护源码包范围，未冒称原命令完成。
+- 使用人类指定的 Codex 内置浏览器，隔离 :18089 / 26 视频 fixture；用户 24 条、管理员全部 26/我的 1、中文搜索 8 条、第二页 4 条、下载等待与禁用按钮、个人详情无服务端路径、1440/390 无页面横溢（表格可横滑）、控制台无相关 warn/error，截图已检查。首次窄屏截图捕获侧栏断点过渡，已在动画结束后重取，不误报为产品布局故障。
+- 正式实例未重启、正式 data 未修改；不 commit/push。预览与证据位于临时目录 bili-personal-20261022，实际 B 站新视频下载未额外在线冒烟，下载器既有测试全绿。详细记录见 docs/walkthrough/raw/personal-agent-20261023.md。
+
+### 2026-10-18 22:54:17 +08:00 ui-agent（文件代码块/媒体库图标list，done-review）
+- 按人类两次补充：逐P文件路径改代码块/右侧一键复制，保留点击本机定位；媒体库播放用首页同款SVG品牌图标list，去掉顶部重复播放按钮，不再做按钮排。媒体库目录亦支持代码块复制/打开。teriteri逐P直达、同址去重、LAN loopback链接保留端口换主机，轻量兜底独立播放器自动播放。
+- server新增受鉴权本机定位：仅直接loopback+本机Host/同源Origin/自定义头，路径来自库内视频/分P/已配置目录，阻断越界及归档symlink逃逸，不接收任意路径/不经shell。Emby/Jellyfin只读精确条目匹配、短缓存、Range流转发/独立条目链接；现有URL可带api_key，public config/status/link脱敏，不转发管理Cookie/Bearer或跟随认证重定向。
+- 最终完整build/vet/internal tests、server race、index两段JS语法全绿；隔离24项Chrome绿、0脚本异常，1440/858/390/320px、中文空格引号复制、P2视频实际可解码、图标list/代码块/远程不可开服务端桌面通过。记录了登录前401与favicon类404网络控制台，未冒称所有console消息为0。正式真实归档BV1CRt16gEyL本机定位POST200，真实teriteri `/video/`与media源readyState4/error null，1440/390截图已视觉核对。原移动截图捕获了视口切换中间帧，等待动效完成后重新取证，无产品代码误修。
+- 当前配置仅teriteri，Emby未真实接入；Emby采用模拟Items/有真实可播放MP4的流服务器验证，不宣称实际Emby已连接。临时fixtures曾两次因脚本db文件筛选/遗漏必填列失败，修正脚本后使用新库通过，未影响正式数据。报告/脚本/JSON/截图Temp/bili-links-20261018；仅本人raw记录，未提交QA报告/临时工具到仓库。
+- 正式启动前8080/8081/8082均无旧实例。最终22:49:46构建、22:51:10启动PID51940，三个端口/HTTP200/273974字节源码一致，SHA256 68F38AD72EEC8BE24519F1D74DC5985CCF6DFA4389C955FA3CDA9E81EA1FCF90。保留core10/08 schema13评论修复和之前UI动效/监控，未手工改正式config/data，无Git。无挂起；真人Emby与跨机文件管理器非本机功能不作已验收宣称。
+
+### 2026-10-08T20:13:12+08:00 core-agent（评论流水线、断点与周期核对，done-review）
+- 实现：主楼顺序/SQLite持久有界楼中楼队列/全局2在途/单协调者页事务；评论/游标/覆盖原子提交，24h有效断点保留epoch、登录摘要与策略；默认日常5主楼/10请求、旧楼尾部轮转，168h完整核对，完整真实登录轮才核对消失。schema13自动幂等升级，评论/弹幕/快照不物理删除，Cookie jar与既有300ms间隔不变。
+- 现场边界：实际B站会复用游标并返回新主楼，最初单按相同offset判截断过严，已改本轮ID覆盖判断并补进展/无进展回归。初版检查点由策略v2失效重建，原始评论保持；不将截断轮当作完成基线。
+- 验证：最终完整build/vet/internal tests绿；collector/store/biliapi/jobs race绿，游标修正后collector/store再过race，策略版本后collector全测绿；子进程强杀后重新开库从楼中楼pn2继续，头页/pn1各仅1次且epoch100保留；页提交/核对确认故障回滚、两轮不重复确认、v12重复迁移通过。Chrome18项检查/0应用错误，1440/390px及320px控件边界；新增单位移动裁切已修。
+- 部署：20:09:14最终PID39088，三个端口监听/主页200/269504字节与源码一致，SHA256 514B0ECAC7EA6B6EFE393077FC2321BDF66F87A3C403839134A6E789C0BCBC03。20:10:22正式62个完整基线，大视频主楼28页/楼中楼27页、无截断，断点在推进。启动前旧正式进程未运行；本轮两次启动/一次修正部署均有本地证据。正式config/data未手工修改，正常服务迁移/采集；不Git，保留既有所有未提交工作，无挂起。
+- 交付：docs/performance/2026-10-08-comments.md、ARCHITECTURE与本人raw。临时证据在Temp/bili-comments-20261008（不提交）。@human 可抽查周期与重启参数；尚无真实连续一周节流百分比，不声称速度倍数。UTC 2026-10-08T12:13:12+00:00。
+
+### 2026-10-03 18:26:29 +08:00 ui-agent（网络图10秒窗口，done-review）
+- 网络实际时间轴/采样/历史裁剪改10秒，标注“10s 前”与ARIA同步；保留一个左边界前邻居用于插值，不让2秒轮询抖动缩短曲线。CPU/内存仍60秒，本进程计量/800ms动画/扁平卡片不变；低流量B/s显示整数避免过长小数换行。
+- 最终完整build/vet/internal tests与两段JS语法绿；最终隔离28项Chrome绿、0应用错误，包括10秒起止值/排除旧峰/边界邻居/CPU内存窗口/紧凑字节及原本进程回归。正式859px真实轴/ARIA/曲线/速率适配/控制台空已核对，截图Temp/bili-network10-20261003/official-final.jpg，用户总览保留。
+- 最终18:25:03构建、18:25:41启动PID29472，三个端口/HTTP200正常、268592字节与源码一致，SHA256 ED1393B411E803DD571591D849687A0DC5B92D2C33EA54663746CA2F9E403F13。只改前端与文档，无后端业务/正式配置数据手工更改/Git操作；报告追加process-network.md，本人raw已记录，无挂起。
+
+### 2026-10-03 16:27:37 +08:00 ui-agent（本进程网络速率，done-review）
+- 用户明确资源网络整机→本进程：metrics socket原子收发计数，CLI默认HTTP/CDN专有Transport与三个Listener接线；覆盖评论/API/图片/下载/服务响应，含头/压缩/TLS，其他程序/DNS/UDP/子进程不计。保留cookie jar/超时/连接复用；没有修改core独占文件业务。
+- API additive process_network 独立时戳/启动身份/累计；UI只使用本进程差分，初次/缺失/重启/计数回退重建基线、有效0正常，60s/800ms/平滑稳定SVG/扁平及移动密度保留。
+- 最终完整build/vet/internal tests、metrics/app race、JS检查绿；隔离23项Chrome绿、0错误。真实三端口/外出HTTP有计量、媒体不双计数、其他进程5MB排除；HTTP/2/压缩wire字节/池/Shutdown单测绿。正式859/390px标签/曲线/三图/hover/主进程唯一/控制台空/无溢出通过，视口reset、用户总览保留。
+- 最终16:23:10构建，16:26:34启动PID34696，三个端口/HTTP200正常、268384字节UI与源码一致，SHA256 FBD95335D9446D528879891FBCA846D4A7F1A6B9C26588FC016247FEDDFF7A95。报告docs/performance/2026-10-03-process-network.md和本人raw；没有Git/正式配置数据手工更改/挂起，保留存储饼图和core最终修复。
+
+### 2026-10-03 16:11:02 +08:00 ui-agent（补档存储饼图与五项，done-review）
+- 用户明确资源库=补档总量，不是配置媒体库。新增 archive_storage 后台缓存：只统计media/raw/derived/SQLite，视频含分段缓存，其他补档数据与资源库总量分开，输出库/站点依赖/日志不计，不跟随符号链接。256项流式读取、累计让出时间、每秒进度，初次下界标≥，十分钟缓存/单飞；HTTP不等扫描。
+- 首页一张分段饼图：视频/其他补档数据/磁盘其他占用/可用，旁边展示视频/其他数据/资源库/总已用/总可用；资源库=视频+其他数据、总已用作为汇总，不重复入饼。保留700ms过渡/数字动效/首页扁平，手机约172px、值无裁切；859px三卡并列。
+- 验证：最终完整build/vet/internal tests绿，sysres race绿、符号链接测试实际PASS，最后内联JS与新隔离库30项Chrome检查全绿、0应用错误。旧复用fixture出现一次登录等待超时，原因未定性，保留记录；正式IAB登录态/页面无异常。真实完整首轮19.55GB视频+55.70GB其他=75.25GB；最终版新扫描可见百万文件进度，灰色/可用及下界数值持续更新，非伪造0。
+- 部署：最终16:07:56 PID8248，构建16:03:17，三个端口正常，HTTP200/267837字节与源码一致，SHA256 B5E02F95D924060A8B861DE6337C6AAF6AF38732706B0CC22A859E0E71DAC0EA。859/390px真实hover、四段、三趋势/控制台与裁切通过，临时视口reset，用户总览保留。没有代改core任务修复/配置/data，无Git操作，无挂起；报告docs/performance/2026-10-03-storage-pie.md与本人raw。
+
+### 2026-10-03T14:49:07+08:00 core-agent（慢因修复及低活跃同步建议，done-review）
+- 完成：FullResyncComments=false已有视频限5主楼页/10次评论请求且不核对消失，首次仍全量；评论页边界处理源展开/轻量统计，原cursor/epoch/视频执行权保持，无增加worker或限速额度；归档阶段与扫描条数/页数进度；置顶/预览去重、整楼总数翻页与预览父楼关系修复。登录/完整分页/两轮异常/弹幕降级/只增不删保持。
+- 低活跃建议：归档列表/详情按窄统计锚点自动显示7/14/30天，万条以上且有实际长期低增长证据才提示；不改变任何同步配置。100个正式库老视频读取316条统计、1条SQL、现场3.298ms（复测2.624ms），不是稳定p95。
+- 等级只查询当前作者，并发单飞/有效含0缓存12h/软风控冷却5m/有界1024；有效0零UPDATE，手动全库回填保留。插件默认UTF-8，真实Python中文derived输出通过。修复HTTP装配测试未关闭响应体造成Windows关闭卡住。
+- 验证：最终完整build/vet/internal tests全绿，jobs/collector/store/app/levels/plugin/server race全绿，最新二进制隔离Chrome真实API/页面18项全通过（1440/390，无应用错误、截图已查）。正式4长归档仍运行时源及两条统计已完成，阶段扫描明细持续变化；同进程页边界续跑，重启仍按原规则从头恢复。
+- 部署：已读ui-agent存储监控done；core最终PID31180，14:44:53启动，SHA256 674E097B55E7ED161D248FC6EBC691C9E2FEB838C15359E098CCDF99FE1C4AC6；三端口正常，主页200/264394字节与源码一致，保留存储监控/首页扁平/动效。正式配置与原始数据未手工修改，全部隔离进程退出，无Git/无挂起。
+- 报告 docs/performance/2026-10-03-task-fix.md；QA/只读JSON证据位于 C:/Users/Ben/AppData/Local/Temp/bili-task-fix；scratch工具及二进制不提交。建议抽查任务扫描明细与源评论周期，十万评论完整审计仍受接口限速。UTC 2026-10-03T06:49:07Z。
+
+### 2026-10-03 14:40:13 +08:00 ui-agent（首页存储监控，done-review）
+- 新增数据目录所在文件系统的总量/已用/可用/已用比例：sysres/storage.go 只读容量、10 秒缓存，失败为 null，不扫文件。admin 仅 handleSystemRes additive storage 接线，不改 core 在途区域。
+- 首页增加存储 donut：桌面三卡并列、手机横排约 144px，保留 700ms 弧线与数字更新；90% 提示色、不可访问显示暂不可用、0% 正常展示，首页 hover 仍扁平。API 口径明确为同盘容量而非归档文件大小。
+- 验证：cache TTL/换路径/失败缓存/副本隔离/真实文件系统单测通过；两轮完整 build/vet/internal tests 绿，内联 JS 检查通过。最终二进制隔离服务 Chrome 15 项检查通过，320/390/600/700/858/1440px，无应用错误；正式 IAB 859/390px 容量/hover/裁切检查通过。
+- 部署：14:39:17 启动 PID 832，构建 14:38:26，SHA-256 43A73AC67DFCE44CBE8FE0A7BB1431029ABD551260E3837C8D12D24DA8B55552；三个端口正常、HTTP 200，264394 字节页面与源码一致。包含构建前已落盘并通过全量门的其他改动；后续 core 改动由 owner 继续验收部署。报告 docs/performance/2026-10-03-storage.md，证据 Temp/bili-storage-20261003；不改配置/data，不 commit/push，无挂起。
+
+### 2026-10-03T13:49:46+08:00 core-agent（任务执行慢因只读诊断，done）
+- 正式 PID7568，4个worker持续做不同视频全量评论；13:43窗口600秒主楼637+楼中楼1322=1959请求，3.27次/秒，接近300ms全局限速3.33次/秒的98%。当前热门视频API评论6185/10750/29049/140535；已有归档仍明确全扫，蓝蓝路在第一页主楼的多个大楼中楼串耗时。
+- 5.26秒采样CPU约单核1.78%，任务读查询约1–6ms。自启动已完成142个archive，现场有任务完成/接续，未见死锁证据。最终13:48窗口1978次评论请求、4running/11queued；以报告分时点为准，不拿创建时间当执行耗时。
+- 缺口：归档/图片/等级结束才首次progress，0%和updated_at停滞不等于没推进；FullResyncComments在配置/UI存在但collector未读取，关开关不会加速。等级缺level_info和插件cp1252中文失败为独立问题，未误定主要慢因。
+- 交付 docs/performance/2026-10-03-task-slow.md 与 task-slow-evidence.json，建议先补阶段进度、长评论分页公平排发/检查点，再接有限日常扫描与周期完整对账。仅执行只读脚本/进程采样，未改源码、配置、真实任务或数据、未重启/Git；未因文档变更重复源码测试。UTC 2026-10-03T05:49:46Z。
+
+### 2026-10-03 12:13:34 +08:00 ui-agent（前端性能与移动密度，done-review）
+- 完成：Motion 观察反馈/重复布局修复，任务稳定节点与请求合并，后台轮询暂停、迟到响应守卫，进程批量 FLIP/scaleX；日志完整 4000 行缓存与可变行高窗口，完整搜索/复制及阅读锚点保留。图表 800ms、路由/数字/弹窗/抽屉等动效保留，首页仍扁平。
+- 实测：Chrome 154、390px、4 倍 CPU 降速，日志两次追加累计主线程 8.60s→0.10–0.124s，搜索 42.55s→0.258–0.333s；手机仪表 444px→178px，正式现场 176.4px。测量定义、峰值、边界见 docs/performance/2026-10-03-frontend.md；不宣称参考逐帧 FPS 等同。
+- 验证：node --check、完整 build/vet/internal tests 绿，77 项 Chrome 自动检查绿、0 应用错误；正式 IAB 总览/任务/日志搜索、手机与真实 hover 通过。Chrome LAN metacubexd v1.237.0 实际访问/桌面手机对照已完成，前轮连接限制解除。
+- 部署：12:00:05 启动 PID 7568，三个端口监听，HTTP 200，261406 字节 UI 与源码一致；构建 11:57:52，包含当时落盘的 core 源码。已读取 core 12:12 完成回执；其后源码若再变由 owner 另行构建。本轮不改后端/配置/data，不 commit/push；无挂起，建议抽查移动密度与日志阅读。UTC：2026-10-03T04:13:34Z。
+
+### 2026-10-03 12:12:03 +08:00 core-agent（深度任务执行与复杂度/I/O，done-review）
+- 完成：同视频 archive/download/touch_stats 在排发前互斥，等待不占 worker；唤醒保留优先级与原 FIFO。并发进度合并、错误/取消/panic 保留最新状态，迟到回调不覆盖终态。弹幕流式导出、原件稳定原子写、图片单飞/限量流式、封面缓存；全库统计 400 条游标分页，到期源 SQL 过滤，origin 标签批读贯穿路由与电影/剧集 NFO。插件一次注册读取、4 进程/16 在途背压；资源采样一秒复用。
+- 防御修复：楼中楼限量/失败的不完整标记不再被主楼 is_end 覆盖。登录、完整分页、两轮异常确认、XML 降级、origin/derived 与只增不删均保持。启动补两个 IF NOT EXISTS 索引，版本仍 v12，索引空间成本已量化。
+- 合成结果：完成进度 1002→3 UPDATE；10k 弹幕导出 27.3→20.8ms、分配 10.71→1.57MB、相同 XML 输出写入 828036→0 字节；10k 视频统计扫描分配 50.13→1.86MB；1000 视频标签预取 1000→3 SQL，头像查询 15.67→1.08ms。局部基准不等于生产 CPU/磁盘利用率。
+- 验证：最终维护源码 build/vet/全部 internal tests 绿，jobs/collector/store/app/plugin/images/fileio/sysres/media 及 downloader race 绿；最终数字缓冲、NFO 接线分别再过 collector/media race；最新二进制临时库 HTTP 绿。期间两次 POST 连接重置未定性，增加失败日志输出后连续 15 轮通过，NFO 最终接线后再过服务验证，详情报告留痕。
+- 交付：docs/performance/2026-10-03-execution.md 与原始分轮 JSON；ARCHITECTURE 已更新迁移与模块职责。pprof/冒烟日志本地证据 C:/Users/Ben/AppData/Local/Temp/bili-performance-20261003-evidence。正式服务未由本轮替换，正式配置/data 未手工修改，临时进程均退出，不进行 Git 操作。无产品裁决挂起；建议抽查任务并发、索引首次升级与楼中楼限量保护。UTC：2026-10-03T04:12:03Z。
+
+### 2026-10-02 05:33:53 +08:00 ui-agent（首页卡片扁平化，done-review）
+- 人类明确要求首页卡片扁平：以 dash-head 限定总览 stat/rescard，去除 hover 位移、投影/内高光与资源卡顶部伪高光，保留背景/边框和数据/图表内部动效。
+- 完整 build/vet/internal tests 绿；正式 PID 17880 于 05:31:45 +08:00 更新，三个端口监听，HTTP 200，246557 字节页面与源码逐字节一致，二进制 SHA-256 校验通过。
+- 已刷新用户已登录 IAB 的总览，在统计卡/CPU 卡上实际点击以触发 hover：均 matches(':hover')=true、transform=none、boxShadow=none；资源卡 ::before content=none。全部首页卡片同样无位移/阴影，3 张动态图仍存在、主进程唯一、无横溢出，控制台 error/warn 空；现场宽 859px，截图 Temp/bili-ui-motion/flat-dashboard.jpg。
+- 无挂起，无配置/后端/数据更改；未 commit/push。以后首页保持扁平信息面板，勿重新引入 hover 抬升。
+
+### 2026-10-02 05:25:01 +08:00 ui-agent（总览资源两条批注修复，done-review）
+- bili-saver 主进程固定排行首行：由同次 snapshot 保证展示，离开/重入 CPU 前 8 不消失、不重复，节点稳定。其余进程继续按 CPU 降序；指标右对齐，修复旧 110px 列宽导致的换行和翻动旧值错位，手机两行布局。
+- 网络大横格改为 CPU/内存/网络三列 60s 趋势图，手机纵排；CPU/内存各显示主进程与整机，固定 0–100% 统一尺度，内存当前量仍显示字节。保留 800ms 平滑更新与减少动态效果；缺失历史留空，无伪造零值。
+- 验收：完整 build/vet/internal tests 绿；Chrome 隔离服务 52 项自动检查绿、0 应用错误，包含 1440/1000/858/390px 和原全站动效回归。正式服务 PID 46412，05:22:05 +08:00 启动，三个监听端口正常；HTTP 200，246155 字节嵌入页面与源码一致。新构建包含 core 两轮性能优化最终源码。
+- 用户已登录 IAB 的 :8080/#/dash 已刷新并现场核对：858px 三图同一行、首行唯一 self、9 行（主进程+8名其他）、指标无裁切、图表有效、无整页横向溢出，控制台 error/warn 空。实际截图 C:/Users/Ben/AppData/Local/Temp/bili-ui-motion/official-resources.jpg；qa.cjs / qa-result.json 同目录。
+- 无后端/API/schema/配置改动，不手动写入/删除真实数据；隔离测试进程已停，不 commit/push。无挂起；建议抽查主进程常驻和三图布局。
+
+
+### 2026-10-02 05:20:55 +08:00 core-agent（视频任务排发/消失核对性能完成，done-review）
+- 队列按优先级分桶 FIFO + 优先级最大堆，原子查重入队，恢复只读 ID/priority；源视频/统计分批查库，退避按 tick 复用，正常统计四条 SQL 缩为两条。session priority 设置/父任务继承/FIFO 保留；Manager 区待其 done 后接续。
+- 消失视频按原冷却轻量检查，恢复立即排发到期部分并尊重源的从不/下载开关；同视频采集/统计可取消互斥。修复跳过评论却误入核对入口，visible 范围索引替换旧 seen 索引，零缺失少写；原始行/登录/分页/两轮异常保护保留。
+- FTS 事务幂等迁移到 rowid=rpid，在线只补当前视频；迁移失败回滚、deleted 正文/状态保持、重复升级与搜索均验证。首次升级有一次建索引/索引重建成本，不 VACUUM/删数据。
+- 合成中位数：20k 普通+2k 优先队列 10.338→0.352ms；100 视频读取 6.576→1.068ms；100k 评论单视频索引补齐 116.596→0.944ms。报告 docs/performance/2026-10-02-tasks.md，脚本 -Bench 可复跑。
+- 最新全部维护源码 build/vet/internal tests 绿；jobs/collector/store/app race 绿，新增 5001 积压恢复 race 绿；最新独立二进制临时库 HTTP 冒烟绿。未自行重启正式服务，不改正式配置/数据，不 commit/push。@ui-agent 下一次验证后部署请使用最终源码构建；@walkthrough-agent 可按后端性能主题接续提交。
+
+### 2026-10-02 05:06:26 +08:00 ui-agent（metacubexd 全站动效接管完成，done-review）
+- 已实现：公共 spring/snappy 时序、按钮按压/悬浮、路由与分组入场、侧栏/标签活动指示器、数字翻动、弹窗/Toast/移动抽屉退出、展开折叠与主题过渡。核对参考实例 v1.237.0 源码：总览 400ms/50ms 入场、实时曲线 800ms linear；保留既有粉色与 SaaS 排版。
+- 正确性：旧路由异步响应不覆盖新页；快速切页以最后目的地为准；设置取消离开恢复 hash 与原输入。模态有 Escape/焦点约束与恢复/背景 inert；减少动态效果同时关闭 CSS 和 JS。图表节点稳定、进程按 PID 更新/重排；修复 sysres self 数据被前 8 截断、初始 CSS 遮盖真实 SVG 弧线、进程列表加载文字残留。
+- 验证：最终 scripts/verify-backend.ps1 全部维护源码 build/vet/internal tests 绿。隔离真实服务 :18471 + Chrome headless + Playwright，1440×1000/1000×800/390×844，43 项交互/语义/响应式检查通过，0 应用控制台错误；登录→总览→弹窗/Toast→设置取消离开→快速切页→移动抽屉→深色→减少动态效果均已实测。截图、qa.cjs、qa-result.json 位于 C:/Users/Ben/AppData/Local/Temp/bili-ui-motion/。
+- 服务：05:05:40 +08:00 已以验收通过的最新二进制重启，PID 52416，:8080/:8081/:8082 均监听；HTTP 200，返回 HTML 与当前 index.html 242088 字节逐字节一致，复制前后二进制 SHA-256 一致。旧进程退出后短暂文件锁，确认进程消失后重试成功。隔离测试进程已停；不手动修改/删除 data/，不改正式配置/凭据，不 commit/push。
+- @human 建议抽查侧栏活动指示器、实时图表和手机抽屉。参考现场限制：Chrome 扩展已识别为新连接，但标签读取/创建持续超时；独立浏览器仅能看到 metacubexd setup，未宣称已完成登录页面视觉对照。已完成源码参数核对与本地自动化验收，不将此人工现场余项视为代码挂起。
+- @core-agent / @session-agent：共享门及 sysres 余项全绿，所有在途后端源码保留；正式实例已更新到本轮最新源码，请后续构建继续保留 index.html 动效区域。
+
+### 2026-10-02 04:50:44 +08:00 session-agent（新加入视频优先执行收尾完成，done-review）
+- 默认开启「设置 → 采集与同步 → 新加入视频优先执行」；关闭改为 FIFO，保存对新任务立即生效。优先任务等待运行中任务完成，同级按加入顺序。视频仅一次、源首次展开的归档任务继承优先级；普通调度/重试不提权。
+- 修复重启恢复丢失真实优先级、积压 5000 条截断、启动前提交重复装载、并发提交去重竞态与空闲 worker 取消 context 不退出；恢复一次排序+线性装载，入队二分定位。补齐 schema.sql / ensureColumn v12、示例配置、ARCHITECTURE 迁移历史。
+- 验证：scripts/verify-backend.ps1 两轮完整 build/vet/internal tests 全绿（维护源码 internal+cmd，避开运行数据下 node_modules 遍历）；jobs -race -count=3 全绿。回归覆盖旧配置默认/false 往返、PATCH 写盘与非法请求、/add 视频/once/源两态优先级、旧库重复迁移、真实 worker 恢复派发及并发去重。
+- UI QA：Browser plugin not available，使用已有 Playwright + Edge headless，1280×900 / 390×844；默认开→关→保存→GET/写盘→刷新保持→重新开启，均通过。无 pageerror；登录前 auth/me 401 与 favicon 404 为原有非功能错误。截图和脚本：C:/Users/Ben/AppData/Local/Temp/bili-priority-20261002/。
+- 正式实例：04:48:09 +08:00 启动的新二进制，04:48:50 监听就绪，PID 52452（exec session 37958）；页面与 GET /config 均 200、new_add_first=true。首次替换遇旧进程文件锁，已改为等待退出后复制并校验 SHA-256，正式配置未改；原始归档数据未手动修改/删除。隔离 :18080 服务测试完已停止，保留临时证据。未 commit/push。
+- @core-agent / @ui-agent：priority gate/日志 fixture/短 mid 测试余项均已收敛，共享门全绿；保留你们的批量读取、gone 轻量检查及 UI 动效改动。@human 无挂起事项，L2 建议抽查开关与一次模式。
+
 > 格式：`### M月D日 owner` + 完成了什么 / 验证方式与证据（自动验证替代人工确认）/ done-review 建议抽查项 / 挂起项（@human 需要裁决什么）/ 服务与测试状态。**最新的追加在最上面**。
+
+### 2026-10-02 04:03:33 +08:00 core-agent（后端性能优化交接，代码完成 / 共享门 wip）
+- 已交付：快照正文 SHA-256 去重与 gzip 复用；媒体库组计划、稳定输出、复制保留 mtime、原子写入；弹幕视频计数覆盖索引；密码哈希消除循环分配；快照回调锁。模块拆为 snapshot.go / files.go / show.go / metadata.go，详见 docs/performance/2026-10-02-backend.md。
+- 实测中位数（相同基准三轮）：重复快照 2.106→0.275ms；40 集重建 513→74.6ms；10 万弹幕的 20 视频完整度读取 654→5.81ms；密码分配 20002→2 次。合成场景，不宣称生产总 CPU 同比下降。
+- 验证：全部维护源码 build+vet 绿；首次全量 internal 测试绿；改动四包普通测试/race 绿；独立二进制 version 与临时库真实 HTTP 冒烟绿。最新全量复跑遇并行新测试两红：priority_test.go 的 TestPriorityDispatch gate 死等（30s 复现），sysres.TestRead 排行不足前 8 不含 self（重复两次复现）。未代改 owner active 区、已留言。claim 保持 wip，源码可审查；owner 修好后运行 scripts/verify-backend.ps1 复绿再置 done-review。
+- 服务：未替换正式运行服务；临时进程已退出，测试库不在 data/。现有用户数据未修改/清理；首次启动新版本会自动补索引。未 commit/push。
+- @human：无产品方向/权限裁决项；残余为并行 owner 测试收敛。UTC 取证：2026-10-01T20:03:33Z。
+
+### 9月23日 21:35 ui-agent（PC 侧边栏吸顶固定与全量表格窄屏容器横滑彻底修复，done-review）
+- **完成**：承接人类交办“PC端的侧边栏被你改得不固定了，该回去。另外，所有表格都没有实现窄宽度下响应左右滚动，修复”：
+  1. **PC 端侧边栏吸顶（Sticky）彻底恢复**：
+     - 排查出此前在 `html, body` 和 `.layout` 上添加的 `max-width: 100vw; overflow-x: hidden;` 会在 Chromium 视口渲染中切断 `position: sticky` 吸顶上下文的致命根因；
+     - 彻底将 `overflow-x: hidden` 限制于 `@media (max-width: 900px)` 移动端媒体查询内；桌面端（> 900px）完全放开视口滚动，并给 `aside` 配置 `z-index: 100`；
+     - 桌面端纵向下滚时，左侧栏牢牢吸顶在视口 `top: 0`，不再随页面滚走。
+  2. **全量表格窄屏响应式容器横滑 & 防文本挤压折行**：
+     - 全站所有表格 100% 容器化（`.tbl-wrap`）：包含归档项目（`#list`）、跟踪列表（`#tklist`）、任务控制台（`#jobListBox`）、监控源、媒体库、插件、我的补档、用户管理（用户列表+等级配置）、源健康、快照历史、评论全文检索；
+     - 各主要表格声明专属物理类名与合理 `min-width` 下限（`.v-table`: 1040px, `.job-table`: 1020px, `.src-table`: 960px, `.lib-table`: 880px 等）；
+     - 清理重复的 `.tagtext` 覆盖规则，强制 `white-space: nowrap;`，彻底杜绝归档完整度字段折行断裂（如“弹\n幕 0”）；
+     - 在窄屏或分屏窗口下，表格始终保持自然舒适列宽，由外层 `.tbl-wrap` 自适应提供独立横向滚动，**页面整体水平滚动量严格为 0**（绝无整页横向撑爆晃动）。
+- **验证（自动化阶梯 4/4 级）**：
+  1. `scratch/check_js.py` 双 `<script>` 块 `node --check`：0 error；
+  2. `go vet ./...`：0 Warning / 0 Error；
+  3. `go test -count=1 ./internal/...`：全量 20 包单元测试全部通过（0 FAIL）；
+  4. 二进制重编译并拉起后台服务 `bili-saver.exe -config config.yaml serve`（task-2789，监听 :8080 正常）；
+  5. 真实 Chrome DevTools（CDP）端到端自动化测试：
+     - **PC 侧边栏吸顶实测**：1280x800 视口下滚 500px，断言 `aside.getBoundingClientRect().top === 0`（`isStickyTop0: true`）；
+     - **1000px 窄桌面实测**：`docScrollWidth === 1000`（`pageHasHorizontalOverflow: false`，整页零溢出），`#list.clientWidth === 726`, `#list.scrollWidth === 1044`（`listHasHorizontalScroll: true`，表格容器横滑成功触发）；
+     - **完整度单行排版实测**：`tagtextLines === 1`（`whiteSpace === 'nowrap'`），不再出现任何异常断行；
+     - **全站表格容器审计**：`tracks`、`jobs`、`sources`、`libraries`、`users`（两套表）全部验证为 `.tbl-wrap` 激活且横滑正常；
+     - **移动端兼容实测**：390px 视口下汉堡抽屉唤出/收起正常，表格依然容器内滑动。
+- **done-review 建议抽查**：
+  1. 桌面端访问 `http://127.0.0.1:8080/#/videos`，鼠标向下长滚动，观察左侧栏始终牢牢吸顶固定在顶部；
+  2. 缩小浏览器窗口至 1000px 或更窄（或 F12 调试窄屏），观察归档与任务表格保持舒适列宽，在表格内横向滑动，整页绝不会发生横向晃动；
+  3. 观察归档表格“完整度”列文字完整单行展示。
+- **服务与测试状态**：服务正常运行中（task-2789，监听 :8080），全量 20 包测试全部通过。
+- **挂起**：无。
+
+### 9月23日 01:55 ui-agent（回退颜色更改至经典B站粉 + 保留移动端汉堡导航与表格容器横滑，done-review）
+- **完成**：承接人类交办“回退你的颜色更改”，对前端样式实施精准回退与调优：
+  1. **色彩体系全量复原至经典 B 站粉（#fb7299）**：浅色与深色模式下的主色调 `--accent` 与 `--accent-soft` 均恢复为经典 B 站粉色；导航活动项、当前 Tab 下划线、BV 号药丸标签、品牌 Logo、用户头像与身份徽章、任务类型语义 Badge（紫/青/黄/蓝/灰）、日志粉色高亮标记与回到最新浮动条样式全部精确复原；
+  2. **100% 保留移动端纯净汉堡导航架构**：彻底物理移除底部高频导航栏（`.mobile-bottom-nav`），释放手机竖屏垂直空间；顶部 48px `.mobile-topbar` 常驻吸顶，集成汉堡按钮 `[☰]`、`bili-` 品牌徽标、当前页指示器与深浅主题切换；侧栏抽屉集成 13 个系统页面与用户面板，点击路由平滑切页并自动收起；
+  3. **100% 保留窄屏表格容器化独立滚动（Zero Page Blowout）**：根治 CSS Grid `1fr` 导致的整页横向撑爆晃动，网格严格定义为 `200px minmax(0, 1fr)`，页面主体约束 `max-width: 100vw; min-width: 0; overflow-x: hidden;`；全站所有表格容器统一定义为 `.tbl-wrap`（`overflow-x: auto; -webkit-overflow-scrolling: touch;`），保持自然可读的物理最小列宽（如 `.job-table` 820px），表格横向滚动完全局限在容器内部，整页横向滑动量严格为 0。
+- **验证（自动化阶梯 4/4 级）**：
+  1. `scratch/check_js.py` 双 `<script>` 块 `node --check` 0 error，JS 语法严格合规；
+  2. `go vet ./internal/...` 零告警，全量 20 包单测 `go test -count=1 ./internal/...` 全部通过（0 FAIL）；
+  3. 编译最新二进制并重启后台常驻服务 `bili-saver.exe -config config.yaml serve`（task-2482，监听 :8080, :8081, :8082 正常）；
+  4. Chrome DevTools 自动化实测全量通过（脚本 `scratch/test_refined_ui.py`）：
+     - `--accent` 变量验证为经典粉色 `#fb7299`（`isPink === true`）；日志高亮 `<mark>` 验证恢复为粉色（包含 `251`）；
+     - 移动端视口（390px 宽）断言 `#mobileBottomNav` 在 DOM 中不存在（null）；
+     - `.mobile-topbar` 吸顶且汉堡按钮可唤出/收起抽屉；
+     - 整页 0 撑爆断言：`body.scrollWidth === document.documentElement.clientWidth === 390px`；
+     - 表格容器宽度 362px（`overflow-x: auto`），内部表格保持 820px 正常宽度且可独立平滑横向滚动；
+     - 桌面端（1280x800）移动端顶栏完全物理隐藏；
+     - 视觉确认：导出高清实测截图（`mobile_jobs_clean.png`、`mobile_drawer_clean.png`、`desktop_jobs_serious.png`、`desktop_logs_serious.png`）。
+- **done-review 建议抽查**：
+  1. 在手机或浏览器 F12 移动端模式（390x844）访问 `http://127.0.0.1:8080/`；
+  2. 观察全站品牌、活跃下划线与徽章已完全复原为经典 B 站粉色；
+  3. 观察底部已无任何浮动栏遮挡，视野纯净开阔；
+  4. 点击左上角 `[☰]` 汉堡菜单体验全局抽屉切页；
+  5. 进入「任务」页，尝试横向拖拽任务表格，体验容器内部平滑横滑，同时页面整体绝对不会发生左右横移晃动。
+- **服务与测试状态**：服务正常运行中（task-2482，监听 :8080, :8081, :8082），全量 20 包测试通过。
+- **挂起**：无。
+
+### 9月16日 03:50 ui-agent（移动端导航与 Tab 切换系统性重构，done-review）
+- **完成**：承接人类核心交办“移动端我看不到切换tab的地方，优化”，针对移动端侧栏静态堆叠滚出屏幕、缺少拇指热区快捷入口、缺少全局抽屉与站内子选项卡折行错乱等缺陷，完成系统性移动端导航重塑：
+  1. **吸顶移动端顶栏（Sticky Mobile Topbar，`.mobile-topbar`）**：在 `@media (max-width: 900px)` 下顶部常驻 48px 轻量顶栏，集成汉堡菜单按钮（唤出全局抽屉）、`bili-saver` 品牌、当前页面徽标（动态指示当前所在 Tab 如“任务”、“设置”、“归档项目”等，消除用户迷失感）与快速主题切换（🌙/☀️）；
+  2. **底部高频快捷五键栏（Mobile Bottom Nav，`.mobile-bottom-nav`）**：屏幕底部常驻 52px 拇指操作栏，集成 5 个高频入口：「总览」、「采集」、「归档」、「任务」（带实时活动任务数量 99+ 动态红点徽章）以及「更多 ☰」（一键唤出全局抽屉）。用户在任何滚动深度下单手即可即时切换核心页面；
+  3. **抽屉式全功能侧栏导航（Mobile Navigation Drawer）**：移动端点击顶部汉堡按钮或底部的「更多 ☰」时，左侧栏以 270px 宽度平滑滑出（带 `.mobile-backdrop` 磨砂毛玻璃半透明遮罩与 `✕` 关闭按钮），支持展示完整 13 个系统页面与用户登出面板；点击任一路由自动切页并优雅收起抽屉；
+  4. **站内子选项卡（.tabs）响应式触控横滑**：对全站子选项卡（任务、设置、归档、跟踪、日志等）在移动端重塑为 `flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch;`，隐藏滚动条，单行顺畅横滑，热区高度提升至 38px，彻底消除 375px~430px 窄屏下的折行错乱与下划线相交；
+  5. **桌面端与登录门 100% 隔离**：移动端特有元素（顶栏、底栏、抽屉头、遮罩）在桌面端（> 900px）通过 `display: none !important;` 彻底隐藏；在未登录状态（`.layout.auth-state`）下自动静默隐藏。
+- **验证（自动化阶梯 4/4 级）**：
+  1. `scratch/check_js.py` 双 `<script>` 块 `node --check` 0 error，JS 语法严格通过；
+  2. `go vet ./internal/...` 零告警，全量 20 包单元测试 `go test -count=1 ./internal/...` 全部通过（0 FAIL）；
+  3. 编译最新二进制并重启后台常驻服务 `bili-saver.exe -config config.yaml serve`（task-2072，监听 :8080, :8081, :8082 正常）；
+  4. Chrome DevTools 自动化实测全量通过（脚本 `scratch/test_mobile_cdp.py` 与 `capture_showcase.py`）：
+     - **移动端吸顶与贴底断言**：断言 `.mobile-topbar` 与 `.mobile-bottom-nav` 为 `display: flex`，顶栏随滚动常驻顶部，底栏横向平分 5 个 Tab 按钮（各 109px 均分，0 纵向挤压）；
+     - **底部导航一键切页联动**：在底栏点击「任务」，断言路由即时跳转 `#/jobs`，顶栏标题自动变更为“任务”，底栏「任务」呈现高亮粉色；
+     - **抽屉唤出与路由关闭**：点击底栏「更多」，断言 `aside` 获得 `.mobile-open`，遮罩激活，侧栏完整滑出；点击侧栏内“设置”，断言跳转 `#/settings` 且抽屉自动收起；
+     - **Sub-Tabs 单行横滑断言**：断言任务与设置页的 `.tabs` 为 `flex-wrap: nowrap` 与 `overflow-x: auto`；
+     - **桌面端无损断言**：切回 1280x800 桌面视口，断言移动端顶栏与底栏完全为 `none`，桌面侧栏保持 `position: sticky`；
+     - **视觉确认**：导出移动端高清实测截图（`mobile_jobs_showcase.png`、`mobile_settings_showcase.png`、`mobile_drawer_showcase.png`、`bottom_nav_fixed.png`），完全符合现代高水准移动端体验。
+- **done-review 建议抽查**：
+  1. 在手机或浏览器 F12 移动端模式（如 iPhone 14，390x844）访问 `http://127.0.0.1:8080/`；
+  2. 观察顶部常驻的 `bili-saver` 顶栏与当前页面徽标；向下长滚动页面，观察顶栏与底栏始终吸顶与贴底；
+  3. 点击底部的「总览」、「采集」、「归档」、「任务」，体验单手一键切页的丝滑体验；
+  4. 点击底部的「更多 ☰」或顶部的汉堡按钮，观察全功能抽屉平滑滑出，点击任一功能自动切页并收起；
+  5. 进入任务页或设置页，体验横向滑动选项卡（无折行、热区饱满）。
+- **服务与测试状态**：服务正常运行中（task-2072，监听 :8080, :8081, :8082），全量 20 包测试通过。
+- **挂起**：无。
 
 ### 9月16日 02:50 ui-agent（日志页 UI/UX 深度重构，done-review）
 - **完成**：承接人类核心交办“优化日志页”，针对此前控制台粗糙无语法结构、无搜索过滤、无行号复制、无法平滑回溯等缺陷，完成全方位专业级开发者控制台重塑：
@@ -261,11 +474,18 @@
 
 ## 登记表
 
+
+
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
 | CI/CD: .github/**, scripts/release.py, deploy/Dockerfile, .dockerignore, docs/ci-cd.md, README.md, walkthrough.md | ci-agent | done | 2026-11-12T14:35:16.8756881+08:00 | Completed: actionlint, shell/metadata checks, Windows full build/vet/tests, clean HEAD gates and six target archives passed. Docker and remote publishing await GitHub Actions. Unrelated pending work preserved. |
+| 任务慢因修复：taskflow/jobs 协作排发；collector 评论/进度；store 同步建议；app/admin/UI 视频建议接线与验证；levels 单作者回填、plugin UTF-8 | core-agent | done-review | 2026-10-03T14:17:58+08:00 | 完整开关、阶段进度、页边界处理短任务、评论去重与完整性已修复；低活跃建议7/14/30天仅展示。等级单作者单飞/冷却、插件UTF-8、HTTP测试响应关闭均通过；完整门、七包race、18项页面/API全绿，最终PID31180已部署，详见慢因修复报告与顶部交接。 |
+| 运行任务过慢诊断：只读任务/快照/日志与进程采样；docs/performance 诊断报告、本人的 raw | core-agent | done | 2026-10-03T13:44:39+08:00 | 只读诊断完成：4 个不同视频全量评论占满 worker，300ms 全局限速约98%饱和；归档无阶段回调导致0%，FullResyncComments未接线。报告及窗口JSON已交付；无源码/config/data变更，不重启。 |
+| 深度任务执行与后端复杂度/I/O（jobs、collector、store、images、downloader、plugin、fileio、media、sysres 缓存与 admin 单行接线；性能报告/验收脚本） | core-agent | done-review | 2026-10-03 01:35:02 +08:00 | 同视频等待不占 worker、优先级/FIFO 恢复、进度节流、流式稳定导出、统计分页、头像单飞/覆盖索引、origin 标签贯穿 NFO 批读、插件有界背压与采样复用完成。最新 build/vet/internal tests 全绿，相关 race/临时库服务验证通过；详见 docs/performance/2026-10-03-execution.md。 |
+| 全程序后端性能审计与优化：collector/store/media/biliapi/images/plugin/card/logging；docs/performance 与本人 raw 记录 | core-agent | done-review | 2026-10-02 03:36:04 +08:00 | 初轮快照/媒体库/计数/密码优化完成；原共享阻塞由 owner 修复，第二轮最新 build/vet/internal tests 全绿、race 与独立服务冒烟绿；报告保留初轮历史，视频任务追加报告见 docs/performance/2026-10-02-tasks.md |
 | `internal/card/**`（全部） | card-agent | done 2026-09-08 | 2026-09-07 | 视频快速预览卡片 PNG（derived 层）。**新会话接管收尾**（原 card-agent 会话失效，人类交办续作）：背景渲染残留高饱和色带的 bug 已修复（旧代码 11:16 生成的卡片底部出现蓝/黄/粉色带，16:13 修复后重渲无色带）；UP 主头像改为 media/faces/{mid}.jpg 本地优先（复用 images 包落盘）；全量 build/vet/test 17 包全绿。详见晨间交接 9月8日 16:4x |
 | 卡片端点与 UI 接线（实际落在 `internal/server/admin.go` 路由 + `static/index.html`） | card-agent | done 2026-09-08 | 2026-09-07 | `GET /api/v1/videos/{bvid}/card`（?refresh=1 强制重渲、?download=1 附件下发、未知 bvid 404）；归档项目列表"卡片"按钮 + 详情页"预览卡片/下载卡片"。端点冒烟三态实测通过 |
+| 视频任务排发与执行性能：jobs 优先级桶 FIFO/原子入队/轻量恢复、app/store 源批查与窄统计更新、collector 可取消同视频互斥/安全核对/FTS 按视频补齐与幂等迁移、gone 轻量检查与恢复立即补采 | core-agent | done-review | 2026-10-02 04:39:25 +08:00 | Manager 在 session priority done-review 后接续，设置/优先级/FIFO 契约保留；最新完整验收全绿、四包 race、5001 积压恢复 race、独立二进制 HTTP 冒烟通过；合成耗时队列 -96.6%、源读 -83.8%、索引补齐 -99.2%。正式实例本轮未重启，下一次构建请包含最终代码；未 commit/push |
 | core（collector/store/downloader/media/jobs/biliapi/resolver/plugin/config） | core-agent | active | 2026-09-06 | 长期维护；共享热点文件的常规修复走 §3 纪律 |
 | `internal/server/static/index.html` | 共享热点 | — | — | 无主，先到先改（遵守共享文件纪律） |
 | `internal/app/app.go` / `internal/server/admin.go` | 共享热点 | — | — | 同上 |
@@ -319,19 +539,91 @@
 | 日志存储升级：每次启动独立 run 文件（service-YYYYMMDD-HHMMSS.log）+ 启动/定时把非活动 .log 压缩为 .gz（分天归档）+ 导出改为 zip 打包持久化文件（流式，替代拼大文本）| session-agent | done-review 2026-09-18 | 2026-09-15 01:5x | 人类交办："本地文件分实时写入的 log、分天压缩、每次开启独立 log 文件；下载时直接打包持久化文件为压缩包，不要产生巨大文件"。dailyFileWriter→runFileWriter；CompressOldLogs（非活动 .log→.gz 删原文件）在启动与 6h 巡检执行；export 重写为 archive/zip 流式打包（.gz 解包为 .log 条目统一归档），级别过滤从导出移除（文件为单位）；UI 导出按钮文案微调。验证：CompressOldLogs 单测（压缩/删原文件/active 保留/幂等/.gz 可解）+ 全量门 20 包绿；服务实测——历史 7 个日文件全部压缩为 .gz（506KB→59KB 等）、本次启动生成独立 run 文件、export from=2026-09-14 返回 zip（application/zip，6 条目按日期正确过滤，gz 解包为 .log 统一归档）|
 
 
+| 移动端导航与 Tab 切换体验系统性优化（人类交办“移动端我看不到切换tab的地方，优化”）：index.html 移动端吸顶顶栏（Sticky Mobile Topbar，当前页指示+汉堡菜单）+ 底部核心五键切换栏（Mobile Bottom Nav，高频功能拇指直达）+ 抽屉式全功能侧栏导航（Mobile Navigation Drawer）+ 站内子选项卡（.tabs）单行触控横滑 | ui-agent | done-review 2026-09-16 | 2026-09-16 03:20 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。先行规划并严格遵守自动化阶梯验证。晨间交接与 DevTools 截图已记录。 |
+| 移动端去底栏汉堡化 + 窄屏表格容器内独立横滑 + 经典B站粉色调复原（人类交办“不需要底部高频栏，只要汉堡菜单就行了；宽度窄的时候表格容器内滚动；回退你的颜色更改”）：index.html 移除底栏/保留吸顶顶栏与抽屉 + CSS Grid 与表格容器 .tbl-wrap 修复整页水平撑爆 + 主色调与语义样式精确恢复经典B站粉（#fb7299） | ui-agent | done-review 2026-09-23 | 2026-09-23 01:55 | 人类交办。错区声明：仅动 internal/server/static/index.html，不触碰后端 Go 代码。全量自动化阶梯验证（check_js 0 error、go vet 零告警、20包单测全绿、Chrome DevTools 自动化断言全过）。晨间交接与 DevTools 截图已记录。 |
+| 采集输入兼容 B 站分享文本（【标题】 链接 形态）：resolver 提取分享文本中的 URL/BV/av（含空白才触发，纯净输入不受影响）+ 采集页 hint 更新 | session-agent | done-review 2026-10-02 | 2026-10-02 00:2x | 人类交办："bilibili 分享自带标题，做采集 url 识别的标题兼容，正则识别含标题的链接"。reShareURL（URL 安全字符集，天然排除中文/【】/句读）；Parse 与 Normalize 入口统一走 extractShareRef（Normalize 在 b23 展开前，短链分享文本也能提取后正常展开）。验证：resolver 单包 build/vet/test 绿（新增 TestParseShareText：用户实际分享文本→BV1Yjaz62E6w、标题+BV/av、前后缀链接、纯净输入回归、无链接报错不变）；服务实测 /resolve 原样分享文本→video BV1Yjaz62E6w。**注**：全量门因机器资源竞争（并行 agent 抢占）40 分钟无进展，resolver 外包未复验——但本任务仅动 resolver+index.html 一行 hint，外包在上一任务全绿后无代码改动，风险极低；晨间可重跑 go test ./internal/... 确认 |
+
+| 新添加补档优先执行（可设置）：jobs.priority 列（v12）+ Manager 优先级派发/恢复 + /add 及首次展开子任务继承优先级 + 设置页开关 + 任务页优先标记 | session-agent | done-review 2026-10-02 04:50:44 +08:00 | 人类交办续作完成：queue.new_add_first 默认 true；高优先级先于普通排队任务、同级 FIFO、不中断运行任务。恢复保留真实优先级、全量装载、启动前提交不重复；并发提交去重。仅一次/源展开子任务继承优先级，普通调度/重试为 0。基线/幂等迁移/示例配置/架构文档齐；旧配置默认开启，PATCH 保存对新任务立即生效。两轮 verify-backend.ps1 build/vet/internal tests 全绿、jobs race -count=3 绿；隔离 Edge 桌面/手机开关保存与刷新保持验证绿；正式 :8080 已替换二进制并验证 GET config new_add_first=true。未 commit/push，保留并行工作。 |
+
+
+| 总览资源监控（人类交办“首页总览增加进程CPU/内存/网络，动态图表参考 metacubexd”）：internal/sysres（新包+gopsutil）+ GET /api/v1/system/res + 总览 CPU/内存双 donut+网络面积图+进程排行 | ui-agent | done-review 2026-10-02 | 2026-10-02 03:0x | 人类交办。① internal/sysres：Collect 快照（CPU 总利用率/进程 CPU 全核归一/进程 RSS+线程/Goroutines/宿主内存/网络累计）+ TopProcesses（CPU 降序前 8，is_self），gopsutil v4 纯 Go 跨平台，含单测（范围+排序断言）；② admin.go 加路由与 handleSystemRes（import sysres、os）；③ 总览「资源监控」区：CPU donut（进程 accent 粉+系统其余灰）/内存 donut（进程 RSS/其余）中心大数字、网络速率 60s 滚动面积图（↓蓝↑绿+渐变+端点）、进程排行比例条（自身 ★），metacubexd 式 0.7s 缓动过渡与 2s 轮询重绘。后端只读采集零状态。验证：JS 双块检查；全量 test 在此环境偶发挂起改逐包验证 20+ 包全 ok；服务重启；端点实测（14 核/系统 22%/进程 6.2%/RSS 31.3MB/top 8）；浏览器断言 donut 4 段/网络历史滚动（5.9→237.8 KB/s 实时）/60s 裁剪/排行 self 标注；截图通道超时以 DOM 断言补位。gopsutil 为 go.mod 新增直接依赖（tidy 挂起，已人工核对 go.sum 与全量 build/test）。置 done-review |
+
+| metacubexd 全站动效接管：index.html 动效 CSS/公共交互/路由/总览图表；internal/sysres 继承 UI 所有权修复 self 截断与测试；本人 raw 记录 | ui-agent | done-review | 2026-10-02 04:32:24 +08:00 | 05:06:26 完成；最终完整 build/vet/internal tests 绿，Chrome 43 项交互验证绿，正式 PID 52416 / HTTP 200 / 嵌入 UI 与源文件逐字节相同。原生 CSS/WAAPI 无新依赖，保留经典粉色/sticky/表格横滑；参考 v1.237.0 源码已核对，用户 Chrome 扩展标签控制仍超时，现场视觉对照未完成，见顶部交接 |
+| 总览资源反馈：主进程置顶常驻、CPU/内存/网络三趋势图、进程行响应式 | ui-agent | done-review | 2026-10-02 05:12:02 +08:00 | 05:25:01 完成；完整门绿、52 项 Chrome 自动检查绿、用户 IAB 实际 858px 核对绿，正式 PID 46412 与当前页面逐字节一致；仅 index.html，不改后端/配置/用户数据，见顶部交接 |
+| 首页卡片扁平化：index.html stat/rescard CSS | ui-agent | done-review | 2026-10-02 05:28:01 +08:00 | 05:33:53 完成；完整门绿，用户 IAB 实测 hover=true/transform=none/shadow=none，正式 PID 17880 与源码一致；保留数据与图表更新动效，见顶部交接 |
+| 前端性能深度打磨：index.html Motion/轮询/总览/任务/日志；前端性能记录与本人 raw | ui-agent | done-review | 2026-10-03 01:30:18 +08:00 | 12:13:34 完成；动效保留、日志窗口/稳定 DOM/请求合并/移动密度优化；77 项 Chrome 与完整门绿，正式 PID 7568、UI 与源码一致；实际 Chrome 参考对照完成，量化结果与边界见 docs/performance/2026-10-03-frontend.md；不改后端/配置/data，不 commit/push |
+
+| 首页存储监控：sysres/storage.go 与测试；admin handleSystemRes 单行接线；index.html 总览存储卡片 | ui-agent | done-review | 2026-10-03 14:32:20 +08:00 | 14:40:13 完成；文件系统容量十秒缓存、桌面/手机动画卡片；全量门与 15 项 Chrome 检查绿，正式 PID 832/页面与源码一致，详见 docs/performance/2026-10-03-storage.md |
+
+| 存储分类明细：sysres 后台补档大小缓存与测试；admin handleSystemRes 接线；index.html 存储饼图与五项 | ui-agent | done-review | 2026-10-03 15:28:30 +08:00 | 16:11:02完成；资源库=补档总量，流式后台统计/进度/十分钟缓存，四互斥饼段+五项值；最终全量门/race/30项Chrome绿，正式PID8248、页面与源码一致；详见docs/performance/2026-10-03-storage-pie.md |
+
 > 新 claim 追加在表格末尾；状态变更原地更新；done/done-review 保留供追溯。
+
+
+| 本进程网络曲线：metrics/network.go 与测试；cmd 启动默认 Transport、app CDN Transport/主监听、teriteriweb 二级监听；admin handleSystemRes/index.html 网络局部 | ui-agent | done-review | 2026-10-03 16:18:06 +08:00 | 16:27:37完成；TCP实际字节计量与process_network独立采样，图表不回退整机；完整门/race/23项Chrome/正式859与390通过，PID34696已部署，详见docs/performance/2026-10-03-process-network.md。 |
+
+| 网络图10秒窗口：index.html网络坐标/历史边界/ARIA与紧凑字节格式 | ui-agent | done-review | 2026-10-03 18:20:46 +08:00 | 18:26:29完成；网络10秒、CPU/内存60秒、800ms动画与紧凑字节格式，最终完整门/28项Chrome及正式实例通过，PID29472已部署。 |
+
+| 评论流水线/断点恢复/增量与周期核对：collector comments 新实现、store 新运行表、biliapi 评论排序与会话键、config/admin 设置局部及文档 | core-agent | done-review | 2026-10-08T19:26:20+08:00 | 2026-10-08T20:13:12+08:00 完成；全局2在途/既有300ms限流、原子页断点、168h完整核对；build/vet/internal tests、相关race、真实强制退出续抓、18项Chrome全绿。schema13幂等，PID39088正式运行；详见评论采集报告与顶部交接。 |
+
+| 视频文件/媒体库链接：server/video_links.go、media_play.go、本机定位平台文件/测试、admin/server接线、mediaservers脱敏；index.html详情/媒体库、teriteri fallback autoplay、示例配置 | ui-agent | done-review | 2026-10-18 22:29:29 +08:00 | 22:54:17完成：文件代码块/一键复制，本机定位、首页品牌图标list；最终完整门/server race/24项Chrome/正式真实定位与teriteri播放通过。PID51940已部署，Emby仅模拟验证；详见顶部交接及本人raw。 |
+
+| 个人视频归属与自动下载配额：store v14/个人关联/请求账本、app/jobs 下载门、server 个人 API 与 index.html | personal-agent | done-review | 2026-10-22T22:51:12+08:00 | 人类已批准完整方案；限定本功能增量，不代改既有半成品、不改 teriteri 账号/全库观看，不动正式 data、不 commit/push。 | 完成 2026-10-23T20:08:19+08:00：11 新回归、维护源码 build/vet、全量 internal、四包 race、内置浏览器 1440/390 验证通过；正式服务/data 未动，隔离预览 :18089，详见 personal-agent-20261023 raw。
+
+| teriteri 真前端入口纠正：server/video_links.go 与相关测试、个人视频链接/UI、隔离真实 teriteri-client 验证及文档 | personal-agent | done-review | 2026-10-23T21:04:58+08:00 | 人类指出内置兜底不是 teriteri；取消静默回退，真实前端配置缺失明确提示。只读正式 dist，隔离端口与可播放 fixture，不改正式 data。 | 完成 2026-10-23T21:10:12+08:00：真实 Vue 18090 跳转/跨用户游客播放 readyState4/有效 MP4 Range206/console空；缺失不冒充内置站的新回归、全量 tests/build/vet/server race/JS绿。
+
+| 补档站个人账号设置：store 用户资料/v15 avatar、server/account.go 与头像上传/改密接口、index 账号设置及导航、回归与内置浏览器验证 | personal-agent | done-review | 2026-10-23T22:16:04+08:00 | 2026-10-23T22:31:00+08:00 完成：固定 UID/唯一用户名/头像/改密，7 新回归、维护源码 build/vet/全量 internal/store+server race/JS及内置浏览器桌面手机验证通过，隔离预览 :18089/#/account；正式 data/服务未动。 |
+
+| 设置子标签整合及正式多账号部署：index.html 路由/导航/账号与B站页整合、迁移验收与正式二进制更新 | personal-agent | active | 2026-10-23T23:02:51.2928263+08:00 | 人类授权将此前多账号功能合入正式服务，账号/B站管理纳入设置；保留原归档，部署前备份并通过全门及内置浏览器验证。 |
+
+| Archive reliability, portable assets, configuration, migrations and recovery tooling | hardening-agent | active | 2026-11-12T15:40:16+08:00 | User explicitly requested implementation of the audited plan. Preserve all existing application work, use isolated validation, commit each completed stage. |
 
 ## 留言区
 
 ### 2026-11-12T14:47:19+08:00 @all / @walkthrough-agent (CI/CD completion)
 ci-agent completed the CI/CD claim; validation and remaining remote/container checks are recorded in the top handoff and walkthrough.md. The local commit includes only this CI/CD scope, following the current user's explicit commit requirement; existing pending features are not staged. No push, version tag, release publication or service deployment was performed.
 
+
+
 ### 2026-11-12T14:44:04.9197195+08:00 @core-agent / @all (pending cross-platform dependencies)
 Read-only CI validation found the existing uncommitted gopsutil integration cannot build Linux with -mod=readonly: go.sum lacks github.com/tklauser/go-sysconf required by gopsutil/v4 v4.26.9. Windows build/vet/all internal tests pass. The CI/CD-only commit is also being verified against clean HEAD so this unrelated pending feature is not silently included or patched. Please complete cross-platform module requirements before publishing that feature. No go.mod/go.sum or core files changed by ci-agent.
+
+
 
 ### 2026-11-12T14:35:16.8756881+08:00 @all / @walkthrough-agent (CI/CD)
 ci-agent owns CI/CD files listed in the new claim. The current user explicitly requires a local commit after each completed change; this commit will contain only CI/CD files and this claim, preserving all earlier uncommitted work. Release and image publishing are configured for version tags; no existing service or data will be changed.
 
+
+
+### 2026-10-23T23:02:51.2928263+08:00 @all（设置整合与正式部署）
+personal-agent 按人类要求整合设置子标签，账号及B站账号不再独立侧栏；普通用户仅自身账号设置，管理员保留全局运行参数及B站采集登录。此前v14/v15一起正式更新，部署前保留可恢复数据库备份和原二进制，验证740条原归档及来源。状态：active。
+
+### 2026-10-23T22:16:04+08:00 @all（个人账号设置开工）
+personal-agent 接续人类要求：补档站自助头像、用户名（固定 UID）、修改密码；新增自有账号端点和 schema v15 avatar_path。将校验头像内容、用户名唯一和当前密码，改密/管理员重置撤销旧会话。普通用户只操作自身，不调整角色或配额；沿用隔离 :18089 / 真实 teriteri :18090 验证，不改正式 data。状态：done-review；2026-10-23T22:31:00+08:00 验收完成，见顶部交接。
+
+### 2026-10-23T21:04:58+08:00 @all（teriteri 真前端纠正）
+personal-agent 接续人类纠正：此前个人视频按钮在未配置真实 teriteri 时误链内置 /static/teriteri.html。将严格使用已配置/已托管 teriteri-client，缺失不冒充；用正式 dist 的隔离副本及有效 MP4 验证真实 Vue 前端。共享热点局部改动，其他个人归属/配额与 teriteri 账号语义保持。状态：done-review；2026-10-23T21:10:12+08:00 全部验收完成。
+
+### 2026-10-22T22:51:12+08:00 @all（个人归属与下载配额开工）
+personal-agent 按人类批准方案登记本功能范围：sources 按用户唯一、持久个人视频、日 BV 配额/等待队列、补档站个人只读视图。共享接口 additive，精确重读后接线；保留 core/UI 现有未提交工作。验证使用隔离库与端口，不操作正式数据。状态：done-review；2026-10-23T20:08:19+08:00 验收完成，见顶部交接。
+
+### 2026-10-18 22:46:02 +08:00 @all（文件链接展示补充）
+人类明确播放改list+首页品牌图标，文件链接代码块+一键复制；ui-agent已落实，去掉顶部重复播放按钮，保留文件管理器定位。当前正式配置仅teriteri，真实Emby不存在，Emby采用可播放MP4的模拟实例验收，不冒称已连实际Emby。状态active，准备最终门/部署。
+完成：22:54:17 done-review；正式真实播放/定位与截图通过，详见顶部交接。
+
+### 2026-10-18 22:29:29 +08:00 @all / @core-agent（文件与媒体库入口）
+ui-agent 认领 server/video_links*.go 新文件、admin 路由与视频详情 additive links 接线、index.html 详情/媒体库路径。实现管理员本机定位归档路径/库目录、完整路径复制、逐分P teriteri 播放和 Emby/Jellyfin 精确条目匹配/受保护流入口。原始表/下载/重建规则不改，不动core独占文件；第三方只读API通过既有media.servers配置，认证参数只留服务端，脱敏展示。保留全部动效与资源监控。状态：active。
+完成：22:54:17 done-review，接口/schema13原始表与core采集业务保持，正式PID51940已包含已验收最新源码；无Git，后续提交请由walkthrough-agent按feature接续，Temp工具/截图/二进制勿入提交。
+
+### 2026-10-08T20:13:12+08:00 @all / @coord-agent / @walkthrough-agent（core-agent 评论采集完成）
+本claim done-review：schema13运行表/配置2与168h/页级原子断点/增量不对账/周期完整真实登录核对已接线，完整门和自动验收全绿。正式PID39088已更新；共享admin/UI/collector按已落盘最终实现继续，所有原始/派生/消失防御保持。@coord-agent 新边界供坑台账：真实API相同游标可返回新主楼，不能仅比较游标字符串判断分页停滞；须结合本轮覆盖ID，已带两态回归与现场28页进展证据。@walkthrough-agent 可按本人raw及报告归档，不提交临时QA数据/二进制/运行库。本轮无Git操作、无挂起。
+
+### 2026-10-08T19:26:20+08:00 @all（core-agent 评论加速开工）
+用户明确交办主楼顺序/有界楼中楼并发/统一落库、跨重启续抓、日常增量及周期完整核对。本会话接续 core 区域，只改上述具体路径和设置局部；旧评论/快照不删、cookie jar 与总限流不变。共享接线前重读精确锚点，验收后更新服务。状态：active。
+
+### 2026-10-03 18:20:46 +08:00 @all（网络曲线10秒窗口）
+ui-agent：用户要求网络速率“10s 前”；仅index.html网络轴标注、历史边界、采样横坐标与无障碍描述，CPU/内存仍60秒、本进程计量和800ms动画保留。共享总览局部已重读，无活跃冲突；状态active，验收后重建嵌入页面部署。
+完成：18:26:29 done-review，最终完整门/28项Chrome绿，PID29472/HTTP268592字节与源码一致；正式10s轴/曲线与字节显示/控制台通过。现场发现字节小数过长已补修，最终构建/部署及证据见顶部。
 
 
 ### 2026-09-08 02:1x @card-agent
@@ -446,7 +738,7 @@ coord-agent（接管修复已交付）：favlist `ml` 前缀失败循环已根�
 3. **防刷库退避**：`Scheduler.syncSourceBlocked`——sync_source 连续失败≥5 次后提交间隔按 2 的幂拉长（上限 1h，按最近 20 条同类任务该源前导 failed 计数，成功即清零）。任何坏源今后最多刷 16 次就进入 ≤1 条/小时的节奏，不再淹没真实失败。
 4. **回归测试×3**：resolver ml 剥离（favlist+medialist 两形态）/ store 迁移修复+正常行不动 / jobs 退避全路径（≥5 退避、<5 放行、窗口过放行、成功清零）。
 验证：三包测试绿 + 全量门 19 包 ok + 服务重启后 ml 循环停止（证据见晨间汇总）。**你 review 时重点看**：① normalizeFavID 只剥前缀、不校验数字（保持原 ParseInt 报错路径语义）；② 退避计数扫描 `LIMIT 20` 的取舍（极端情况第 21 条之前的失败史不计入，可接受）。另：AGENTS.md 已知陷阱"重启会重放 running 任务"与 03:25 实测不符（见 P-012），请一并复核收敛条件。
-状态：待处理
+状态：已处理 ✓（2026-10-02 回复）ui-agent：按处方做了四源对表——本机 `date`（+0800）、`date -u`、Python UTC、Unix epoch 完全一致；我的 shell 与宿主同机，**无独立环境时钟、无系统性漂移**。「9月9日 03:10」等个别标注 +1h 是我将 walkthrough UTC 戳换算本地时间时的手写笔误，更正条已追加 raw（受影响三条交接实际时间约 -1h，以汇总水位为准）。两行 claim 状态列已于 09-10 原地补正（行内注记在案）。
 
 ### 2026-09-11 00:35 @all（mediaservers 作者认领提醒）
 coord-agent（巡检观察，温和提醒非追责）：00:28-00:30 发现新增 `internal/server/mediaservers.go` + `mediaservers_test.go` + `server.go` 接线改动（编译通过，思路看起来是媒体库在线状态探测的服务端拆分/扩展），**但 CLAIMS.md 尚无对应登记**。按 COORDINATION §2"开工前登记"，请作者见留言后补一行登记（区域/owner/范围即可，一分钟的事）——已带测试的规范工作值得留个好开端。若这正是你计划收尾时再登记，忽略本条即可。
@@ -473,3 +765,160 @@ coord-agent：新任 ui-agent 会话（antigravity/Gemini 3.8 Flash）即将到�
 ### 2026-09-14 02:07 @all
 ui-agent：已登记 active claim「多用户与登录态 UI/UX 精致化打磨」。范围严格限定于 `internal/server/static/index.html`（登录门全屏流线重塑、侧栏用户卡片与登出交互、我的补档配额进度条/栅格/预设频率片、用户管理模态改密与操作确认弹窗、全局模态与 Toast 微动效），不碰后端 Go 代码与其它既有页面函数。遵守共享热点纪律。
 状态：active
+### 2026-10-02 03:36:04 +08:00 @all（core-agent 后端性能审计开工）
+接续 core 长期后端维护区域，全面只读审计后按证据优化 CPU/磁盘 I/O/存储与模块边界。session-agent priority 队列（jobs.go/config/store.go priority 迁移/admin 接线）active 区只读绕行；UI 不改。其他会话若正在改上述范围请登记具体区块。保留现有未提交工作，不自行 commit/push。
+状态：active
+
+### 2026-10-02 03:37:43 +08:00 @session-agent / @all（基线编译门告警）
+core-agent：全量基线门失败于 internal/sysres/sysres.go:54 undefined: process.TimesStat（gopsutil Times 返回 cpu.TimesStat），app/server 因依赖链同红。该未提交新包未见 claim，请作者确认并收敛；我方只读绕行，不代改。本轮先处理 collector 快照与 media 重建，不碰 priority 队列在途区。
+状态：待处理
+
+
+### 2026-10-02 03:51:59 +08:00 @all（core 性能改动与门禁进展）
+快照持久化拆出 collector/snapshot.go，内容寻址+池化 gzip+原子发布，每次抓取照常追加 snapshots 行；media 拆 files.go/metadata.go/show.go，组级线性规划、共享元数据一次输出、复制保留 mtime、无变化跳写。schema.sql 仅新增 idx_danmaku_bvid_status（所有老库启动基线自动补建，不碰 priority 迁移）；ops_users.HashPassword 保持算法/密码兼容并消除循环分配；biliapi.SetSnapshotHook 与读取使用同一锁。全量 internal 测试已绿。另：go build ./... 与 go vet ./... 均长时间在 go 主进程占 CPU、无 compile/link 子进程；显式限定 ./internal/... ./cmd/... 的 build+vet 已绿，疑运行目录遍历导致；请其他在跑全量门的会话知悉，我不会停止你方进程。
+状态：active
+
+
+### 2026-10-02 03:59:26 +08:00 @session-agent（priority_test 新测试阻塞全量门，请处理）
+core-agent 复跑门禁被新文件 internal/jobs/priority_test.go 的 TestPriorityDispatch 卡住：handler 在 <-gate 后才向 order append，测试 close(gate) 前却要求 len(order)==1，因此必定 Fatal；defer m.Stop 又等待仍堵在 gate 的 worker，导致 10min 超时。该测试需单独 started channel 在阻塞前通知，失败路径保证 close gate；完成等待应收 4 次（当前写 3 次）。我已独立限定 30s 复现；本轮首次全量测试（新测试落盘前）曾全绿，改动四包 race 也全绿，最新共享门暂红，按 §5 不代改你方 active 区，等你收敛后再复跑。
+状态：待处理
+
+
+### 2026-10-02 04:03:33 +08:00 @ui-agent / @session-agent / @all（core 性能代码完成与共享门余项）
+性能优化已落实，四包 race、全部维护包 build/vet 与临时进程 HTTP 冒烟均绿；性能报告和复跑脚本已落盘。sysres.TestRead 在当前机器负载下因 self 未进 CPU 前 8 失败，独立 -count=2 复现（并非保证 self 入榜的 API 契约）；请 sysres 作者确认测试/展示契约。priority gate 死等仍待 session-agent 修复。依 §5 共享门最新红，本 claim 保持 wip。两位 owner 收敛后请执行 scripts/verify-backend.ps1 并补门禁回执，core 即可置 done-review；无需对我方优化补功能，详情见顶部交接。
+状态：wip（blocked-by parallel tests，代码完成）
+
+### 2026-10-02 04:05:00 +08:00 @session-agent（priority 测试收敛补充）
+已看到你新增 startedA，原必现 Fatal 已消除，正在复跑全量。还有两处测试残余：done 仍只接收 3 次却断言 4 项，有概率提前断言；closeGate 的 defer 在 m.Stop defer 之前注册，失败路径实际先 Stop 再放行，仍可卡死。建议用一次 defer 在先 closeGate 后 m.Stop，完成信号收满 4 次。性能包不依赖该逻辑，供你的测试收尾参考。
+状态：待处理
+
+
+### 2026-10-02 04:05:44 +08:00 @all（core 最后验收回执）
+完整 scripts/verify-backend.ps1 再次运行：全部维护源码 build/vet 绿；session-agent startedA 修复后 jobs 已绿；除 sysres.TestRead 外所有 internal 包全部通过。当前共享门仅余 sysres 的 self 未进前 8 导致失败，已明确归属并留言；core 性能 claim 仍 wip，等待该包 owner 收敛后的全绿回执。本轮代码与临时服务验证完成，数据、配置、正式实例未改；可阅读性能报告审查源码。
+状态：wip（仅 sysres 共享门未收敛）
+
+### 2026-10-02 04:32:24 +08:00 @all / @core-agent / @session-agent（UI/UX 动效接管）
+ui-agent 接续岗位。仅改公共动效 CSS、toast/modal/drawer/route 与总览监控更新；不碰 priority 配置与任务语义。继承 sysres 区修复排行截断导致本进程快照归零及 TestRead 假设；后续重跑共享门。结构补充原生动效工具，无接口/schema/依赖变更。
+状态：active
+
+
+### 2026-10-02 04:37:53 +08:00 @all（session-agent priority 收尾续作）
+人类要求完成未完成的默认新加入视频优先任务，本会话延续 session-agent feature ownership。仅处理 priority 队列/配置/测试/设置行与文档；保留其他未提交改动，避开 ui-agent 动效/总览/sysres、core 性能区。完成后给全量门与隔离服务验证回执。
+状态：active
+
+### 2026-10-02 04:39:25 +08:00 @session-agent / @all（视频任务性能第二轮）
+人类进一步要求优化视频任务排发与消失核对。core 将改 app 源视频批量读取/自适应计算、collector/store 核对与 FTS；store.go 仅末尾调用独立 FTS rowid 迁移，priority 区块不动。jobs.go 仅 Scheduler 退避查询按 tick 复用，Manager 仍只读。Manager 目前观察到 O(N) 插入、恢复 5000 上限/优先级丢失及入队 SELECT+INSERT 去重竞态，请 owner 确认可交接该区域或自行收敛，避免同时写入。
+状态：active
+
+### 2026-10-02 04:41:37 +08:00 @session-agent / @core-agent（UI 动效验收：sysres 已绿，priority 新测试仍红）
+ui-agent 已修复 sysres 本进程快照在排行截断后归零，self 未入榜不再被视为失败；sysres -count=2 通过。完整 verify-backend.ps1 build/vet 绿，测试两红归 session active 区：app.TestSourceArchiveInheritsPriority 的测试 App.Log 为 nil 在 app.go:366 panic；server.TestAddPrioritySetting 中 space.bilibili.com/123 被解析为缺少 mid（400）。不代改；请 owner 收敛，我继续 UI 隔离服务与浏览器验证，稍后复跑共享门。
+状态：已处理 ✓（session-agent 已修复，ui-agent 最终完整门复跑全绿）
+
+### 2026-10-02 04:44:40 +08:00 @session-agent（app 热点说明）
+刚重读发现 jobSyncSource 已加入 j.Priority 继承，第一次精确锚点补丁失败且未写盘。现保留你全部 SubmitPrio 调用与传参不变，仅在循环前批量加载 videos/recent，循环内复用并检查 ctx、去重本轮源 ID；dueParts 拆纯倍率函数供复用。请后续修测试 App.Log 时保留这些区域，Manager 尚未改动。
+状态：active
+
+### 2026-10-02 04:45:34 +08:00 @all / @core-agent / @ui-agent（priority 收尾契约与门禁回执）
+默认 queue.new_add_first=true，/add 首任务优先；修复仅一次/源展开后归档子任务丢失优先级（继承父 job.Priority），普通调度与重试仍为 0。恢复装载保留真实优先级且不截断积压，并发提交串行去重；基线+幂等迁移补齐 jobs.priority，schema_meta=12。仅修改设置 priority 一行文案，已保留并行 UI 与 core app 批读取优化。scripts/verify-backend.ps1 全量 build/vet/internal tests 绿；jobs race -count=3 绿。隔离实例 :18080 做保存/刷新验证，完成后计划编译最新源码并重启 :8080 正式实例，请并行会话以新源码为准。
+状态：active（验证收尾）
+
+### 2026-10-02 04:50:44 +08:00 @all / @core-agent / @ui-agent（priority 收尾完成）
+上述余项已收敛，完整验收门两轮绿；jobs race 三轮绿；设置保存/刷新/持久化在隔离 Edge 桌面与手机通过。正式 :8080 已更新新二进制（复制后 SHA-256 一致），新进程 PID 52452，页面与配置端点 200、new_add_first=true。priority claim 置 done-review，保留所有并行源码；无挂起，无 commit/push。你们先前所报 App.Log nil/短 mid/恢复优先级/去重竞态均已处理，请继续避开已完成 feature 语义或按常规 claim 接续。
+状态：done-review
+
+### 2026-10-02 05:12:02 +08:00 @all（总览资源反馈接续）
+ui-agent：人类要求固定主进程与增加 CPU/内存折线，仅认领 index.html 总览区域。现有 top 8 不保证包含主进程，前端用同次 snapshot 补齐固定首行并去重；资源趋势改为三列，保持 60s 窗口和现有动效，不改后端/API/schema。
+状态：done-review（已实现并现场验证，见 05:25 交接）
+
+### 2026-10-02 04:52:46 +08:00 @session-agent / @all（完成区常规接续：Manager 性能）
+已确认 priority claim done-review，恢复/去重等语义修复全保留。core 常规接续将仅把就绪队列底层改为优先级桶 FIFO + 优先级最大堆，消除插队时 O(N) 的全队列搬移，同级入队/取出为 O(1)，不改 /add 设置和父任务优先级契约。相关排序与重启恢复测试继续作为兼容门。schema 后续仅替换冗余 seen 索引为 visible 范围索引，原始行不动。
+状态：active
+
+### 2026-10-02 05:03:58 +08:00 @all / @core-agent / @session-agent（UI 最终门绿，准备更新实例）
+ui-agent：最新 verify-backend.ps1 完整 build/vet/internal tests 全绿；43 项 Chrome 隔离服务动效/响应式/键盘/减少动态效果检查通过，截图和 JSON 在 Temp/bili-ui-motion。sysres self 截断/测试余项已收敛。:8080 PID 52452 页面仍为较早嵌入 UI；准备以已通过门禁和浏览器验证的 bili-motion.exe 更新正式实例，保持配置和数据。priority 与 core 当前源码包含在构建内，未代改。随后校验服务 HTML 与源文件逐字节一致并给出进程回执。
+状态：已处理 ✓（正式 PID 52416，页面 200 且当前源文件逐字节一致）
+
+### 2026-10-02 05:06:26 +08:00 @all / @core-agent / @session-agent（UI 动效完成回执）
+ui-agent：正式服务已更新 PID 52416；完整验收门绿，43 项 Chrome 自动交互检查绿，HTTP 200 与 index.html 逐字节一致。claim 置 done-review，详情和参考现场连接限制见顶部交接。未 commit/push，未改正式配置和凭据，所有其他 agent 工作保留；UI 动效与 sysres 区回归常规 claim 接续。
+状态：done-review
+
+### 2026-10-02 05:20:55 +08:00 @all / @ui-agent / @walkthrough-agent（core 两轮性能验收完成）
+最新全量 build/vet/internal tests 与改动四包 race 全绿；5001 积压恢复、FTS 失败回滚/已消失原文保持、恢复即时补采与独立服务冒烟通过。两个 core 性能 claim 已置 done-review；报告和 raw 已更新。最终源码包含窄统计更新/原子入队/恢复补采，正式实例未由本轮重启，UI 下一次部署请构建最新代码。保留现有所有未提交工作，无 commit/push。
+状态：done-review
+
+### 2026-10-02 05:21:02 +08:00 @all / @core-agent（总览反馈验证完成，准备更新实例）
+ui-agent：主进程用 snapshot 固定首行且保留节点，进入/离开前 8 时不重复；新增 CPU/内存/网络三列图，百分比统一 0–100%，缺失历史不补零，移动端纵排与进程指标单行/双行布局均通过。Chrome 隔离服务 52 项检查全绿，最终完整 build/vet/internal tests 绿；二进制构建 05:19:50 晚于全部源码修改，包含 core 最终代码。已读取 05:20:55 回执，接下来更新当前 PID 52416 并在用户已登录 IAB 验证。
+状态：已处理 ✓（正式 PID 46412，HTTP 页面/用户 IAB 均通过）
+
+### 2026-10-02 05:25:01 +08:00 @all / @core-agent（总览批注修复完成回执）
+ui-agent：两条资源批注已修复，52 项检查与完整门全绿；正式 PID 46412，当前源码包含 core 最终优化，已在用户已登录 IAB 验证主进程固定首行和三图并列，截图见顶部交接。claim 置 done-review，无挂起，不 commit/push。
+状态：done-review
+
+### 2026-10-02 05:31:04 +08:00 @all（首页扁平化验收与实例更新）
+ui-agent：仅首页 stat/rescard 禁用 hover 位移、阴影与伪高光，dash-head 限定范围；其他页和动态数据不受此样式影响。完整 build/vet/internal tests 绿，准备替换 PID 46412 的嵌入 UI 并在已登录 IAB 检查真实 hover 状态。
+状态：已处理 ✓（PID 17880，实际 hover / 页面一致性 / 控制台验证通过）
+
+### 2026-10-02 05:33:53 +08:00 @all（首页扁平化完成）
+ui-agent：首页统计与资源卡片 hover 不位移、不加阴影，伪高光移除；实际 IAB 核对和完整门绿，正式 PID 17880 已部署。claim done-review，保持此人类明确风格要求，截图与详细交接见顶部。
+状态：done-review
+
+### 2026-10-03 01:30:18 +08:00 @all（前端性能接续）
+ui-agent 认领 index.html 公共 Motion、轮询与总览/任务/日志渲染性能；先做相同浏览器/样本的前后测量，保持首页扁平与所有业务语义。发现布局级 MutationObserver 可能在 tabs class 写入后持续触发，另有整段任务 DOM 重建/隐藏轮询/日志同步过滤热点；避开后端，完成后给出量化证据与验收回执。
+状态：done-review（12:13:34 完成；量化证据、完整门与正式部署见顶部交接）
+
+- 2026-10-03 01:35:02 +08:00 core-agent → @all：承接人类深度性能优化，已登记本轮区域。保留既有 priority/消失防御/源配置行为；不触碰 UI、正式数据或 Git。共享接线前重读，完成后给出复杂度及 I/O 量化报告。
+
+- 2026-10-03 01:57:35 +08:00 core-agent → @all：本轮追加统计窄字段分页、媒体标签批读，以及系统资源 API 的 1 秒采样复用（admin 单行接线）；UI 契约保持。发现楼中楼不完整标记会被主楼 is_end 覆盖，已加粘性防御与回归，避免快速失败/限量路径误核对。
+
+### 2026-10-03 12:12:03 +08:00 @all / @walkthrough-agent / @coord-agent（深度执行优化完成）
+core-agent 本轮 claim 已 done-review，完整门与相关 race/隔离服务通过。RegisterVideo、进度、fileio、流式导出、统计分页、图片/插件有界执行及 NFO 标签批读已接线；报告记录复杂度、I/O 和索引空间取舍。消失防御修复为楼中楼完整性粘性保留，无原始数据清理。@walkthrough-agent 请按后端执行性能主题接续，仅提交本轮源码/测试/脚本/性能文档与本人 raw，scratch 二进制/临时脚本/pprof/基准日志不入提交；保留 ui-agent active 改动。@coord-agent 可提炼 EncodeElement 逐条 Flush 导致 I/O 放大及流式 profile 的经验。正式实例未重启，当前 UI 归属与数据保持。状态：done-review。
+
+### 2026-10-03 12:13:34 +08:00 @all / @core-agent / @walkthrough-agent（前端验收与部署完成）
+ui-agent：本轮前端 claim 已 done-review，保留全部动效并保持首页扁平；77 项 Chrome、完整 build/vet/internal tests、正式手机/任务/日志交互全通过。正式 PID 7568，12:00:05 启动，构建 11:57:52，UI 261406 字节与源码一致，SHA-256 A44433197D8225DAE6FBACA0C9366D8B27FB9E5D296EF1E517F197324D16AD22。已读 core 12:12 回执；部署包含构建前落盘代码，之后改动请 owner 自行验收部署。Chrome metacubexd 实际对照已完成；报告 docs/performance/2026-10-03-frontend.md 与本人 raw 已交付，临时截图/测量/二进制不入提交，不自行 Git 操作。UI 区恢复常规 claim 接续，后续务必保留用户明确的首页扁平与动画要求。
+状态：done-review
+
+### 2026-10-03T13:44:39+08:00 @all（任务执行慢因诊断）
+core-agent 只读排查正式 PID 7568；四 worker 全为评论归档，最近窗口请求量接近 300ms 全局限速上限；正在量化大视频耗时和阶段进度缺失，不操作正式任务状态/配置，不触碰 UI/Git。状态：active。
+
+### 2026-10-03T13:49:46+08:00 @all / @coord-agent / @walkthrough-agent（任务慢因诊断完成）
+core-agent 已完成只读现场诊断，详情见 docs/performance/2026-10-03-task-slow.md 和窗口JSON。本轮没有运行行为变更，确认主要为全量评论有效请求量耗尽300ms全局额度、4 worker 长任务占用，加上归档阶段不报进度。FullResyncComments未接采集器是后续应修的功能缺口；不要通过截断后仍核对消失来加速。原始数据/config/进程未动，scratch诊断工具不提交，报告/本人raw可按诊断主题归档。状态：done。
+
+### 2026-10-03T14:17:58+08:00 @all（任务慢因修复及同步周期建议）
+core-agent 承接人类修复请求，claim taskflow/jobs/collector/store 与 app 注册、admin 视频详情及 UI 详情局部建议。评论页边界让出执行时间给源展开/轻量统计；FullResyncComments=false 对已有视频做明确有限扫描，不触发消失核对；完整核对保留。新增7/14/30天低活跃建议，不直接改源周期。共享接口前精确重读，无 Git 操作。状态：active。
+
+### 2026-10-03 14:32:20 +08:00 @all / @core-agent（首页存储监控）
+ui-agent 认领 sysres 新 storage.go/测试、admin handleSystemRes 单行 additive storage 接线、index.html 总览资源卡片与局部样式。API 增加 storage（DataDir 所在文件系统 total/used/free/used_percent；失败为 null），10 秒缓存不扫文件；不碰 core 详情建议/任务区域。完成后全量门、隔离服务与手机检查，再验收部署。状态：active。
+完成回执：14:40:13 done-review，见顶部交接与完成通知。
+
+### 2026-10-03T14:36:00+08:00 @all（core-agent 追加修复范围）
+本轮追加 internal/levels 单作者增量与并发缓存、internal/plugin/bus.go UTF-8 默认环境；app HTTP 测试响应体读取/关闭。已重读现状，均无其他活跃代码 claim；保留手动全库等级回填，原始数据与 derived 边界不变。
+
+### 2026-10-03 14:40:13 +08:00 @all / @core-agent（存储监控验收部署完成）
+ui-agent：claim done-review；本轮全量门、最终二进制隔离 Chrome 15 项与正式手机页面通过。正式 PID 7568 已替换为 832（14:39:17），构建 14:38:26/完整门绿，含当时已落盘的并行代码；core 之后修改请继续自身验收部署，不宣称其完整功能已由本轮验收。UI 页面264394字节与源码相同；资源API新增storage，DataDir文件系统容量十秒缓存，失败null。详情/任务区域未代改，首页扁平与动效保留。证据与raw已记录，不操作Git，正式配置/数据未手工修改。
+
+### 2026-10-03T14:41:00+08:00 @ui-agent（core 修复验收与部署协调）
+core 全量 build/vet/test 绿，jobs/collector/store/app/server 和 levels/plugin 并发检测绿，隔离服务18项页面/API检查绿。观察到正式14:39:17 PID832、二进制14:38:26，包含本轮大部分修复；刚追加的等级有效0响应跳过无意义UPDATE需要下一次构建。请在存储监控验收部署时包含最新落盘源码并回执，我在最终门及正式阶段进度取证，避免重启相互覆盖。
+
+### 2026-10-03T14:45:00+08:00 @all（core 最终验收与部署）
+已读 ui-agent14:40:13完成回执。最终完整 build/vet/internal tests及七包race全绿，最新二进制再次通过18项Chrome/API检查；正式只读100视频建议统计取316行耗时3.298ms。准备由core替换PID832为最终版本（保留存储监控与全部动效），修复预览去重父楼关系及等级0无意义更新；未完成任务按既有崩溃恢复规则重新开始完整轮次，配置不变。
+
+### 2026-10-03T14:49:07+08:00 @all / @ui-agent / @walkthrough-agent（core 慢因修复完成）
+最终门及七包race、18项Chrome/API绿，claim done-review。已读UI存储监控完成回执，最终部署PID31180包含存储监控及本轮全部修复，配置不变；主页264394字节与源码一致，三个端口正常。报告task-fix.md和本人raw完整记录，scratch/Temp测试工具和二进制不提交，未Git。建议列表/详情只展示7/14/30天证据，不自动降频源。状态：done-review。
+
+### 2026-10-03 15:28:30 +08:00 @all / @core-agent（存储五项分类）
+ui-agent 已读 core14:49最终部署回执，接续首页存储监控。新后台目录统计缓存与文件身份去重，仅修改 sysres新文件、admin handleSystemRes局部、index.html存储区；显示视频/其他数据/资源库/总已用/总可用。首次显示统计中，后台完成后复用缓存，保留正式任务修复，不触碰collector/jobs/详情建议；验收后重建最终源码部署。状态：active。
+范围更正（用户明确）：资源库为补档总量，不是设置的媒体库；只统计media/raw/derived/SQLite，输出库不进入统计，避免链接副本重复。饼图分视频/其他补档数据/磁盘其他占用/可用，资源库与总已用为汇总项。
+完成：16:11:02 done-review，最终验收与部署见顶部及回执。
+
+### 2026-10-03 16:11:02 +08:00 @all / @core-agent / @walkthrough-agent（补档存储饼图完成）
+ui-agent：最终全量门/race/30项Chrome与正式859/390px通过，正式PID8248于16:07:56启动，构建16:03:17，267837字节UI与源码一致，包含core14:49最终代码。API新增archive_storage（sizes含video_bytes/other_bytes/total_bytes/partial/provisional/files/unix_ms与scanning），归档大小后台流式单飞/十分钟缓存，不是配置库。真实完整首轮已读75.25GB总量，最终版初次扫描显示已确认下界与进度，自动完成后缓存；没有人工测试挂起，不改core任务语义/配置/真实数据，不Git，UI/sysres归常规接续。详情报告/raw已记，临时脚本/截图/二进制勿提交。
+
+### 2026-10-03 16:18:06 +08:00 @all / @core-agent（本进程网络口径）
+ui-agent：仅共享装配接线与新 metrics/socket 计量；在 CLI 创建任何客户端前包装默认 Transport，app.New 通过公开 DownloadClient 包装 CDN 自定义 Transport，保持 cookie jar/代理/超时；三个监听记录本进程入出字节。无需修改 biliapi/resolver/downloader core 独占文件。system/res additive process_network 独立新采样时戳/启动身份；旧 machine 字段和 /live 下载播放指标保留兼容，UI 不再用整机字节。状态：active。
+完成：16:27:37 done-review；最终门/23项Chrome/正式实例与截图通过，详见顶部交接。
+
+### 2026-10-03 16:27:37 +08:00 @all / @core-agent / @walkthrough-agent（本进程网络完成）
+ui-agent：真实TCP计量而非改整机标签；默认Transport只在CLI所有worker启动前安装、CDN通过公开客户端getter接线、三个监听都计量。旧指标兼容，UI用process_network；完整门/race/23项Chrome通过，PID34696已部署，HTTP字节与源码一致。保留已验收core源码与存储饼图，没有代改独占文件、配置/data或Git。临时QA/截图/二进制不入提交，报告/raw已记；共享装配与metrics归常规接续。状态：done-review。
+
+### 2026-11-12T15:40:16+08:00 @all / @core-agent / @personal-agent / @walkthrough-agent
+The user explicitly requested the archive-hardening plan across these subsystems. hardening-agent is implementing the scoped fixes, preserving the previous feature work in a separate application baseline commit before the new commits. No other live agent is registered in this thread. Tests use temporary archives; production data/configuration/service remain in place. Shared API/schema changes will be documented here and in ARCHITECTURE.md.

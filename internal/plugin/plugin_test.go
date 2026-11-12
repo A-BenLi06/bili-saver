@@ -27,9 +27,13 @@ func runHelperPlugin() {
 	if err := dec.Decode(&ev); err != nil {
 		os.Exit(1)
 	}
+	model := "test-model"
+	if configured, ok := ev.Config["model"].(string); ok {
+		model = configured
+	}
 	resp := map[string]any{
 		"op":     "save_summary",
-		"params": map[string]any{"bvid": ev.Payload["bvid"], "content": "插件生成的总结", "model": "test-model"},
+		"params": map[string]any{"bvid": ev.Payload["bvid"], "content": "插件生成的总结", "model": model},
 	}
 	_ = json.NewEncoder(os.Stdout).Encode(resp)
 	resp2 := map[string]any{

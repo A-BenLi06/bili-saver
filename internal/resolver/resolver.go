@@ -60,9 +60,31 @@ var (
 	reBVIn   = regexp.MustCompile(`(?i)BV[0-9A-Za-z]{10}`)
 	reAVIn   = regexp.MustCompile(`(?i)\bav([0-9]+)\b`)
 	reMedial = regexp.MustCompile(`(?i)^medialist/(?:play|detail)/([^/?]+)`)
+	// reShareURL 从分享文本提取链接：仅 URL 安全字符（RFC3986），
+	// 中文/【】/句读等天然被排除，不会被标题或后缀污染。
+	reShareURL = regexp.MustCompile(`https?://[A-Za-z0-9\-._~:/?#@!$&'()*+,;=%]+`)
 )
 
-// Parse 解析纯文本输入。支持:
+// extractShareRef 兼容 B 站分享文本：分享常为「【标题】 https://…」等
+// 带标题/说明的形态。仅当输入含空白（即"文本"而非纯净链接/号）时尝试
+// 提取首个链接或 BV/av 号；提取不到返回原文，纯净输入零影响。
+func extractShareRef(s string) string {
+	if !strings.ContainsAny(s, " \t\r\n") {
+		return s
+	}
+	if m := reShareURL.FindString(s); m != "" {
+		return m
+	}
+	if m := reBVIn.FindString(s); m != "" {
+		return m
+	}
+	if m := reAVIn.FindStringSubmatch(s); m != nil {
+		return "av" + m[1]
+	}
+	return s
+}
+
+// Parse 解析纯文本输入。支持：
 //
 //	BV1xxxx / av123
 //	www.bilibili.com/video/BV...
@@ -75,6 +97,7 @@ func Parse(raw string) (*Input, error) {
 	if s == "" {
 		return nil, fmt.Errorf("空输入")
 	}
+	s = extractShareRef(s)
 	if reBV.MatchString(s) {
 		return &Input{Type: TypeVideo, ExtID: s}, nil
 	}
@@ -196,7 +219,7 @@ func ExpandShortLink(ctx context.Context, raw string) (string, error) {
 
 // Normalize 先展开短链再解析。
 func Normalize(ctx context.Context, raw string) (*Input, error) {
-	s := strings.TrimSpace(raw)
+	s := extractShareRef(strings.TrimSpace(raw))
 	if strings.HasPrefix(s, "http") {
 		if u, err := url.Parse(s); err == nil && strings.Contains(u.Host, "b23.tv") {
 			expanded, err := ExpandShortLink(ctx, s)

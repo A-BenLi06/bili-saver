@@ -16,35 +16,25 @@ func (s *Store) UpsertSource(src *Source) (int64, error) {
 	if src.SyncMode == "" {
 		src.SyncMode = "interval"
 	}
-	res, err := s.DB.Exec(`INSERT INTO sources(type, ext_id, extra, title, watch, sync_interval_minutes,
+	var id int64
+	err := s.DB.QueryRow(`INSERT INTO sources(type, ext_id, extra, title, watch, sync_interval_minutes,
 		sync_mode, interval_comments_minutes, interval_danmaku_minutes, interval_subtitles_minutes,
 		layout, auto_download, space_scope, user_id, created_at, last_sync_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(type, ext_id) DO UPDATE SET title=excluded.title, extra=excluded.extra,
+		ON CONFLICT(user_id, type, ext_id) DO UPDATE SET title=excluded.title, extra=excluded.extra,
 		  watch=excluded.watch, sync_interval_minutes=excluded.sync_interval_minutes,
 		  sync_mode=excluded.sync_mode,
 		  interval_comments_minutes=excluded.interval_comments_minutes,
 		  interval_danmaku_minutes=excluded.interval_danmaku_minutes,
 		  interval_subtitles_minutes=excluded.interval_subtitles_minutes,
 		  layout=excluded.layout, auto_download=excluded.auto_download,
-		  space_scope=CASE WHEN excluded.space_scope='' THEN sources.space_scope ELSE excluded.space_scope END`,
+		  space_scope=CASE WHEN excluded.space_scope='' THEN sources.space_scope ELSE excluded.space_scope END RETURNING id`,
 		src.Type, src.ExtID, src.Extra, src.Title, boolInt(src.Watch),
 		src.SyncIntervalMinutes,
 		src.SyncMode, src.IntervalCommentsMin, src.IntervalDanmakuMin, src.IntervalSubsMin,
-		src.Layout, src.AutoDownload, src.SpaceScope, src.UserID, src.CreatedAt, src.LastSyncAt)
+		src.Layout, src.AutoDownload, src.SpaceScope, src.UserID, src.CreatedAt, src.LastSyncAt).Scan(&id)
 	if err != nil {
 		return 0, err
-	}
-	id, err := res.LastInsertId()
-	if err != nil || id == 0 {
-		// 驱动在 ON CONFLICT 更新时可能返回 0/报错：查询兜底
-		err2 := s.DB.QueryRow(`SELECT id FROM sources WHERE type=? AND ext_id=?`, src.Type, src.ExtID).Scan(&id)
-		if err2 != nil {
-			if err != nil {
-				return 0, err
-			}
-			return 0, err2
-		}
 	}
 	src.ID = id
 	return id, nil
@@ -236,27 +226,24 @@ func (s *Store) ListTracksPage(state, q string, limit, offset int) ([]*Track, in
 // DueSources 返回到达重同步时间的监控源。每个源按自己的间隔判断（0=全局默认）；
 // sync_mode='once' 的源完成首次同步后不再到期（watch 由任务侧关闭）。
 func (s *Store) DueSources(defaultMinutes int, now int64) ([]*Source, error) {
-	all, err := s.ListSources()
+	// 在 SQLite 过滤，避免每个 tick 把已暂停/仅一次/未到期的 extra 字符串搬进 Go。
+	rows, err := s.DB.Query(`SELECT `+sourceCols+` FROM sources WHERE watch=1
+		AND (sync_mode<>'once' OR last_sync_at<=0)
+		AND (last_sync_at=0 OR last_sync_at<=?-60*CASE WHEN sync_interval_minutes<=0 THEN ? ELSE sync_interval_minutes END)
+		ORDER BY id`, now, defaultMinutes)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 	var out []*Source
-	for _, src := range all {
-		if !src.Watch {
-			continue
+	for rows.Next() {
+		src, err := scanSource(rows)
+		if err != nil {
+			return nil, err
 		}
-		if src.SyncMode == "once" && src.LastSyncAt > 0 {
-			continue // 仅一次：已完成
-		}
-		interval := src.SyncIntervalMinutes
-		if interval <= 0 {
-			interval = defaultMinutes
-		}
-		if src.LastSyncAt == 0 || src.LastSyncAt <= now-int64(interval)*60 {
-			out = append(out, src)
-		}
+		out = append(out, src)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // ---- subtitles ----
@@ -473,20 +460,43 @@ func (s *Store) AddSnapshot(sp *Snapshot) error {
 // ---- jobs ----
 
 func (s *Store) CreateJob(jobType, payloadJSON string) (int64, error) {
-	res, err := s.DB.Exec(`INSERT INTO jobs(type, payload_json, state, created_at, updated_at) VALUES(?,?, 'queued', ?, ?)`,
-		jobType, payloadJSON, Now(), Now())
+	return s.CreateJobPrio(jobType, payloadJSON, 0)
+}
+
+// CreateJobPrio 入队并指定优先级（>0 插队；同优先级内保持 FIFO）。
+func (s *Store) CreateJobPrio(jobType, payloadJSON string, priority int) (int64, error) {
+	res, err := s.DB.Exec(`INSERT INTO jobs(type, payload_json, state, priority, created_at, updated_at) VALUES(?,?, 'queued', ?, ?, ?)`,
+		jobType, payloadJSON, priority, Now(), Now())
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
+// QueuedJobIDs 按执行顺序返回排队任务 ID：优先级降序、同优先级 FIFO。
+func (s *Store) QueuedJobIDs(limit int) ([]int64, error) {
+	rows, err := s.DB.Query(`SELECT id FROM jobs WHERE state='queued' ORDER BY COALESCE(priority,0) DESC, id ASC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // HasActiveJob 防重复排队。
 func (s *Store) HasActiveJob(jobType, payloadJSON string) (bool, error) {
-	var n int
-	err := s.DB.QueryRow(`SELECT COUNT(*) FROM jobs WHERE type=? AND payload_json=? AND state IN('queued','running')`,
-		jobType, payloadJSON).Scan(&n)
-	return n > 0, err
+	var found bool
+	err := s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM jobs WHERE type=? AND payload_json=? AND state IN('queued','running'))`,
+		jobType, payloadJSON).Scan(&found)
+	return found, err
 }
 
 // PruneTerminalJobs 清理终态任务（done/failed），滚动保留最近 keep 条。
@@ -512,9 +522,9 @@ func (s *Store) UpdateJobState(id int64, state, detail, errMsg string, progress 
 }
 
 func (s *Store) GetJob(id int64) (*Job, error) {
-	row := s.DB.QueryRow(`SELECT id, type, payload_json, state, progress, detail, error, created_at, updated_at FROM jobs WHERE id=?`, id)
+	row := s.DB.QueryRow(`SELECT id, type, payload_json, state, COALESCE(priority,0), progress, detail, error, created_at, updated_at FROM jobs WHERE id=?`, id)
 	var j Job
-	err := row.Scan(&j.ID, &j.Type, &j.PayloadJSON, &j.State, &j.Progress, &j.Detail, &j.Error, &j.CreatedAt, &j.UpdatedAt)
+	err := row.Scan(&j.ID, &j.Type, &j.PayloadJSON, &j.State, &j.Priority, &j.Progress, &j.Detail, &j.Error, &j.CreatedAt, &j.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -525,7 +535,7 @@ func (s *Store) GetJob(id int64) (*Job, error) {
 }
 
 func (s *Store) ListJobs(limit int, states []string) ([]*Job, error) {
-	q := `SELECT id, type, payload_json, state, progress, detail, error, created_at, updated_at FROM jobs`
+	q := `SELECT id, type, payload_json, state, COALESCE(priority,0), progress, detail, error, created_at, updated_at FROM jobs`
 	var args []any
 	if len(states) > 0 {
 		q += ` WHERE state IN (`
@@ -548,7 +558,7 @@ func (s *Store) ListJobs(limit int, states []string) ([]*Job, error) {
 	var out []*Job
 	for rows.Next() {
 		var j Job
-		if err := rows.Scan(&j.ID, &j.Type, &j.PayloadJSON, &j.State, &j.Progress, &j.Detail, &j.Error, &j.CreatedAt, &j.UpdatedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.Type, &j.PayloadJSON, &j.State, &j.Priority, &j.Progress, &j.Detail, &j.Error, &j.CreatedAt, &j.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, &j)

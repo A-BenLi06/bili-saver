@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"bili-saver/internal/biliapi"
@@ -30,10 +31,13 @@ var snapshotDirs = []string{"x_v2_reply_reply", "x_v2_reply_wbi_main"}
 const ownerFetchPause = 800 * time.Millisecond
 
 type Backfiller struct {
-	St      *store.Store
-	DataDir string
-	API     *biliapi.Client // 可为 nil：仅支持离线快照回填
-	Log     *slog.Logger
+	St           *store.Store
+	DataDir      string
+	API          *biliapi.Client // 可为 nil：仅支持离线快照回填
+	Log          *slog.Logger
+	ownerMu      sync.Mutex
+	ownerFlights map[int64]*ownerFlight
+	ownerCache   map[int64]ownerResult
 }
 
 func New(st *store.Store, dataDir string, api *biliapi.Client, log *slog.Logger) *Backfiller {
@@ -219,14 +223,7 @@ func (b *Backfiller) EnsureOwnerLevel(ctx context.Context, bvid string) error {
 	if mid <= 0 || level > 0 {
 		return nil
 	}
-	_, skipped, err := b.OwnerLevels(ctx)
-	if err != nil {
-		return err
-	}
-	if skipped {
-		b.Log.Debug("未登录，UP主等级暂缺", "bvid", bvid)
-	}
-	return nil
+	return b.ensureMid(ctx, mid)
 }
 
 // LevelExp B站等级 → teriteri-client handleLevel() 的经验下限：

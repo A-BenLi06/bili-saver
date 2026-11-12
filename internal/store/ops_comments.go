@@ -1,6 +1,9 @@
 package store
 
-import "strings"
+import (
+	"database/sql"
+	"strings"
+)
 
 // 评论与弹幕：只增不删。消失检测基于 last_seen_at 对账。
 
@@ -56,13 +59,13 @@ func (s *Store) UpsertCommentsBatch(cs []*Comment) error {
 }
 
 // HealCommentsFTS 把库内尚未进入 comments_fts 的评论批量补进全文索引（幂等）。
-// 评论 content 不可变，只需补缺不需更新；每采集轮调用一次，代价是一次全量扫描
-// （15 万行库实测 ~120ms），替代此前逐条 upsert 内的全扫检查（平方级）。
+// 评论 content 不可变，只需补缺不需更新；全库离线修复使用此方法。
+// 在线采集调用 HealVideoCommentsFTS，避免每部视频扫描整个库。
 // 返回本次新增索引行数；索引写失败不阻断归档，下一轮自愈。
 func (s *Store) HealCommentsFTS() (int64, error) {
-	res, err := s.DB.Exec(`INSERT INTO comments_fts(rpid, content)
-		SELECT rpid, content FROM comments
-		WHERE rpid NOT IN (SELECT rpid FROM comments_fts)`)
+	res, err := s.DB.Exec(`INSERT INTO comments_fts(rowid,rpid,content)
+		SELECT c.rpid,c.rpid,c.content FROM comments c
+		WHERE NOT EXISTS(SELECT 1 FROM comments_fts f WHERE f.rowid=c.rpid)`)
 	if err != nil {
 		return 0, err
 	}
@@ -90,29 +93,50 @@ func (s *Store) MarkMissingComments(bvid string, beforeTs int64, first bool) (in
 // 需连续两轮（anomaly 计数）同样异常才真正标删，否则跳过本轮并累加计数。
 // 返回 (本轮标记数, 是否处于异常待确认状态)。
 func (s *Store) MarkMissingCommentsGuarded(bvid string, beforeTs int64, first bool, seenThisRound int) (int64, bool, error) {
+	return markMissingCommentsGuarded(s.DB, bvid, beforeTs, first, seenThisRound)
+}
+
+type commentReconciler interface {
+	QueryRow(string, ...any) *sql.Row
+	Exec(string, ...any) (sql.Result, error)
+}
+
+func markMissingCommentsGuarded(db commentReconciler, bvid string, beforeTs int64, first bool, seenThisRound int) (int64, bool, error) {
 	if first {
 		return 0, false, nil
 	}
 	var pending int64
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM comments WHERE bvid=? AND status='visible' AND last_seen_at<?`,
+	if err := db.QueryRow(`SELECT COUNT(*) FROM comments WHERE bvid=? AND status='visible' AND last_seen_at<?`,
 		bvid, beforeTs).Scan(&pending); err != nil {
 		return 0, false, err
 	}
 	total := pending + int64(seenThisRound)
 	anomalous := pending > 50 && total > 0 && float64(pending)/float64(total) > 0.3
 	var prevAnomaly int64
-	_ = s.DB.QueryRow(`SELECT comments_anomaly FROM videos WHERE bvid=?`, bvid).Scan(&prevAnomaly)
+	if anomalous {
+		if err := db.QueryRow(`SELECT comments_anomaly FROM videos WHERE bvid=?`, bvid).Scan(&prevAnomaly); err != nil {
+			return 0, false, err
+		}
+	}
 	if anomalous && prevAnomaly < 1 {
 		// 首次异常：不标删，等待下一轮确认
-		_, err := s.DB.Exec(`UPDATE videos SET comments_anomaly=comments_anomaly+1 WHERE bvid=?`, bvid)
+		_, err := db.Exec(`UPDATE videos SET comments_anomaly=comments_anomaly+1 WHERE bvid=?`, bvid)
 		return 0, true, err
 	}
 	// 正常（或已连续两轮异常，确认标删）
-	n, err := s.MarkMissingComments(bvid, beforeTs, first)
-	if err != nil {
-		return 0, false, err
+	var n int64
+	var err error
+	if pending > 0 {
+		var result sql.Result
+		result, err = db.Exec(`UPDATE comments SET status='deleted',deleted_at=? WHERE bvid=? AND status='visible' AND last_seen_at<?`, Now(), bvid, beforeTs)
+		if err == nil {
+			n, err = result.RowsAffected()
+		}
+		if err != nil {
+			return 0, false, err
+		}
 	}
-	_, err = s.DB.Exec(`UPDATE videos SET comments_anomaly=0 WHERE bvid=?`, bvid)
+	_, err = db.Exec(`UPDATE videos SET comments_anomaly=0 WHERE bvid=? AND comments_anomaly<>0`, bvid)
 	return n, false, err
 }
 
@@ -291,10 +315,10 @@ func (s *Store) ListCommentFaces(bvid string) ([]Face, error) {
 
 // ReindexCommentFTS 维护评论全文索引。
 func (s *Store) ReindexCommentFTS(rpid int64, content string) error {
-	if _, err := s.DB.Exec(`DELETE FROM comments_fts WHERE rpid=?`, rpid); err != nil {
+	if _, err := s.DB.Exec(`DELETE FROM comments_fts WHERE rowid=?`, rpid); err != nil {
 		return err
 	}
-	_, err := s.DB.Exec(`INSERT INTO comments_fts(rpid, content) VALUES(?,?)`, rpid, content)
+	_, err := s.DB.Exec(`INSERT INTO comments_fts(rowid,rpid,content) VALUES(?,?,?)`, rpid, rpid, content)
 	return err
 }
 
@@ -430,16 +454,24 @@ func (s *Store) MarkMissingDanmakuGuarded(bvid string, cid int64, beforeTs int64
 	total := pending + int64(seenThisRound)
 	anomalous := pending > 100 && total > 0 && float64(pending)/float64(total) > 0.3
 	var prevAnomaly int64
-	_ = s.DB.QueryRow(`SELECT danmaku_anomaly FROM videos WHERE bvid=?`, bvid).Scan(&prevAnomaly)
+	if anomalous {
+		if err := s.DB.QueryRow(`SELECT danmaku_anomaly FROM videos WHERE bvid=?`, bvid).Scan(&prevAnomaly); err != nil {
+			return 0, false, err
+		}
+	}
 	if anomalous && prevAnomaly < 1 {
 		_, err := s.DB.Exec(`UPDATE videos SET danmaku_anomaly=danmaku_anomaly+1 WHERE bvid=?`, bvid)
 		return 0, true, err
 	}
-	n, err := s.MarkMissingDanmaku(cid, beforeTs, first)
-	if err != nil {
-		return 0, false, err
+	var n int64
+	var err error
+	if pending > 0 {
+		n, err = s.MarkMissingDanmaku(cid, beforeTs, first)
+		if err != nil {
+			return 0, false, err
+		}
 	}
-	_, err = s.DB.Exec(`UPDATE videos SET danmaku_anomaly=0 WHERE bvid=?`, bvid)
+	_, err = s.DB.Exec(`UPDATE videos SET danmaku_anomaly=0 WHERE bvid=? AND danmaku_anomaly<>0`, bvid)
 	return n, false, err
 }
 

@@ -60,7 +60,9 @@ type Config struct {
 	Collector struct {
 		CommentsMax        int  `yaml:"comments_max"`         // 单视频主楼评论抓取上限（含翻页），0=不限
 		SubRepliesMax      int  `yaml:"sub_replies_max"`      // 单条主楼的楼中楼上限，0=不限
-		FullResyncComments bool `yaml:"full_resync_comments"` // 重同步时全量翻页以检测删除
+		FullResyncComments bool `yaml:"full_resync_comments"` // 启用周期完整核对；关闭时仅日常增量（首次仍全量）
+		CommentConcurrency int  `yaml:"comment_concurrency"`  // 全局评论在途上限，1-4；仍共享 API 总限流
+		CommentFullHours   int  `yaml:"comment_full_hours"`   // 完整核对周期，默认168小时；0=每轮全量
 		SyncDefaultMinutes int  `yaml:"sync_default_minutes"` // 监控源默认重同步间隔
 		StatsResyncHours   int  `yaml:"stats_resync_hours"`   // 全库统计重同步间隔（小时），0=禁用
 		// AdaptiveSync 自适应补档频率：按视频新发程度（<24h 加速、≥30d 冷却）与
@@ -103,6 +105,12 @@ type Config struct {
 		Dir     string `yaml:"dir"` // 默认 <data_dir>/plugins
 		Enabled bool   `yaml:"enabled"`
 	} `yaml:"plugins"`
+
+	Queue struct {
+		// NewAddFirst 新添加补档优先执行：/add 触发的首个任务先于普通排队任务。
+		// 不中断正在执行的任务，同优先级按加入顺序执行；false=按先来后到。
+		NewAddFirst bool `yaml:"new_add_first"`
+	} `yaml:"queue"`
 }
 
 // Defaults 返回内置默认值。
@@ -122,6 +130,8 @@ func Defaults() *Config {
 	c.Collector.CommentsMax = 0
 	c.Collector.SubRepliesMax = 0
 	c.Collector.FullResyncComments = true
+	c.Collector.CommentConcurrency = 2
+	c.Collector.CommentFullHours = 168
 	c.Collector.SyncDefaultMinutes = 360
 	c.Collector.HotVideoViews = 1000000
 	c.Collector.HotVideoReplies = 10000
@@ -136,6 +146,7 @@ func Defaults() *Config {
 	c.Teriteri.ClientAddr = ":8081"
 	c.Teriteri.AdminAddr = ":8082"
 	c.Plugins.Enabled = true
+	c.Queue.NewAddFirst = true
 	return &c
 }
 
@@ -200,6 +211,12 @@ func (c *Config) Normalize() {
 
 // Validate 做跨字段校验与派生。
 func (c *Config) Validate() error {
+	if c.Collector.CommentConcurrency < 1 || c.Collector.CommentConcurrency > 4 {
+		return fmt.Errorf("collector.comment_concurrency 必须在 1 到 4 之间")
+	}
+	if c.Collector.CommentFullHours < 0 || c.Collector.CommentFullHours > 8760 {
+		return fmt.Errorf("collector.comment_full_hours 必须在 0 到 8760 小时之间")
+	}
 	if c.Download.Concurrency < 1 {
 		c.Download.Concurrency = 1
 	}

@@ -121,6 +121,10 @@ func stretchInterval(baseMinutes int, mult float64) int {
 // statsSkipAdaptive 全库统计刷新（sync_stats_all）是否应冷却跳过该视频。
 // 功能关闭或全库统计禁用时永不跳过（维持原全刷行为）；从未刷新过的视频不跳过。
 func (a *App) statsSkipAdaptive(v *store.Video, now int64) bool {
+	return a.statsSkipWithMultiplier(v, now, a.syncMultiplier(v, now))
+}
+
+func (a *App) statsSkipWithMultiplier(v *store.Video, now int64, mult float64) bool {
 	if !a.Cfg.Collector.AdaptiveSync || a.Cfg.Collector.StatsResyncHours <= 0 {
 		return false
 	}
@@ -128,6 +132,6 @@ func (a *App) statsSkipAdaptive(v *store.Video, now int64) bool {
 		return false
 	}
 	base := a.Cfg.Collector.StatsResyncHours * 60
-	eff := stretchInterval(base, a.syncMultiplier(v, now))
+	eff := stretchInterval(base, mult)
 	return now-v.LastStatsAt < int64(eff)*60
 }

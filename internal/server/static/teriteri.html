@@ -133,7 +133,7 @@ async function renderVideo(bvid) {
   <div class="detail">
     <div>
       <div class="player-wrap">
-        <video id="player" controls src="${esc(v.videoUrl)}" poster="${esc(v.coverUrl)}"></video>
+        <video id="player" controls autoplay playsinline src="${esc(v.videoUrl)}" poster="${esc(v.coverUrl)}"></video>
         <div id="dmLayer"></div>
       </div>
       <div class="dmline" style="margin-top:10px">
