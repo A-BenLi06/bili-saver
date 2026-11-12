@@ -53,7 +53,7 @@
 | 项 | 选择 | 说明 |
 | --- | --- | --- |
 | 语言 | Go 1.27（纯 Go，无 CGO） | 单二进制交叉编译 linux/macOS/windows |
-| 存储 | SQLite（modernc.org/sqlite 纯 Go 驱动）+ FTS5 | WAL；幂等迁移（当前 **schema v15**） |
+| 存储 | SQLite（modernc.org/sqlite 纯 Go 驱动）+ FTS5 | WAL；幂等迁移（版本由 `store.SchemaVersion` 定义） |
 | HTTP | net/http（Go 1.22 方法路由） | 管理 UI 与 API 同端口分路由；多用户会话 cookie（v11）+ admin.token Bearer 兼容 |
 | 视频 | 外部 ffmpeg（缺失时降级仅元数据归档） | `-c copy` 合并 DASH，`.merging` 原子改名 |
 | 插件 | 外部进程（stdin/stdout 行 JSON） | 任意语言；Python 示例 |
@@ -255,3 +255,9 @@ archive_assets records BVID/CID, role/origin, selected variant, requested-policy
 ### v18 — Transactional settings (2026-11-12T16:29:54+08:00)
 
 Runtime console changes are stored in runtime_settings in the same SQLite transaction as default-library output settings. Startup precedence is defaults, YAML, persisted runtime values, then environment-controlled fields. Unknown YAML and malformed environment values fail visibly; array overrides use JSON. Settings readers use immutable Config.View snapshots; only serialized Update publishes a validated, persisted candidate. settings_revision/If-Match prevents stale console saves. The API exposes desired values, effective startup values, pending_restart and environment-controlled fields. Library updates use immutable IDs and RETURNING, not LastInsertId on name conflicts; invalid routing JSON fails closed. YAML serialization uses synced temporary files and replacement and is reserved for explicit startup-file operations.
+
+### Archive ownership and recovery
+
+`archiveguard` owns a nonblocking OS file lock for the data root throughout an App lifetime. Maintenance commands take the same lock without starting workers or running schema migrations. Stop pre-lock-version binaries explicitly before the first upgrade. New HTTP servers drain requests for up to 15 seconds; plugin execution and installers are canceled before the store is closed.
+
+See [archive recovery](docs/archive-recovery.md) for commands and backup/catalog boundaries.

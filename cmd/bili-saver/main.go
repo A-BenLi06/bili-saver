@@ -23,12 +23,15 @@ import (
 	"time"
 
 	"bili-saver/internal/app"
+	"bili-saver/internal/archiveguard"
+	"bili-saver/internal/archiveops"
 	"bili-saver/internal/config"
 	"bili-saver/internal/jobs"
 	"bili-saver/internal/logging"
 	"bili-saver/internal/metrics"
 	"bili-saver/internal/resolver"
 	"bili-saver/internal/store"
+	"encoding/json"
 
 	"github.com/skip2/go-qrcode"
 )
@@ -47,6 +50,16 @@ func main() {
 		fmt.Println("bili-saver", version)
 		return
 	}
+	if args[0] == "restore" {
+		if len(args) != 3 {
+			fatal(fmt.Errorf("usage: restore BACKUP NEW_DIRECTORY"))
+		}
+		if err := archiveops.Restore(context.Background(), args[1], args[2]); err != nil {
+			fatal(err)
+		}
+		fmt.Println("Restored and verified archive; review config.yaml in the new directory before starting")
+		return
+	}
 	cfgFile := *configPath
 	if cfgFile == "" {
 		cfgFile = os.Getenv("BILI_SAVER_CONFIG")
@@ -58,6 +71,49 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	switch args[0] {
+	case "check":
+		report, err := archiveops.Check(context.Background(), cfg.DataDir)
+		if err != nil {
+			fatal(err)
+		}
+		printResult(report)
+		if !report.DatabaseOK || len(report.Issues) > 0 {
+			os.Exit(1)
+		}
+		return
+	case "backup":
+		if len(args) != 2 {
+			fatal(fmt.Errorf("usage: backup NEW_DIRECTORY"))
+		}
+		manifest, err := archiveops.Backup(context.Background(), cfg.DataDir, args[1])
+		if err != nil {
+			fatal(err)
+		}
+		printResult(manifest)
+		return
+	case "relocate":
+		if len(args) != 2 {
+			fatal(fmt.Errorf("usage: relocate NEW_DIRECTORY"))
+		}
+		if err := archiveops.Relocate(context.Background(), cfg.DataDir, args[1]); err != nil {
+			fatal(err)
+		}
+		fmt.Println("Verified archive copy created; source retained. Review destination config.yaml before starting")
+		return
+	case "catalog":
+		lock, err := archiveguard.Acquire(cfg.DataDir)
+		if err != nil {
+			fatal(err)
+		}
+		defer lock.Close()
+		catalog, err := archiveops.ReadCatalog(context.Background(), cfg.DataDir)
+		if err != nil {
+			fatal(err)
+		}
+		printResult(catalog)
+		return
+	}
 	log, err := logging.Setup(cfg.Log.Level, cfg.Log.File, cfg.DataDir)
 	if err != nil {
 		fatal(err)
@@ -68,6 +124,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	defer a.Close()
 	a.CfgPath = cfgFile // 设置页写盘用（serve 子命令）
 
 	switch args[0] {
@@ -102,6 +159,11 @@ func usage() {
   login                 终端扫码登录 B 站
   export-nfo            重建 Emby/Plex/Jellyfin/Kodi 媒体库软链接
   cards [bvid...]       生成快速预览卡片（默认全部已归档视频；指定 bvid 只处理这些）
+  check                 Verify archive files and database without migration
+  backup NEW_DIR        Create a verified private backup (service stopped)
+  restore BACKUP NEW_DIR Restore to a new directory; regenerate local paths
+  relocate NEW_DIR      Create a verified portable copy; retain the source
+  catalog               Export a versioned content-only asset catalog
   version               显示版本
 
 配置:
@@ -295,4 +357,10 @@ func runCards(a *app.App, bvids []string) {
 		fmt.Printf("\r[%d/%d] 完成 %d", i+1, len(videos), okCnt)
 	}
 	fmt.Printf("\n卡片生成完成：%d/%d（输出于 %s）\n", okCnt, len(videos), filepath.Join(a.Cfg.DataDir, "derived"))
+}
+
+func printResult(v any) {
+	if err := json.NewEncoder(os.Stdout).Encode(v); err != nil {
+		fatal(err)
+	}
 }

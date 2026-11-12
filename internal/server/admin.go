@@ -17,6 +17,7 @@ import (
 
 	"bili-saver/internal/metrics"
 
+	"bili-saver/internal/archiveops"
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/collector"
 	"bili-saver/internal/config"
@@ -72,6 +73,15 @@ func hotHumanize(n int) string {
 }
 
 func (s *Server) registerAdmin() {
+	s.mux.HandleFunc("GET /api/v1/archive/catalog", func(w http.ResponseWriter, r *http.Request) {
+		value, err := archiveops.ExportCatalog(s.Deps.St)
+		if err != nil {
+			errJSON(w, 500, err)
+			return
+		}
+		writeJSON(w, 200, value)
+	})
+
 	m := s.mux
 	m.HandleFunc("GET /api/v1/stats", s.handleStats)
 	m.HandleFunc("GET /api/v1/live", s.handleLive)

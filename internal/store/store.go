@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,6 +42,15 @@ func Open(dbPath string) (*Store, error) {
 	}
 	s := &Store{DB: db}
 	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	root, err := filepath.Abs(filepath.Dir(dbPath))
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err = s.DB.Exec(`INSERT INTO storage_roots VALUES('archive',?) ON CONFLICT(id) DO UPDATE SET path=excluded.path WHERE path<>excluded.path`, root); err != nil {
 		db.Close()
 		return nil, err
 	}

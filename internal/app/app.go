@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"bili-saver/internal/archiveguard"
 	"bili-saver/internal/biliapi"
 	"bili-saver/internal/card"
 	"bili-saver/internal/collector"
@@ -26,24 +27,29 @@ import (
 	"bili-saver/internal/server"
 	"bili-saver/internal/store"
 	"bili-saver/internal/teriteriweb"
+	"sync"
+	"time"
 )
 
 // App 持有全部组件引用。
 type App struct {
-	Cfg  *config.Config
-	Log  *slog.Logger
-	St   *store.Store
-	API  *biliapi.Client
-	Col  *collector.Collector
-	Dl   *downloader.Downloader
-	Mgr  *jobs.Manager
-	Bus  *plugin.Bus
-	Med  *media.Bridge
-	Card *card.Generator
-	Img  *images.Localizer
-	Lv   *levels.Backfiller
-	Srv  *server.Server
-	Teri *teriteriweb.Web
+	guard      *archiveguard.Lock
+	closeOnce  sync.Once
+	closeError error
+	Cfg        *config.Config
+	Log        *slog.Logger
+	St         *store.Store
+	API        *biliapi.Client
+	Col        *collector.Collector
+	Dl         *downloader.Downloader
+	Mgr        *jobs.Manager
+	Bus        *plugin.Bus
+	Med        *media.Bridge
+	Card       *card.Generator
+	Img        *images.Localizer
+	Lv         *levels.Backfiller
+	Srv        *server.Server
+	Teri       *teriteriweb.Web
 	// CfgPath 配置文件路径（serve 时由 CLI 注入）；非空时设置页 PATCH config 会写盘。
 	CfgPath string
 }
@@ -55,6 +61,20 @@ func (a asyncEmitter) Emit(ev string, p map[string]any) { a.b.EmitAsync(ev, p) }
 
 // New 初始化全部组件（不开服务、不启动 worker）。
 func New(cfg *config.Config, log *slog.Logger) (*App, error) {
+	if log == nil {
+		log = slog.Default()
+	}
+	guard, err := archiveguard.Acquire(cfg.View().DataDir)
+	if err != nil {
+		return nil, err
+	}
+	constructed := false
+	defer func() {
+		if !constructed {
+			guard.Close()
+		}
+	}()
+
 	if err := mkdirs(cfg); err != nil {
 		return nil, err
 	}
@@ -95,7 +115,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 	if err := st.EnsureDefaultLibrary(cfg.View().Media.Root, cfg.View().Media.Layout, cfg.View().Media.LinkMode); err != nil {
 		log.Warn("默认媒体库迁移失败", "err", err)
 	}
-	a := &App{Cfg: cfg, Log: log, St: st, API: api, Col: col, Dl: dl, Mgr: mgr, Bus: bus, Med: med, Card: cardGen, Img: img, Lv: lv}
+	a := &App{guard: guard, Cfg: cfg, Log: log, St: st, API: api, Col: col, Dl: dl, Mgr: mgr, Bus: bus, Med: med, Card: cardGen, Img: img, Lv: lv}
 	if cfg.View().Teriteri.Enabled {
 		a.Teri = teriteriweb.New(cfg, log)
 		// 首页轮播取归档库最新可播视频的本地封面（构建期写入 client）
@@ -122,6 +142,7 @@ func New(cfg *config.Config, log *slog.Logger) (*App, error) {
 			return items
 		}
 	}
+	constructed = true
 	a.registerJobs()
 	if cfg.View().Plugins.Enabled {
 		if err := a.Bus.Reload(); err != nil {
@@ -639,16 +660,55 @@ func (a *App) Serve(ctx context.Context) error {
 		a.Teri.Attach(handler)
 		a.Teri.StartSites() // dist 已存在则立即上线；否则待一键安装完成后自动拉起
 	}
-	httpSrv := &http.Server{Addr: a.Cfg.View().Listen, Handler: handler}
+	httpSrv := &http.Server{Addr: a.Cfg.View().Listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	shutdownDone := make(chan struct{})
+	serveDone := make(chan struct{})
+	defer close(serveDone)
 	go func() {
-		<-ctx.Done()
-		_ = httpSrv.Close()
+		defer close(shutdownDone)
+		select {
+		case <-ctx.Done():
+		case <-serveDone:
+			return
+		}
+		shutdown, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(shutdown); err != nil {
+			_ = httpSrv.Close()
+		}
 	}()
 	a.Log.Info("bili-saver 开始服务", "listen", a.Cfg.View().Listen,
 		"teriteri", a.Cfg.View().Teriteri.Enabled, "media", a.Cfg.View().Media.Enabled)
 	err := metrics.ListenAndServe(httpSrv)
 	if err == http.ErrServerClosed {
+		<-shutdownDone
 		return nil
 	}
 	return err
+}
+
+func (a *App) Close() error {
+	a.closeOnce.Do(func() {
+		if a.Bus != nil {
+			a.Bus.Cancel()
+		}
+		if a.Mgr != nil {
+			a.Mgr.Stop()
+		}
+		if a.Teri != nil {
+			a.Teri.Close()
+		}
+		if a.Bus != nil {
+			a.Bus.Wait()
+		}
+		if a.St != nil {
+			a.closeError = a.St.Close()
+		}
+		if a.guard != nil {
+			if err := a.guard.Close(); a.closeError == nil {
+				a.closeError = err
+			}
+		}
+	})
+	return a.closeError
 }

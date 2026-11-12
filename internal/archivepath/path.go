@@ -100,3 +100,32 @@ func Within(root, value string) bool {
 	rel, err := filepath.Rel(root, value)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 }
+
+// Canonical resolves existing ancestors without creating a destination.
+func Canonical(value string) (string, error) {
+	absolute, err := filepath.Abs(value)
+	if err != nil {
+		return "", err
+	}
+	ancestor := absolute
+	for {
+		if _, err = os.Lstat(ancestor); err == nil {
+			physical, e := filepath.EvalSymlinks(ancestor)
+			if e != nil {
+				return "", e
+			}
+			relative, e := filepath.Rel(ancestor, absolute)
+			if e != nil {
+				return "", e
+			}
+			return filepath.Join(physical, relative), nil
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
+		parent := filepath.Dir(ancestor)
+		if parent == ancestor {
+			return "", err
+		}
+		ancestor = parent
+	}
+}

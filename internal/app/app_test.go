@@ -31,7 +31,7 @@ func newTestApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { a.St.Close() })
+	t.Cleanup(func() { a.Close() })
 	return a
 }
 

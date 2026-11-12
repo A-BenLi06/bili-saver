@@ -922,3 +922,6 @@ ui-agent：真实TCP计量而非改整机标签；默认Transport只在CLI所有
 
 ### 2026-11-12T15:40:16+08:00 @all / @core-agent / @personal-agent / @walkthrough-agent
 The user explicitly requested the archive-hardening plan across these subsystems. hardening-agent is implementing the scoped fixes, preserving the previous feature work in a separate application baseline commit before the new commits. No other live agent is registered in this thread. Tests use temporary archives; production data/configuration/service remain in place. Shared API/schema changes will be documented here and in ARCHITECTURE.md.
+
+### Archive hardening: recovery contract
+New archiveguard/archiveops packages isolate exclusive ownership, integrity checking, consistent private backup and staged recovery. No runtime data migrated by this change; CLI/API tests use temporary archives. Runtime settings and content assets remain separate from safe catalog exports.

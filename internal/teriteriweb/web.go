@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"bili-saver/internal/config"
 	"bili-saver/internal/metrics"
@@ -20,12 +21,13 @@ type Web struct {
 
 	mu        sync.Mutex
 	main      http.Handler // 核心主 handler（Attach 注入，避免构造环）
+	servers   map[string]*http.Server
 	serving   map[string]string
 	installer *Installer
 }
 
 func New(cfg *config.Config, log *slog.Logger) *Web {
-	return &Web{Cfg: cfg, Log: log, serving: map[string]string{}}
+	return &Web{Cfg: cfg, Log: log, serving: map[string]string{}, servers: map[string]*http.Server{}}
 }
 
 // Attach 注入核心主 handler（站点把 API/媒体/WS 前缀转回给它）。
@@ -89,9 +91,10 @@ func (w *Web) StartSites() {
 			continue
 		}
 		h := SiteHandler(s.dist, main)
-		srv := &http.Server{Addr: s.addr, Handler: h}
+		srv := &http.Server{Addr: s.addr, Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 		w.mu.Lock()
 		w.serving[s.name] = s.addr
+		w.servers[s.name] = srv
 		w.mu.Unlock()
 		go func(name string) {
 			w.Log.Info("TeriTeri 站点开始服务", "site", name, "addr", s.addr, "dist", s.dist)
@@ -143,4 +146,20 @@ func localURL(addr string) string {
 		return "http://127.0.0.1" + addr
 	}
 	return "http://" + addr
+}
+
+func (w *Web) Close() {
+	w.mu.Lock()
+	servers := make([]*http.Server, 0, len(w.servers))
+	for _, srv := range w.servers {
+		servers = append(servers, srv)
+	}
+	installer := w.installer
+	w.mu.Unlock()
+	if installer != nil {
+		installer.Stop()
+	}
+	for _, srv := range servers {
+		_ = srv.Close()
+	}
 }

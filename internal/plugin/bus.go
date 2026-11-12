@@ -73,6 +73,8 @@ type PluginStore interface {
 
 // Bus 管理插件注册与事件派发。
 type Bus struct {
+	lifecycle    context.Context
+	cancel       context.CancelFunc
 	st           PluginStore
 	writer       Writer
 	dir          string
@@ -89,7 +91,8 @@ func NewBus(st PluginStore, writer Writer, dir string, log *slog.Logger, ctx Con
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Bus{st: st, writer: writer, dir: dir, log: log, manifest: map[string]*Manifest{}, ctx: ctx, processSlots: make(chan struct{}, 4), asyncSlots: make(chan struct{}, 16)}
+	lifecycle, cancel := context.WithCancel(context.Background())
+	return &Bus{lifecycle: lifecycle, cancel: cancel, st: st, writer: writer, dir: dir, log: log, manifest: map[string]*Manifest{}, ctx: ctx, processSlots: make(chan struct{}, 4), asyncSlots: make(chan struct{}, 16)}
 }
 
 // Reload 重新扫描插件目录并同步注册表。
@@ -145,7 +148,12 @@ func (b *Bus) Emit(event string, payload map[string]any) {
 			continue
 		}
 		cfg := mergeConfig(m.Config, row.ConfigJSON)
-		b.processSlots <- struct{}{}
+		select {
+		case b.processSlots <- struct{}{}:
+		case <-b.lifecycle.Done():
+			wg.Wait()
+			return
+		}
 		wg.Add(1)
 		go func(m *Manifest, cfg map[string]any) {
 			defer func() { <-b.processSlots }()
@@ -170,7 +178,11 @@ func (b *Bus) EmitAsync(event string, payload map[string]any) {
 	if !subscribed {
 		return
 	}
-	b.asyncSlots <- struct{}{}
+	select {
+	case b.asyncSlots <- struct{}{}:
+	case <-b.lifecycle.Done():
+		return
+	}
 	b.asyncWG.Add(1)
 	go func() {
 		defer b.asyncWG.Done()
@@ -222,9 +234,10 @@ func mergeConfig(defaults map[string]any, persistedJSON string) map[string]any {
 }
 
 func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any, cfg map[string]any) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(m.TimeoutSec)*time.Second)
+	ctx, cancel := context.WithTimeout(b.lifecycle, time.Duration(m.TimeoutSec)*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, m.Entry[0], m.Entry[1:]...)
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Dir = filepath.Join(b.dir, m.ID)
 	// The line-JSON protocol is UTF-8, including Python redirected stdout on Windows.
 	env := append(os.Environ(), "PYTHONIOENCODING=utf-8")
@@ -240,6 +253,8 @@ func (b *Bus) execPlugin(m *Manifest, event string, payload map[string]any, cfg 
 	if err != nil {
 		return err
 	}
+	stopPipeClose := context.AfterFunc(ctx, func() { _ = stdout.Close() })
+	defer stopPipeClose()
 	cmd.Stderr = &pluginStderr{b: b, id: m.ID}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("启动插件: %w", err)
@@ -445,4 +460,10 @@ func sanitizeID(s string) string {
 		return "unknown"
 	}
 	return string(out)
+}
+
+func (b *Bus) Cancel() {
+	if b.cancel != nil {
+		b.cancel()
+	}
 }
