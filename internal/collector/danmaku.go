@@ -4,6 +4,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"bili-saver/internal/biliapi"
 	"bili-saver/internal/dmproto"
 	"bili-saver/internal/fileio"
 
@@ -81,6 +83,9 @@ func (c *Collector) collectDanmaku(ctx context.Context, bvid string, cid int64, 
 		}
 		return total, true, nil
 	}
+	if errors.Is(err, biliapi.ErrSnapshot) {
+		return total, false, err
+	}
 	segErr := err
 
 	// ---- 路径二：整段 XML 回退 ----
@@ -92,7 +97,7 @@ func (c *Collector) collectDanmaku(ctx context.Context, bvid string, cid int64, 
 	if err := saveElems(xelems); err != nil {
 		return total, false, err
 	}
-	return total, true, nil
+	return total, false, nil // list.so cannot establish complete coverage.
 }
 
 // pageDir 返回 dataDir/media/{bvid}/p{n}；n<=0 时用根目录（不区分分P的数据放这里）。
@@ -107,8 +112,7 @@ func (c *Collector) pageDir(bvid string, n int) string {
 func (c *Collector) collectSubtitles(ctx context.Context, bvid string, aid, cid int64) error {
 	info, err := c.API.PlayerInfo(ctx, bvid, aid, cid)
 	if err != nil {
-		// 无登录时部分视频拿不到字幕列表，不视为致命
-		return nil
+		return err
 	}
 	for _, sub := range info.Subtitle.Subtitles {
 		if sub.SubtitleURL == "" {
@@ -116,8 +120,7 @@ func (c *Collector) collectSubtitles(ctx context.Context, bvid string, aid, cid 
 		}
 		raw, err := c.API.SubtitleCC(ctx, sub.SubtitleURL)
 		if err != nil {
-			c.Log.Warn("字幕下载失败", "bvid", bvid, "lan", sub.Lan, "err", err)
-			continue
+			return err
 		}
 		dir := filepath.Join(c.pageDir(bvid, 0), "subs")
 		name := fmt.Sprintf("%d-%s.bcc.json", cid, sanitizePath(sub.Lan))
@@ -127,7 +130,7 @@ func (c *Collector) collectSubtitles(ctx context.Context, bvid string, aid, cid 
 		}
 		if err := c.St.UpsertSubtitle(&store.Subtitle{
 			Bvid: bvid, Cid: cid, Lang: sub.Lan, LangDoc: sub.LanDoc,
-			Origin: "bilibili", Format: "bcc", FilePath: path, CreatedAt: store.Now(),
+			Origin: "bilibili", Format: "bcc", FilePath: filepath.ToSlash(path), CreatedAt: store.Now(),
 		}); err != nil {
 			return err
 		}

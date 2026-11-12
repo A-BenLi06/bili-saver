@@ -52,7 +52,7 @@ func (s *Store) Close() error { return s.DB.Close() }
 // migrate 采用幂等基线 + 增量补列。
 // v1 基线：schema.sql 全部 IF NOT EXISTS，可安全重复执行；
 // v2 增量：同步策略列，老库用 ensureColumn 幂等补列。
-func (s *Store) migrate() error {
+func (s *Store) migrateLegacy() error {
 	if _, err := s.DB.Exec(`CREATE TABLE IF NOT EXISTS schema_meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`); err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ func (s *Store) migrate() error {
 	}
 	// 仅信息展示（无代码读取）：真实 schema 版本靠上面的幂等基线 + ensureColumn
 	// 增量补列保证，此值与 §5 迁移历史人工同步（当前 v15：个人账号资料）。
-	_, err = s.DB.Exec(`INSERT INTO schema_meta(k,v) VALUES('schema','15') ON CONFLICT(k) DO UPDATE SET v='15'`)
+	_, err = s.DB.Exec(`INSERT INTO schema_meta(k,v) VALUES('schema','15') ON CONFLICT(k) DO NOTHING`)
 	return err
 }
 

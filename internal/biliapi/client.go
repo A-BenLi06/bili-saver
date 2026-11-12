@@ -29,7 +29,9 @@ func (e *APIError) Error() string {
 }
 
 // SnapshotHook 在每个响应返回后被调用（含二进制接口），用于原始快照。
-type SnapshotHook func(endpoint string, params url.Values, status int, body []byte)
+type SnapshotHook func(endpoint string, params url.Values, status int, body []byte) error
+
+var ErrSnapshot = errors.New("raw snapshot persistence failed")
 
 // Client 是并发安全的 B 站客户端。
 type Client struct {
@@ -143,18 +145,21 @@ func (c *Client) SetSnapshotHook(h SnapshotHook) {
 	c.snapMu.Unlock()
 }
 
-func (c *Client) snapshot(endpoint string, params url.Values, status int, body []byte) {
+func (c *Client) snapshot(endpoint string, params url.Values, status int, body []byte) error {
 	c.snapMu.Lock()
 	h := c.snap
 	c.snapMu.Unlock()
 	if h != nil {
-		h(endpoint, params, status, body)
+		if err := h(endpoint, params, status, body); err != nil {
+			return fmt.Errorf("%w: %v", ErrSnapshot, err)
+		}
 	}
+	return nil
 }
 
 // emit 手动上报（如带 params 变换的接口）。
-func (c *Client) emit(endpoint string, params url.Values, status int, body []byte) {
-	c.snapshot(endpoint, params, status, body)
+func (c *Client) emit(endpoint string, params url.Values, status int, body []byte) error {
+	return c.snapshot(endpoint, params, status, body)
 }
 
 // ---- 请求原语 ----
@@ -195,7 +200,9 @@ func (c *Client) getJSON(ctx context.Context, endpoint string, params url.Values
 	if err != nil {
 		return err
 	}
-	c.snapshot(endpoint, params, status, body)
+	if err := c.snapshot(endpoint, params, status, body); err != nil {
+		return err
+	}
 	var env struct {
 		Code    int             `json:"code"`
 		Message string          `json:"message"`
@@ -242,7 +249,9 @@ func (c *Client) getJSONLenient(ctx context.Context, endpoint string, params url
 	if err != nil {
 		return err
 	}
-	c.snapshot(endpoint, params, status, body)
+	if err := c.snapshot(endpoint, params, status, body); err != nil {
+		return err
+	}
 	var env struct {
 		Code    int             `json:"code"`
 		Message string          `json:"message"`
@@ -273,7 +282,9 @@ func (c *Client) getRaw(ctx context.Context, endpoint string, params url.Values)
 	if err != nil {
 		return nil, err
 	}
-	c.snapshot(endpoint, params, status, body)
+	if err := c.snapshot(endpoint, params, status, body); err != nil {
+		return nil, err
+	}
 	if status != http.StatusOK {
 		return nil, fmt.Errorf("%s: http %d", endpoint, status)
 	}

@@ -35,7 +35,9 @@ func (c *Client) passportGet(ctx context.Context, endpoint string, params url.Va
 	if err != nil {
 		return err
 	}
-	c.emit(endpoint, params, status, body)
+	if err := c.emit(endpoint, params, status, body); err != nil {
+		return err
+	}
 	var env struct {
 		Code    int             `json:"code"`
 		Message string          `json:"message"`

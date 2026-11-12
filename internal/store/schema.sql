@@ -439,3 +439,16 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL,
   avatar_path TEXT NOT NULL DEFAULT ''
 );
+
+-- v16: authoritative archive observations.
+
+CREATE TABLE IF NOT EXISTS danmaku_sync_state (
+ bvid TEXT NOT NULL,cid INTEGER NOT NULL,last_epoch INTEGER NOT NULL DEFAULT 0,
+ anomalous INTEGER NOT NULL DEFAULT 0,missing_hash TEXT NOT NULL DEFAULT '',PRIMARY KEY(bvid,cid)
+);
+CREATE TABLE IF NOT EXISTS collection_status (
+ bvid TEXT NOT NULL,cid INTEGER NOT NULL DEFAULT 0,component TEXT NOT NULL,
+ attempted_at INTEGER NOT NULL,successful_at INTEGER NOT NULL DEFAULT 0,
+ complete_at INTEGER NOT NULL DEFAULT 0,state TEXT NOT NULL,error TEXT NOT NULL DEFAULT '',
+ PRIMARY KEY(bvid,cid,component)
+);

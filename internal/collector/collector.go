@@ -61,7 +61,8 @@ type Result struct {
 	CommentsDeleted int64
 	DanmakuSeen     int
 	DanmakuDeleted  int64
-	Complete        bool // 本轮分页是否完整（决定是否做消失检测）
+	Warnings        []string `json:"warnings,omitempty"`
+	Complete        bool     // 本轮分页是否完整（决定是否做消失检测）
 }
 
 var reAVNum = regexp.MustCompile(`^av([0-9]+)$`)
@@ -237,18 +238,25 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 	taskflow.Report(ctx, 0.08, "采集弹幕")
 	// 弹幕：范围外跳过，但变化的 cid 强制补采
 	complete := true
-	danmakuDone := false
+	danmakuDone := len(view.Pages) > 0
+	cidComplete := map[int64]bool{}
 	cidSeen := map[int64]int{} // 每个 cid 本轮见到的弹幕数（消失防御）
 	for _, p := range view.Pages {
 		force := changedCids[p.Cid]
 		if !opts.RefreshDanmaku && !force {
 			complete = false
+			danmakuDone = false
 			continue
 		}
 		seen, comp, err := c.collectDanmaku(ctx, view.Bvid, p.Cid, p.Duration, syncStart, isNew)
-		danmakuDone = true
+		cidComplete[p.Cid] = comp && err == nil
+		if rerr := c.St.RecordCollectionStatus(view.Bvid, p.Cid, "danmaku", syncStart, comp, err); rerr != nil {
+			return res, rerr
+		}
 		if err != nil {
 			c.Log.Warn("弹幕抓取不完整", "bvid", bvid, "cid", p.Cid, "err", err)
+			res.Warnings = append(res.Warnings, err.Error())
+			danmakuDone = false
 			complete = false
 		}
 		res.DanmakuSeen += seen
@@ -266,18 +274,24 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 
 	taskflow.Report(ctx, 0.12, "采集字幕")
 	// 字幕（B 站 CC）；无 CC 字幕的分P发 subtitle.missing 事件（whisper 等插件订阅）
-	subsDone := false
+	subsDone := len(view.Pages) > 0
 	for _, p := range view.Pages {
 		force := changedCids[p.Cid]
 		if !opts.RefreshSubtitles && !force {
+			subsDone = false
 			continue
 		}
-		subsDone = true
-		if err := c.collectSubtitles(ctx, view.Bvid, view.Aid, p.Cid); err != nil {
+		subErr := c.collectSubtitles(ctx, view.Bvid, view.Aid, p.Cid)
+		if rerr := c.St.RecordCollectionStatus(view.Bvid, p.Cid, "subtitles", syncStart, subErr == nil, subErr); rerr != nil {
+			return res, rerr
+		}
+		if err := subErr; err != nil {
+			subsDone = false
+			res.Warnings = append(res.Warnings, err.Error())
 			c.Log.Warn("字幕抓取失败", "bvid", bvid, "cid", p.Cid, "err", err)
 		}
 		has, _ := c.St.HasCCSubtitle(p.Cid)
-		if !has {
+		if !has && subErr == nil {
 			c.Emitter.Emit("subtitle.missing", map[string]any{
 				"bvid": view.Bvid, "cid": p.Cid, "page": p.Page,
 			})
@@ -294,6 +308,7 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 		commentScan, err = c.scanComments(ctx, view.Aid, view.Bvid, syncStart, isNew)
 		commentsDone = err == nil
 		if err != nil {
+			res.Warnings = append(res.Warnings, err.Error())
 			c.Log.Warn("评论抓取不完整", "bvid", bvid, "err", err)
 			if ctx.Err() != nil {
 				return res, err
@@ -310,7 +325,17 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 			c.Log.Info("评论FTS索引补齐", "bvid", bvid, "新增", n)
 		}
 	}
-	res.Complete = complete && commentsComplete
+	if opts.RefreshComments {
+		if err := c.St.RecordCollectionStatus(view.Bvid, 0, "comments", syncStart, commentsComplete, func() error {
+			if commentsDone {
+				return nil
+			}
+			return errors.New("comment scan incomplete")
+		}()); err != nil {
+			return res, err
+		}
+	}
+	res.Complete = complete && (!opts.RefreshComments || commentsComplete) && subsDone
 
 	taskflow.Report(ctx, 0.35, "保存同步结果与核对状态")
 	// 分类型同步时间戳（完成的部分才更新）
@@ -334,8 +359,11 @@ func (c *Collector) ArchiveVideoOpts(ctx context.Context, id string, opts Collec
 			return res, err
 		}
 	}
-	if complete {
+	{
 		for _, p := range view.Pages {
+			if !cidComplete[p.Cid] {
+				continue
+			}
 			delD, anomD, err := c.St.MarkMissingDanmakuGuarded(view.Bvid, p.Cid, syncStart, isNew, cidSeen[p.Cid])
 			if err != nil {
 				return res, err

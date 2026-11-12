@@ -55,3 +55,9 @@ uncommitted collaboration work.
 ## 2026-11-12T15:40:16+08:00 — Preserve application baseline for archive hardening
 
 The user requested the full reliability plan. The working tree contains previously completed but uncommitted application features (personal accounts/quotas, comment continuation, scheduling and performance changes). Preserve these application sources in an explicit baseline commit before implementing hardening so later changes can be reviewed and rolled back independently. Unrelated scratch files and runtime data/configuration are not part of this baseline. Windows maintained-source build, vet and internal tests passed during the audit; Linux dependency closure is a known pending issue to fix in this work.
+
+## 2026-11-12T15:50:08+08:00 — Enforce archive observation correctness
+
+Implemented per-CID, epoch-idempotent danmaku reconciliation with matching missing-set confirmation and atomic acknowledgement; fallback list.so never authorizes disappearance. Added durable collection status and failure reporting. Snapshot errors now propagate before parsing, CC responses are captured, and new raw bodies use bounded hash sharding with file sync. Added checksummed ordered migrations and future-version refusal while preserving legacy repair compatibility. Regression tests cover cross-CID false confirmation, replay, degraded coverage, snapshot failures and future databases. No production database or service was changed.
+
+Validation: maintained-source build and vet, all internal tests, and store/biliapi/collector race tests passed. The new regressions now pass against the fixed implementation.

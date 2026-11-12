@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"bili-saver/internal/biliapi"
@@ -24,23 +23,22 @@ var snapshotLocks [64]sync.Mutex
 var snapshotGzipPool = sync.Pool{New: func() any { return gzip.NewWriter(io.Discard) }}
 
 func (c *Collector) SnapshotHook() biliapi.SnapshotHook {
-	return func(endpoint string, params url.Values, status int, body []byte) {
+	return func(endpoint string, params url.Values, status int, body []byte) error {
 		fetchedAt := store.Now()
 		sum := sha256.Sum256(body)
 		hash := hex.EncodeToString(sum[:])
-		ep := strings.ReplaceAll(strings.TrimPrefix(endpoint, "/"), "/", "_")
-		rel := filepath.Join("raw", ep, hash[:16], hash+".json.gz")
+		rel := filepath.Join("raw", "objects", hash[:2], hash[2:4], hash+".json.gz")
 		full := filepath.Join(c.Cfg.DataDir, rel)
 		if err := persistSnapshot(full, body, &snapshotLocks[int(sum[0])%len(snapshotLocks)]); err != nil {
-			c.Log.Warn("快照写入失败", "endpoint", endpoint, "err", err)
-			return
+			return fmt.Errorf("snapshot body: %w", err)
 		}
 		if err := c.St.AddSnapshot(&store.Snapshot{
 			Endpoint: endpoint, ParamsJSON: params.Encode(), RespHash: hash,
-			BodyPath: rel, StatusCode: status, FetchedAt: fetchedAt,
+			BodyPath: filepath.ToSlash(rel), StatusCode: status, FetchedAt: fetchedAt,
 		}); err != nil {
-			c.Log.Warn("快照索引写入失败", "endpoint", endpoint, "err", err)
+			return fmt.Errorf("snapshot index: %w", err)
 		}
+		return nil
 	}
 }
 
@@ -70,12 +68,16 @@ func persistSnapshot(path string, body []byte, mu *sync.Mutex) error {
 	// 避免池里的 writer 保留文件引用；复用压缩状态与缓冲。
 	gz.Reset(io.Discard)
 	snapshotGzipPool.Put(gz)
+	syncErr := f.Sync()
 	closeErr := f.Close()
 	if writeErr != nil {
 		return writeErr
 	}
 	if gzipErr != nil {
 		return gzipErr
+	}
+	if syncErr != nil {
+		return syncErr
 	}
 	if closeErr != nil {
 		return closeErr

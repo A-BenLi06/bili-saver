@@ -475,9 +475,10 @@ func (s *Server) handleVideoDetail(w http.ResponseWriter, r *http.Request) {
 			source = src
 		}
 	}
+	collectionStatus, _ := s.Deps.St.CollectionStatuses(bvid)
 	adviceHistory, _ := s.Deps.St.CommentAdviceStats([]string{bvid}, store.Now())
 	writeJSON(w, 200, map[string]any{
-		"video": v, "pages": pages, "stats_history": stats,
+		"video": v, "pages": pages, "stats_history": stats, "collection_status": collectionStatus,
 		"media_url": mediaRel, "source": source,
 		"file_links":  s.videoLinks(r, v, pages),
 		"sync_advice": store.SuggestCommentSync(v, adviceHistory[bvid], store.Now()),

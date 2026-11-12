@@ -231,6 +231,9 @@ func (a *App) jobArchive(ctx context.Context, j *store.Job, progress jobs.Progre
 			}()
 		}
 	}
+	if len(res.Warnings) > 0 {
+		return fmt.Errorf("archive saved with incomplete components: %v", res.Warnings)
+	}
 	progress(1, "完成")
 	return nil
 }

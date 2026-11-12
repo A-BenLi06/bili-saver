@@ -443,36 +443,7 @@ func (s *Store) MarkMissingDanmaku(cid int64, beforeTs int64, first bool) (int64
 // 上限，会造成大批假消失（如库内 2000 条只见回 1200 条）。占比 >30% 且 >100 条
 // 视为异常，需连续两轮确认（videos.danmaku_anomaly）才真正标删。
 func (s *Store) MarkMissingDanmakuGuarded(bvid string, cid int64, beforeTs int64, first bool, seenThisRound int) (int64, bool, error) {
-	if first {
-		return 0, false, nil
-	}
-	var pending int64
-	if err := s.DB.QueryRow(`SELECT COUNT(*) FROM danmaku WHERE cid=? AND status='visible' AND last_seen_at<?`,
-		cid, beforeTs).Scan(&pending); err != nil {
-		return 0, false, err
-	}
-	total := pending + int64(seenThisRound)
-	anomalous := pending > 100 && total > 0 && float64(pending)/float64(total) > 0.3
-	var prevAnomaly int64
-	if anomalous {
-		if err := s.DB.QueryRow(`SELECT danmaku_anomaly FROM videos WHERE bvid=?`, bvid).Scan(&prevAnomaly); err != nil {
-			return 0, false, err
-		}
-	}
-	if anomalous && prevAnomaly < 1 {
-		_, err := s.DB.Exec(`UPDATE videos SET danmaku_anomaly=danmaku_anomaly+1 WHERE bvid=?`, bvid)
-		return 0, true, err
-	}
-	var n int64
-	var err error
-	if pending > 0 {
-		n, err = s.MarkMissingDanmaku(cid, beforeTs, first)
-		if err != nil {
-			return 0, false, err
-		}
-	}
-	_, err = s.DB.Exec(`UPDATE videos SET danmaku_anomaly=0 WHERE bvid=? AND danmaku_anomaly<>0`, bvid)
-	return n, false, err
+	return s.ReconcileDanmaku(bvid, cid, beforeTs, first, seenThisRound)
 }
 
 func (s *Store) ListDanmaku(cid int64, status string) ([]*Danmaku, error) {

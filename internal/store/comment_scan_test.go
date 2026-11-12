@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -130,7 +131,7 @@ func TestCommentScanTablesUpgradeOldDatabaseIdempotently(t *testing.T) {
 		if err := s.DB.QueryRow(`SELECT content FROM comments WHERE rpid=1`).Scan(&content); err != nil || content != "preserved" {
 			t.Fatal(content, err)
 		}
-		if err := s.DB.QueryRow(`SELECT v FROM schema_meta WHERE k='schema'`).Scan(&version); err != nil || version != "15" {
+		if err := s.DB.QueryRow(`SELECT v FROM schema_meta WHERE k='schema'`).Scan(&version); err != nil || version != fmt.Sprint(SchemaVersion) {
 			t.Fatal(version, err)
 		}
 		scan := &CommentScan{Bvid: "BVOld", Epoch: 2}

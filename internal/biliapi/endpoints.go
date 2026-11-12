@@ -215,7 +215,9 @@ func (c *Client) SpaceAccInfo(ctx context.Context, mid int64) (*SpaceAccInfo, er
 	if err != nil {
 		return nil, err
 	}
-	c.snapshot("/x/space/wbi/acc/info", p, status, body)
+	if err := c.snapshot("/x/space/wbi/acc/info", p, status, body); err != nil {
+		return nil, err
+	}
 	var env struct {
 		Code    int             `json:"code"`
 		Message string          `json:"message"`
@@ -270,7 +272,9 @@ func (c *Client) SpaceArcSearch(ctx context.Context, mid int64, pn, ps int) (*Sp
 	if err != nil {
 		return nil, err
 	}
-	c.snapshot("/x/space/wbi/arc/search", p, status, body)
+	if err := c.snapshot("/x/space/wbi/arc/search", p, status, body); err != nil {
+		return nil, err
+	}
 	var env struct {
 		Code    int             `json:"code"`
 		Message string          `json:"message"`
@@ -419,6 +423,9 @@ func (c *Client) SubtitleCC(ctx context.Context, subtitleURL string) ([]byte, er
 	if err != nil {
 		return nil, err
 	}
+	if err := c.snapshot("/subtitle/cc", url.Values{"url": {subtitleURL}}, status, body); err != nil {
+		return nil, err
+	}
 	if status != 200 {
 		return nil, fmt.Errorf("下载字幕 http %d", status)
 	}
@@ -451,7 +458,9 @@ func (c *Client) DynamicFeed(ctx context.Context, mid int64, offset string) (*Dy
 	if err != nil {
 		return nil, err
 	}
-	c.snapshot("/x/polymer/web-dynamic/v1/feed/space", p, status, body)
+	if err := c.snapshot("/x/polymer/web-dynamic/v1/feed/space", p, status, body); err != nil {
+		return nil, err
+	}
 	var env struct {
 		Code    int             `json:"code"`
 		Message string          `json:"message"`
@@ -502,7 +511,9 @@ func (c *Client) SpaceFollowList(ctx context.Context, mid int64, typ, pn, ps int
 	if err != nil {
 		return nil, err
 	}
-	c.snapshot("/x/space/bangumi/follow/list", p, status, body)
+	if err := c.snapshot("/x/space/bangumi/follow/list", p, status, body); err != nil {
+		return nil, err
+	}
 	var env struct {
 		Code    int             `json:"code"`
 		Message string          `json:"message"`
