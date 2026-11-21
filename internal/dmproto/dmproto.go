@@ -33,8 +33,8 @@ const (
 // ParseSegReply 解析 DmSegMobileReply（repeated DanmakuElem elem = 1）。
 func ParseSegReply(data []byte) ([]DanmakuElem, error) {
 	var out []DanmakuElem
-	err := walkFields(data, func(field int, wire int, value []byte, num uint64) error {
-		if field == 1 && wire == wireLen {
+	err := walkFields(data, func(key uint64, value []byte, num uint64) error {
+		if key == 1<<3|wireLen {
 			elem, err := parseElem(value)
 			if err != nil {
 				return err
@@ -51,23 +51,23 @@ func ParseSegReply(data []byte) ([]DanmakuElem, error) {
 
 func parseElem(b []byte) (DanmakuElem, error) {
 	var e DanmakuElem
-	err := walkFields(b, func(field int, wire int, value []byte, num uint64) error {
-		switch {
-		case field == 1 && wire == wireVarint:
+	err := walkFields(b, func(key uint64, value []byte, num uint64) error {
+		switch key {
+		case 1<<3 | wireVarint:
 			e.ID = int64(num)
-		case field == 2 && wire == wireVarint:
+		case 2<<3 | wireVarint:
 			e.Progress = int32(num)
-		case field == 3 && wire == wireVarint:
+		case 3<<3 | wireVarint:
 			e.Mode = int32(num)
-		case field == 4 && wire == wireVarint:
+		case 4<<3 | wireVarint:
 			e.Fontsize = int32(num)
-		case field == 5 && wire == wireVarint:
+		case 5<<3 | wireVarint:
 			e.Color = uint32(num)
-		case field == 6 && wire == wireVarint:
+		case 6<<3 | wireVarint:
 			e.Mid = int64(num)
-		case field == 7 && wire == wireLen:
+		case 7<<3 | wireLen:
 			e.Content = string(value)
-		case field == 8 && wire == wireVarint:
+		case 8<<3 | wireVarint:
 			e.Ctime = int64(num)
 		}
 		return nil
@@ -77,24 +77,28 @@ func parseElem(b []byte) (DanmakuElem, error) {
 
 // walkFields 遍历 message 的顶层字段。
 // value 只在 wireLen 时有效；num 只在 varint 时有效。
-func walkFields(b []byte, fn func(field, wire int, value []byte, num uint64) error) error {
+func walkFields(b []byte, fn func(key uint64, value []byte, num uint64) error) error {
 	pos := 0
 	for pos < len(b) {
-		key, next, err := readVarint(b, pos)
-		if err != nil {
-			return err
+		// Most field keys fit in one byte. The loop already checked its bounds.
+		key := uint64(b[pos])
+		if key < 0x80 {
+			pos++
+		} else {
+			var err error
+			key, pos, err = readVarint(b, pos)
+			if err != nil {
+				return err
+			}
 		}
-		pos = next
-		field := int(key >> 3)
-		wire := int(key & 7)
-		switch wire {
+		switch key & 7 {
 		case wireVarint:
 			num, next, err := readVarint(b, pos)
 			if err != nil {
 				return err
 			}
 			pos = next
-			if err := fn(field, wire, nil, num); err != nil {
+			if err := fn(key, nil, num); err != nil {
 				return err
 			}
 		case wireLen:
@@ -107,7 +111,7 @@ func walkFields(b []byte, fn func(field, wire int, value []byte, num uint64) err
 			if end > len(b) || end < pos {
 				return errors.New("dmproto: 长度字段越界")
 			}
-			if err := fn(field, wire, b[pos:end], 0); err != nil {
+			if err := fn(key, b[pos:end], 0); err != nil {
 				return err
 			}
 			pos = end
@@ -116,7 +120,7 @@ func walkFields(b []byte, fn func(field, wire int, value []byte, num uint64) err
 				return errors.New("dmproto: i64 越界")
 			}
 			pos += 8
-			if err := fn(field, wire, nil, 0); err != nil {
+			if err := fn(key, nil, 0); err != nil {
 				return err
 			}
 		case wireI32:
@@ -124,11 +128,11 @@ func walkFields(b []byte, fn func(field, wire int, value []byte, num uint64) err
 				return errors.New("dmproto: i32 越界")
 			}
 			pos += 4
-			if err := fn(field, wire, nil, 0); err != nil {
+			if err := fn(key, nil, 0); err != nil {
 				return err
 			}
 		case wireGroupStart: // 遗留 group：跳过到匹配的 group end
-			end, err := skipGroup(b, pos, field)
+			end, err := skipGroup(b, pos, int(key>>3))
 			if err != nil {
 				return err
 			}
@@ -136,7 +140,7 @@ func walkFields(b []byte, fn func(field, wire int, value []byte, num uint64) err
 		case wireGroupEnd:
 			return errors.New("dmproto: 不配对的 group end")
 		default:
-			return fmt.Errorf("dmproto: 未知 wire type %d", wire)
+			return fmt.Errorf("dmproto: 未知 wire type %d", key&7)
 		}
 	}
 	return nil
