@@ -113,9 +113,12 @@ func sdfRound(px, py float64, r image.Rectangle, radius float64) float64 {
 	}
 	qx := math.Abs(px-(float64(r.Min.X)+halfW)) - (halfW - radius)
 	qy := math.Abs(py-(float64(r.Min.Y)+halfH)) - (halfH - radius)
-	dx := math.Max(qx, 0)
-	dy := math.Max(qy, 0)
-	return math.Hypot(dx, dy) + math.Min(math.Max(qx, qy), 0) - radius
+	// Only the corner needs a two-axis distance. Elsewhere the nearest
+	// edge (or the only outside axis) determines the signed distance.
+	if qx > 0 && qy > 0 {
+		return math.Hypot(qx, qy) - radius
+	}
+	return max(qx, qy) - radius
 }
 
 // fillRound 纯色抗锯齿圆角矩形。
