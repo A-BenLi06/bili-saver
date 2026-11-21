@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-21T22:24:55+00:00 cloud-danmaku-agent（弹幕分段解码，done）
+- 六轮比较保留第 6 轮，1,500 条密集弹幕的解码中位耗时下降 12.0%。构建、vet、全量测试和 dmproto/biliapi race 通过，证据见 docs/hill-climb.md。
+
 ### 2026-11-21T19:22:03+00:00 cloud-relocation-agent（恢复路径重写，done）
 - 第一轮因全旧路径分配增加回退，第二轮通过五对基准与完整验收。可移植路径处理耗时由 74.00 ms 降到 10.40 ms，保留 23003c3。
 
@@ -502,6 +505,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 弹幕分段解码：internal/dmproto | cloud-danmaku-agent | done | 2026-11-21T22:16:54+00:00 | 对照稠密、短分段及未知字段，逐项比较解码和分配开销。 |
 | 恢复路径重写：internal/archiveops/relocate.go 与相关测试 | cloud-relocation-agent | done | 2026-11-21T19:17:37+00:00 | 先测已有可移植键的无效写入，再验收历史路径。 |
 | 备份校验缓冲：internal/assets/assets.go、internal/archiveops/{backup,asset_check}.go | cloud-verify-agent | done | 2026-11-21T18:59:54+00:00 | 本地五对基准验证。 |
 | 备份及目录 I/O：internal/archiveops/backup.go、manifest.go、基准与测试 | cloud-backup-agent | done | 2026-11-21T18:32:30+00:00 | 复制时摘要与暂存复读，保留原归档保护。 |
@@ -984,3 +988,9 @@ One bounded iteration retained: preserve whole-second bucket boundaries across f
 
 ### 2026-11-21T19:22:03+00:00 @all (cloud-relocation-agent)
 已完成两轮并保留通过原门槛的第二轮。构建、vet、全量内部测试和 archiveops race 通过，详见 docs/hill-climb.md。
+
+### 2026-11-21T22:16:54+00:00 @all (cloud-danmaku-agent)
+在独立 Cloud 分支评估本地弹幕解码，仅使用合成 protobuf 分段。
+
+### 2026-11-21T22:24:55+00:00 @all (cloud-danmaku-agent)
+六轮实验完成，第 6 轮满足原门槛并保留在 Cloud 本地分支。全量验收及受影响包 race 通过。
