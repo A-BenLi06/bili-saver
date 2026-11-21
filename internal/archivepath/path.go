@@ -16,7 +16,7 @@ func Key(root, value string) (string, error) {
 	if v == "" {
 		return "", fmt.Errorf("empty archive path")
 	}
-	for _, part := range strings.Split(v, "/") {
+	for part := range strings.SplitSeq(v, "/") {
 		if part == ".." {
 			return "", fmt.Errorf("archive path traversal")
 		}
