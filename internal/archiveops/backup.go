@@ -2,8 +2,11 @@ package archiveops
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -156,25 +159,32 @@ func backupLocked(ctx context.Context, root, destination string, startup ...*con
 		}
 	}
 	sort.Strings(keys)
+	copyBuffer := make([]byte, 256*1024)
+	digest := sha256.New()
 	for _, key := range keys {
 		if err = ctx.Err(); err != nil {
 			return nil, err
 		}
 		target := filepath.Join(stage, filepath.FromSlash(key))
-		if !prepared[key] {
+		var checksum string
+		var size int64
+		if prepared[key] {
+			checksum, size, err = assets.Digest(ctx, target)
+		} else {
 			from := sources[key]
 			if from == "" {
 				return nil, fmt.Errorf("missing backup source mapping %s", key)
 			}
-			if e := copyExclusive(ctx, from, target); e != nil {
-				return nil, e
-			}
+			// Hash the bytes copied from the source. verifyBackup independently
+			// reads the staged file before publication.
+			digest.Reset()
+			size, err = copyExclusive(ctx, from, target, copyBuffer, digest)
+			checksum = hex.EncodeToString(digest.Sum(nil))
 		}
-		hash, size, e := assets.Digest(ctx, target)
-		if e != nil {
-			return nil, e
+		if err != nil {
+			return nil, err
 		}
-		m.Files = append(m.Files, File{key, hash, size})
+		m.Files = append(m.Files, File{key, checksum, size})
 	}
 	if err = writeJSON(filepath.Join(stage, "manifest.json"), m); err != nil {
 		return nil, err
@@ -252,39 +262,49 @@ func newStage(destination string) (string, error) {
 	return stage, nil
 }
 
-func copyExclusive(ctx context.Context, source, destination string) error {
+// copyExclusive copies a new private file using the caller's scratch buffer.
+func copyExclusive(ctx context.Context, source, destination string, buf []byte, digest hash.Hash) (int64, error) {
 	if err := os.MkdirAll(filepath.Dir(destination), 0700); err != nil {
-		return err
+		return 0, err
 	}
 	in, err := os.Open(source)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer in.Close()
 	out, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer out.Close()
-	buf := make([]byte, 256*1024)
+
+	var size int64
 	for {
 		if err = ctx.Err(); err != nil {
-			return err
+			return 0, err
 		}
-		n, e := in.Read(buf)
+		n, readErr := in.Read(buf)
 		if n > 0 {
-			if _, err = out.Write(buf[:n]); err != nil {
-				return err
+			chunk := buf[:n]
+			if _, err = out.Write(chunk); err != nil {
+				return 0, err
 			}
+			if digest != nil {
+				digest.Write(chunk)
+			}
+			size += int64(n)
 		}
-		if e == io.EOF {
+		if readErr == io.EOF {
 			break
 		}
-		if e != nil {
-			return e
+		if readErr != nil {
+			return 0, readErr
 		}
 	}
-	return out.Sync()
+	if err := out.Sync(); err != nil {
+		return 0, err
+	}
+	return size, out.Close()
 }
 
 func verifyBackup(ctx context.Context, root string, m Manifest) error {
@@ -372,12 +392,13 @@ func Restore(ctx context.Context, backupRoot, destination string) error {
 			os.RemoveAll(stage)
 		}
 	}()
+	copyBuffer := make([]byte, 256*1024)
 	for _, entry := range m.Files {
 		from, err := archivepath.Resolve(source, entry.Key)
 		if err != nil {
 			return err
 		}
-		if err = copyExclusive(ctx, from, filepath.Join(stage, filepath.FromSlash(entry.Key))); err != nil {
+		if _, err = copyExclusive(ctx, from, filepath.Join(stage, filepath.FromSlash(entry.Key)), copyBuffer, nil); err != nil {
 			return err
 		}
 	}

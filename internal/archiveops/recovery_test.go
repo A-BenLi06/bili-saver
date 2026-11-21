@@ -85,6 +85,21 @@ func TestBackupRestoreRelocationAndReadOnlyCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The backup manifest describes the original media bytes.
+	const wantMedia = "media/BVfixture/p1/BVfixture-p1.mp4"
+	mediaHash := fmt.Sprintf("%x", sha256.Sum256([]byte("fixture video bytes")))
+	found := false
+	for _, entry := range m.Files {
+		if entry.Key == wantMedia {
+			found = true
+			if entry.SHA256 != mediaHash || entry.Size != int64(len("fixture video bytes")) {
+				t.Fatalf("invalid media manifest entry: %+v", entry)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("media missing from backup manifest")
+	}
 	if !m.Sensitive || m.Purpose != "private-backup" {
 		t.Fatal("private state was not classified")
 	}
