@@ -42,9 +42,7 @@ func BenchmarkRingWrite(b *testing.B) {
 }
 
 func seedBenchmarkRing(b *testing.B, count int) {
-	previousBuf, previousSeq := ringBuf, ringSeq
-	b.Cleanup(func() { ringBuf, ringSeq = previousBuf, previousSeq })
-	ringBuf, ringSeq = nil, 0
+	resetTestRing(b)
 	writer := ringWriter{}
 	if _, err := writer.Write([]byte(strings.Repeat("synthetic log line\n", count))); err != nil {
 		b.Fatal(err)

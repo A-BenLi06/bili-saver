@@ -12,10 +12,7 @@ import (
 )
 
 func TestRingSnapshot(t *testing.T) {
-	ringMu.Lock()
-	ringBuf = nil
-	ringSeq = 0
-	ringMu.Unlock()
+	resetTestRing(t)
 	w := ringWriter{}
 	for i := 0; i < 10; i++ {
 		if _, err := w.Write([]byte("line\n")); err != nil {
@@ -50,15 +47,7 @@ func TestRingSnapshot(t *testing.T) {
 }
 
 func TestRingSnapshotAfterEviction(t *testing.T) {
-	ringMu.Lock()
-	oldBuf, oldSeq := ringBuf, ringSeq
-	ringBuf, ringSeq = nil, 0
-	ringMu.Unlock()
-	t.Cleanup(func() {
-		ringMu.Lock()
-		ringBuf, ringSeq = oldBuf, oldSeq
-		ringMu.Unlock()
-	})
+	resetTestRing(t)
 
 	if _, err := (ringWriter{}).Write([]byte(strings.Repeat("line\n", ringCap+2))); err != nil {
 		t.Fatal(err)
@@ -68,6 +57,7 @@ func TestRingSnapshotAfterEviction(t *testing.T) {
 		count        int
 	}{
 		{0, 3, 2},
+		{ringCap - 1, ringCap, 2},
 		{2, 3, 2},
 		{3, 4, 2},
 		{ringCap + 1, ringCap + 2, 1},
@@ -90,6 +80,18 @@ func TestRingSnapshotAfterEviction(t *testing.T) {
 	if unchanged[0].Text != "line" {
 		t.Fatal("snapshot modifications changed the ring")
 	}
+}
+
+func resetTestRing(t testing.TB) {
+	ringMu.Lock()
+	previous := ring
+	ring = logRing{}
+	ringMu.Unlock()
+	t.Cleanup(func() {
+		ringMu.Lock()
+		ring = previous
+		ringMu.Unlock()
+	})
 }
 
 func TestCompressOldLogs(t *testing.T) {
