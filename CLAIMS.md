@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-21T19:02:48+00:00 cloud-verify-agent（文件校验缓冲，done）
+- 备份及离线资产校验顺序复用摘要缓冲，两项均过内存门槛与最终全量内部验收。插件用例的基线偶发 slots leaked 单独记录，复跑通过。
+
 ### 2026-11-21T18:34:56+00:00 cloud-backup-agent（备份及资产目录，done）
 - 复制时计算摘要并独立复读暂存数据；资产清单只读公开字段。两项均通过五对基准、完整构建、vet、全量内部测试和相关包 race。
 
@@ -496,6 +499,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 备份校验缓冲：internal/assets/assets.go、internal/archiveops/{backup,asset_check}.go | cloud-verify-agent | done | 2026-11-21T18:59:54+00:00 | 本地五对基准验证。 |
 | 备份及目录 I/O：internal/archiveops/backup.go、manifest.go、基准与测试 | cloud-backup-agent | done | 2026-11-21T18:32:30+00:00 | 复制时摘要与暂存复读，保留原归档保护。 |
 | 数据操作：server/core_export.go 与 archiveops/check.go 及相关测试 | cloud-data-agent | done | 2026-11-21T18:09:48+00:00 | 独立 Cloud 分支；原件 ZIP 与离线文件校验的实测优化。 |
 | 日志数据结构：internal/logging | cloud-ring-agent | done | 2026-11-21T18:03:21+00:00 | 固定容量环，保留快照语义，独立 Cloud 验收。 |
