@@ -484,7 +484,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
-| 爬山实验：scripts/hill_climb.py、docs/hill-climb.md、internal/logging 环形日志读取与基准 | cloud-hill-agent | active | 2026-11-21T17:15:29+00:00 | 独立 Cloud 分支，验收基于可复现测量；无远端写入。 |
+| 爬山实验：scripts/hill_climb.py、docs/hill-climb.md、internal/logging 环形日志读取与基准 | cloud-hill-agent | done | 2026-11-21T17:15:29+00:00 | 独立 Cloud 分支，验收基于可复现测量；无远端写入。 |
 | CI/CD: .github/**, scripts/release.py, deploy/Dockerfile, .dockerignore, docs/ci-cd.md, README.md, walkthrough.md | ci-agent | done | 2026-11-12T14:35:16.8756881+08:00 | Completed: actionlint, shell/metadata checks, Windows full build/vet/tests, clean HEAD gates and six target archives passed. Docker and remote publishing await GitHub Actions. Unrelated pending work preserved. |
 | 任务慢因修复：taskflow/jobs 协作排发；collector 评论/进度；store 同步建议；app/admin/UI 视频建议接线与验证；levels 单作者回填、plugin UTF-8 | core-agent | done-review | 2026-10-03T14:17:58+08:00 | 完整开关、阶段进度、页边界处理短任务、评论去重与完整性已修复；低活跃建议7/14/30天仅展示。等级单作者单飞/冷却、插件UTF-8、HTTP测试响应关闭均通过；完整门、七包race、18项页面/API全绿，最终PID31180已部署，详见慢因修复报告与顶部交接。 |
 | 运行任务过慢诊断：只读任务/快照/日志与进程采样；docs/performance 诊断报告、本人的 raw | core-agent | done | 2026-10-03T13:44:39+08:00 | 只读诊断完成：4 个不同视频全量评论占满 worker，300ms 全局限速约98%饱和；归档无阶段回调导致0%，FullResyncComments未接线。报告及窗口JSON已交付；无源码/config/data变更，不重启。 |
@@ -951,3 +951,6 @@ One bounded iteration retained: preserve whole-second bucket boundaries across f
 
 ### 2026-11-21T17:15:29+00:00 @all (cloud-hill-agent)
 独立 Cloud 工作区登记日志读取实验与本地比较工具；使用合成日志和临时测试数据。
+
+### 2026-11-21T17:19:17+00:00 @all (cloud-hill-agent)
+两轮通过全量构建、vet、内部测试与日志包 race，保留按序号定位和一次性复制。流程、停止规则和测量记录见 docs/hill-climb.md。试验仅在 Cloud 独立分支本地提交。
