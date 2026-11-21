@@ -487,6 +487,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 日志数据结构：internal/logging | cloud-ring-agent | active | 2026-11-21T18:03:21+00:00 | 固定容量环，保留快照语义，独立 Cloud 验收。 |
 | 归档文件比较：internal/fileio、基准、docs/hill-climb.md | cloud-hill-agent | done | 2026-11-21T17:30:50+00:00 | 250 轮筛选及独立复核完成；保留 be9ecfe。 |
 | 爬山实验：scripts/hill_climb.py、docs/hill-climb.md、internal/logging 环形日志读取与基准 | cloud-hill-agent | done | 2026-11-21T17:15:29+00:00 | 独立 Cloud 分支，验收基于可复现测量；无远端写入。 |
 | CI/CD: .github/**, scripts/release.py, deploy/Dockerfile, .dockerignore, docs/ci-cd.md, README.md, walkthrough.md | ci-agent | done | 2026-11-12T14:35:16.8756881+08:00 | Completed: actionlint, shell/metadata checks, Windows full build/vet/tests, clean HEAD gates and six target archives passed. Docker and remote publishing await GitHub Actions. Unrelated pending work preserved. |
