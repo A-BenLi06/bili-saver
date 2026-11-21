@@ -490,6 +490,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 数据操作：server/core_export.go 与 archiveops/check.go 及相关测试 | cloud-data-agent | active | 2026-11-21T18:09:48+00:00 | 独立 Cloud 分支；原件 ZIP 与离线文件校验的实测优化。 |
 | 日志数据结构：internal/logging | cloud-ring-agent | done | 2026-11-21T18:03:21+00:00 | 固定容量环，保留快照语义，独立 Cloud 验收。 |
 | 归档文件比较：internal/fileio、基准、docs/hill-climb.md | cloud-hill-agent | done | 2026-11-21T17:30:50+00:00 | 250 轮筛选及独立复核完成；保留 be9ecfe。 |
 | 爬山实验：scripts/hill_climb.py、docs/hill-climb.md、internal/logging 环形日志读取与基准 | cloud-hill-agent | done | 2026-11-21T17:15:29+00:00 | 独立 Cloud 分支，验收基于可复现测量；无远端写入。 |
