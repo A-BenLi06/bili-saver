@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -54,13 +55,15 @@ func (ringWriter) Write(p []byte) (int, error) {
 func RingSnapshot(after uint64, max int) ([]Line, uint64) {
 	ringMu.Lock()
 	defer ringMu.Unlock()
+	start := 0
+	if len(ringBuf) > 0 && ringBuf[0].Seq <= after {
+		start = sort.Search(len(ringBuf), func(i int) bool { return ringBuf[i].Seq > after })
+	}
 	var out []Line
-	for _, l := range ringBuf {
-		if l.Seq > after {
-			out = append(out, l)
-			if max > 0 && len(out) >= max {
-				break
-			}
+	for _, l := range ringBuf[start:] {
+		out = append(out, l)
+		if max > 0 && len(out) >= max {
+			break
 		}
 	}
 	return out, ringSeq
