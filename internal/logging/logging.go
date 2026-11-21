@@ -59,14 +59,11 @@ func RingSnapshot(after uint64, max int) ([]Line, uint64) {
 	if len(ringBuf) > 0 && ringBuf[0].Seq <= after {
 		start = sort.Search(len(ringBuf), func(i int) bool { return ringBuf[i].Seq > after })
 	}
-	var out []Line
-	for _, l := range ringBuf[start:] {
-		out = append(out, l)
-		if max > 0 && len(out) >= max {
-			break
-		}
+	end := len(ringBuf)
+	if max > 0 && max < end-start {
+		end = start + max
 	}
-	return out, ringSeq
+	return append([]Line(nil), ringBuf[start:end]...), ringSeq
 }
 
 // LogsDir 按日服务日志所在目录。
