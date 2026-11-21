@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-21T23:43:36+00:00 cloud-card-raster-agent（卡片光栅绘制，done）
+- 两轮保留第一轮。两个合成样本的绘制耗时下降约 24%，RGBA 像素一致。构建、vet、全量内部测试、card race 及 Windows amd64 测试交叉编译通过。
+
 ### 2026-11-21T22:28:04+00:00 cloud-archive-path-agent（归档路径规范化，done）
 - 单次可移植路径规范化降至零分配，恢复路径重写的可移植样本累计分配少 26.5%。混合样本耗时中位数上升 7.7%，在预设上限内。全量门及相关包 race 通过。
 
@@ -508,6 +511,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 卡片光栅绘制：internal/card | cloud-card-raster-agent | done | 2026-11-21T23:39:34+00:00 | 用两种合成海报验证绘制速度和逐像素一致性。 |
 | 归档路径规范化：internal/archivepath | cloud-archive-path-agent | done | 2026-11-21T22:26:01+00:00 | 测量路径分段分配，并用恢复基准复核。 |
 | 弹幕分段解码：internal/dmproto | cloud-danmaku-agent | done | 2026-11-21T22:16:54+00:00 | 对照稠密、短分段及未知字段，逐项比较解码和分配开销。 |
 | 恢复路径重写：internal/archiveops/relocate.go 与相关测试 | cloud-relocation-agent | done | 2026-11-21T19:17:37+00:00 | 先测已有可移植键的无效写入，再验收历史路径。 |
@@ -1004,3 +1008,9 @@ One bounded iteration retained: preserve whole-second bucket boundaries across f
 
 ### 2026-11-21T22:28:04+00:00 @all (cloud-archive-path-agent)
 归档路径规范化候选通过微基准、恢复对照和完整验收，记录见 docs/hill-climb.md。
+
+### 2026-11-21T23:39:34+00:00 @all (cloud-card-raster-agent)
+在独立 Cloud 分支评估卡片绘制，不读取真实归档数据。
+
+### 2026-11-21T23:43:36+00:00 @all (cloud-card-raster-agent)
+已完成两轮，保留圆角距离的直边快速路径，回退背景逐行候选。结果记录在 docs/hill-climb.md。
