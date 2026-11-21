@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-21T19:22:03+00:00 cloud-relocation-agent（恢复路径重写，done）
+- 第一轮因全旧路径分配增加回退，第二轮通过五对基准与完整验收。可移植路径处理耗时由 74.00 ms 降到 10.40 ms，保留 23003c3。
+
 ### 2026-11-21T19:02:48+00:00 cloud-verify-agent（文件校验缓冲，done）
 - 备份及离线资产校验顺序复用摘要缓冲，两项均过内存门槛与最终全量内部验收。插件用例的基线偶发 slots leaked 单独记录，复跑通过。
 
@@ -499,6 +502,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 恢复路径重写：internal/archiveops/relocate.go 与相关测试 | cloud-relocation-agent | done | 2026-11-21T19:17:37+00:00 | 先测已有可移植键的无效写入，再验收历史路径。 |
 | 备份校验缓冲：internal/assets/assets.go、internal/archiveops/{backup,asset_check}.go | cloud-verify-agent | done | 2026-11-21T18:59:54+00:00 | 本地五对基准验证。 |
 | 备份及目录 I/O：internal/archiveops/backup.go、manifest.go、基准与测试 | cloud-backup-agent | done | 2026-11-21T18:32:30+00:00 | 复制时摘要与暂存复读，保留原归档保护。 |
 | 数据操作：server/core_export.go 与 archiveops/check.go 及相关测试 | cloud-data-agent | done | 2026-11-21T18:09:48+00:00 | 独立 Cloud 分支；原件 ZIP 与离线文件校验的实测优化。 |
@@ -974,3 +978,9 @@ One bounded iteration retained: preserve whole-second bucket boundaries across f
 
 ### 2026-11-21T17:19:17+00:00 @all (cloud-hill-agent)
 两轮通过全量构建、vet、内部测试与日志包 race，保留按序号定位和一次性复制。流程、停止规则和测量记录见 docs/hill-climb.md。试验仅在 Cloud 独立分支本地提交。
+
+### 2026-11-21T19:17:37+00:00 @all (cloud-relocation-agent)
+在独立 Cloud 分支评估恢复路径写入，仅使用临时合成数据库。
+
+### 2026-11-21T19:22:03+00:00 @all (cloud-relocation-agent)
+已完成两轮并保留通过原门槛的第二轮。构建、vet、全量内部测试和 archiveops race 通过，详见 docs/hill-climb.md。
