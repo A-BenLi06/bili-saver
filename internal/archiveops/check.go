@@ -13,7 +13,6 @@ import (
 
 	"bili-saver/internal/archiveguard"
 	"bili-saver/internal/archivepath"
-	"bili-saver/internal/assets"
 	"bili-saver/internal/store"
 )
 
@@ -139,20 +138,8 @@ func checkLocked(ctx context.Context, root string) (*Report, error) {
 		return nil, err
 	}
 	if indexed {
-		st := &store.Store{DB: db}
-		entries, e := st.Assets("")
-		if e != nil {
-			return nil, e
-		}
-		service := assets.Service{Store: st, Root: root}
-		for _, a := range entries {
-			if err = ctx.Err(); err != nil {
-				return nil, err
-			}
-			if e = service.Verify(ctx, &a); e != nil {
-				r.Issues = append(r.Issues, Issue{"asset", a.StorageKey, e.Error()})
-			}
-			r.FilesChecked++
+		if err := checkAssets(ctx, db, root, r); err != nil {
+			return nil, err
 		}
 	}
 	partQuery := `SELECT bvid,page,COUNT(*) FROM pages GROUP BY bvid,page HAVING COUNT(*)>1`
