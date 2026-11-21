@@ -36,3 +36,52 @@ func TestAddZero(t *testing.T) {
 		t.Fatal("非正数字节不应计入")
 	}
 }
+
+func TestRateFractionalAdvances(t *testing.T) {
+	start := time.Unix(1000, 0)
+	r := &Rate{last: start, total: 3000}
+	r.buckets[0] = 3000
+	for _, step := range []struct {
+		elapsed time.Duration
+		bytes   int64
+	}{
+		{1500 * time.Millisecond, 3000},
+		{2500 * time.Millisecond, 3000},
+		{3 * time.Second, 0},
+	} {
+		r.advance(start.Add(step.elapsed))
+		var sum int64
+		for i := 0; i < 3; i++ {
+			sum += r.buckets[(r.idx-i+windowBuckets)%windowBuckets]
+		}
+		if sum != step.bytes {
+			t.Fatalf("at %v: window contains %d bytes, want %d", step.elapsed, sum, step.bytes)
+		}
+	}
+	if r.total != 3000 {
+		t.Fatalf("decay changed cumulative total: %d", r.total)
+	}
+}
+
+func TestRateLongIdlePreservesBucketBoundary(t *testing.T) {
+	start := time.Unix(1000, 0)
+	r := &Rate{last: start}
+	for i := range r.buckets {
+		r.buckets[i] = 100
+	}
+	r.advance(start.Add(10500 * time.Millisecond))
+	if r.buckets != [windowBuckets]int64{} {
+		t.Fatalf("idle window retains bytes: %v", r.buckets)
+	}
+	// A new transfer must expire on the original whole-second boundary,
+	// even when the idle gap exceeded the ring size.
+	r.buckets[r.idx] = 3000
+	r.advance(start.Add(13 * time.Second))
+	var sum int64
+	for i := 0; i < 3; i++ {
+		sum += r.buckets[(r.idx-i+windowBuckets)%windowBuckets]
+	}
+	if sum != 0 {
+		t.Fatalf("traffic survived its bucket window after idle: %d bytes", sum)
+	}
+}

@@ -24,7 +24,7 @@ func (r *Rate) advance(now time.Time) {
 		r.last = now
 		return
 	}
-	elapsed := int(now.Sub(r.last).Seconds())
+	elapsed := int(now.Sub(r.last) / time.Second)
 	if elapsed <= 0 {
 		return
 	}
@@ -36,7 +36,8 @@ func (r *Rate) advance(now time.Time) {
 		r.idx = (r.idx + 1) % windowBuckets
 		r.buckets[r.idx] = 0
 	}
-	r.last = now
+	// Keep the fractional remainder so frequent reads cannot delay expiry.
+	r.last = r.last.Add(time.Duration(elapsed) * time.Second)
 }
 
 // Add 记录 n 字节。

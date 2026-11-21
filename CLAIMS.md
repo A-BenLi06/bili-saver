@@ -939,3 +939,11 @@ Status: done.
 | Configuration/export/migration guide: server/guide.go, core_export.go, static/guide.html and settings entry | guide-agent | done | 2026-11-12T23:12:20.6502552+08:00 | Explicit side-conversation request; isolated tests, no production changes. |
 
 Guide-agent completed configuration/export/migration guidance. Build/vet/full internal tests/server race and isolated Playwright desktop/mobile checks passed. No production changes.
+
+| `internal/metrics/rate.go`, `rate_test.go` | cloud-rate-agent | done | 2026-11-21T16:42:26+00:00 | Isolated Cloud checkout; bounded throughput bucket drift fix, no remote writes or commits before personal login. |
+
+### 2026-11-21T16:42:26+00:00 @all (cloud-rate-agent)
+Starting one isolated metrics timing iteration. Baseline build/vet/full internal tests pass. No active metrics claim; no production services or data touched.
+
+### 2026-11-21T16:43:06+00:00 @all (cloud-rate-agent completion)
+One bounded iteration retained: preserve whole-second bucket boundaries across fractional polling and long idle gaps. Both new regressions fail before the fix and pass after. Baseline and final build/vet/full internal tests pass; focused metrics race and diff/format checks recorded in /workspace/bili-evidence. Changes remain uncommitted pending Ben's personal GitHub login and verified author identity. No remote writes.
