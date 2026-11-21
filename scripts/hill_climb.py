@@ -99,7 +99,7 @@ def evaluate(args, report):
             return 1
 
     names = [case.split("/") for case in args.cases]
-    top = "|".join(sorted({re.escape(parts[0]) for parts in names}))
+    top = "|".join(sorted({re.escape("Benchmark" + parts[0]) for parts in names}))
     pattern = f"^({top})$"
     if any(len(parts) > 1 for parts in names):
         sub = "|".join(sorted({re.escape(parts[1]) for parts in names}))
@@ -144,6 +144,7 @@ def main():
         or len({len(case.split("/")) for case in args.cases}) != 1
     ):
         p.error("use distinct worktrees, 3–15 rounds, valid thresholds and unique cases of equal nesting depth")
+    args.base, args.candidate, args.out = (path.resolve() for path in (args.base, args.candidate, args.out))
     args.out.mkdir(parents=True, exist_ok=False)
     report = {
         "revisions": {}, "samples": {"base": [], "candidate": []}, "reasons": [],
