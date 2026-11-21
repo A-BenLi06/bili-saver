@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-21T18:34:56+00:00 cloud-backup-agent（备份及资产目录，done）
+- 复制时计算摘要并独立复读暂存数据；资产清单只读公开字段。两项均通过五对基准、完整构建、vet、全量内部测试和相关包 race。
+
 ### 2026-11-21T18:13:44+00:00 cloud-data-agent（归档数据操作，done）
 - 原件导出复用扫描空间，离线校验对共享资产合并读取，快照校验复用解压缓冲。三项均通过五对本地基准与完整验收；保留 ac2b85e、213f8ed、afb5be5，详见 docs/hill-climb.md。
 
@@ -493,7 +496,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
-| 备份 I/O：internal/archiveops/backup.go、基准与测试 | cloud-backup-agent | active | 2026-11-21T18:32:30+00:00 | 复制时摘要与暂存复读，保留原归档保护。 |
+| 备份及目录 I/O：internal/archiveops/backup.go、manifest.go、基准与测试 | cloud-backup-agent | done | 2026-11-21T18:32:30+00:00 | 复制时摘要与暂存复读，保留原归档保护。 |
 | 数据操作：server/core_export.go 与 archiveops/check.go 及相关测试 | cloud-data-agent | done | 2026-11-21T18:09:48+00:00 | 独立 Cloud 分支；原件 ZIP 与离线文件校验的实测优化。 |
 | 日志数据结构：internal/logging | cloud-ring-agent | done | 2026-11-21T18:03:21+00:00 | 固定容量环，保留快照语义，独立 Cloud 验收。 |
 | 归档文件比较：internal/fileio、基准、docs/hill-climb.md | cloud-hill-agent | done | 2026-11-21T17:30:50+00:00 | 250 轮筛选及独立复核完成；保留 be9ecfe。 |
