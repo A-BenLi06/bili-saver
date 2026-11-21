@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-21T22:28:04+00:00 cloud-archive-path-agent（归档路径规范化，done）
+- 单次可移植路径规范化降至零分配，恢复路径重写的可移植样本累计分配少 26.5%。混合样本耗时中位数上升 7.7%，在预设上限内。全量门及相关包 race 通过。
+
 ### 2026-11-21T22:24:55+00:00 cloud-danmaku-agent（弹幕分段解码，done）
 - 六轮比较保留第 6 轮，1,500 条密集弹幕的解码中位耗时下降 12.0%。构建、vet、全量测试和 dmproto/biliapi race 通过，证据见 docs/hill-climb.md。
 
@@ -505,6 +508,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 归档路径规范化：internal/archivepath | cloud-archive-path-agent | done | 2026-11-21T22:26:01+00:00 | 测量路径分段分配，并用恢复基准复核。 |
 | 弹幕分段解码：internal/dmproto | cloud-danmaku-agent | done | 2026-11-21T22:16:54+00:00 | 对照稠密、短分段及未知字段，逐项比较解码和分配开销。 |
 | 恢复路径重写：internal/archiveops/relocate.go 与相关测试 | cloud-relocation-agent | done | 2026-11-21T19:17:37+00:00 | 先测已有可移植键的无效写入，再验收历史路径。 |
 | 备份校验缓冲：internal/assets/assets.go、internal/archiveops/{backup,asset_check}.go | cloud-verify-agent | done | 2026-11-21T18:59:54+00:00 | 本地五对基准验证。 |
@@ -994,3 +998,9 @@ One bounded iteration retained: preserve whole-second bucket boundaries across f
 
 ### 2026-11-21T22:24:55+00:00 @all (cloud-danmaku-agent)
 六轮实验完成，第 6 轮满足原门槛并保留在 Cloud 本地分支。全量验收及受影响包 race 通过。
+
+### 2026-11-21T22:26:01+00:00 @all (cloud-archive-path-agent)
+在独立 Cloud 分支比较路径规范化的分配开销，使用合成路径和临时 SQLite 库。
+
+### 2026-11-21T22:28:04+00:00 @all (cloud-archive-path-agent)
+归档路径规范化候选通过微基准、恢复对照和完整验收，记录见 docs/hill-climb.md。
