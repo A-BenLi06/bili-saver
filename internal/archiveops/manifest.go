@@ -48,16 +48,33 @@ type Catalog struct {
 
 // Catalog excludes node paths, credentials, users, quotas and operational state.
 func ExportCatalog(st *store.Store) (Catalog, error) {
-	if !hasTable(st.DB, "archive_assets") {
+	return exportCatalog(context.Background(), st.DB)
+}
+
+func exportCatalog(ctx context.Context, db *sql.DB) (Catalog, error) {
+	var indexed bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='archive_assets')`).Scan(&indexed); err != nil {
+		return Catalog{}, err
+	}
+	if !indexed {
 		return Catalog{}, fmt.Errorf("content catalog requires the asset-index migration; start the upgraded application on a verified archive copy first")
 	}
-	items, err := st.Assets("")
+	rows, err := db.QueryContext(ctx, `SELECT bvid,cid,role,origin,variant,sha256,size,provenance,created_at
+		FROM archive_assets ORDER BY id`)
 	if err != nil {
 		return Catalog{}, err
 	}
+	defer rows.Close()
 	out := Catalog{Version: FormatVersion, Kind: "archive-content-catalog", Assets: []CatalogAsset{}}
-	for _, a := range items {
-		out.Assets = append(out.Assets, CatalogAsset{a.Bvid, a.Cid, a.Role, a.Origin, a.Variant, a.SHA256, a.Size, a.Provenance, a.CreatedAt})
+	var asset CatalogAsset
+	for rows.Next() {
+		if err := rows.Scan(&asset.Bvid, &asset.Cid, &asset.Role, &asset.Origin, &asset.Variant, &asset.SHA256, &asset.Size, &asset.Provenance, &asset.ObservedAt); err != nil {
+			return Catalog{}, err
+		}
+		out.Assets = append(out.Assets, asset)
+	}
+	if err := rows.Err(); err != nil {
+		return Catalog{}, err
 	}
 	return out, nil
 }
@@ -132,5 +149,5 @@ func ReadCatalog(ctx context.Context, root string) (Catalog, error) {
 		return Catalog{}, err
 	}
 	defer db.Close()
-	return ExportCatalog(&store.Store{DB: db})
+	return exportCatalog(ctx, db)
 }
