@@ -46,9 +46,9 @@ func relocatePaths(ctx context.Context, stage, oldRoot, destination string) erro
 			key string
 		}
 		var changes []change
+		var id any
+		var raw string
 		for rows.Next() {
-			var id any
-			var raw string
 			if e = rows.Scan(&id, &raw); e != nil {
 				rows.Close()
 				return e
@@ -58,15 +58,18 @@ func relocatePaths(ctx context.Context, stage, oldRoot, destination string) erro
 				rows.Close()
 				return e
 			}
-			changes = append(changes, change{id, key})
+			if key != raw {
+				changes = append(changes, change{id, key})
+			}
 		}
 		e = rows.Err()
 		rows.Close()
 		if e != nil {
 			return e
 		}
+		update := `UPDATE ` + item.table + ` SET ` + item.column + `=? WHERE ` + item.id + `=?`
 		for _, c := range changes {
-			if _, e = tx.ExecContext(ctx, `UPDATE `+item.table+` SET `+item.column+`=? WHERE `+item.id+`=?`, c.key, c.id); e != nil {
+			if _, e = tx.ExecContext(ctx, update, c.key, c.id); e != nil {
 				return e
 			}
 		}

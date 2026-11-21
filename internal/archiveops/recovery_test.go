@@ -166,6 +166,53 @@ func TestRestoreRefusesCorruptionAndExistingDestinations(t *testing.T) {
 	}
 }
 
+func TestRestoreRewritesOnlyChangedPaths(t *testing.T) {
+	ctx := context.Background()
+	root := fixture(t)
+	st, err := store.Open(filepath.Join(root, "bili-saver.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	_, err = st.DB.Exec(`
+		INSERT INTO videos(bvid,first_archived_at,local_path)
+			VALUES('BVportable',1,'media/portable.mp4');
+		INSERT INTO subtitles(bvid,cid,created_at,file_path)
+			VALUES('BVfixture',1,1,'C:\old\data\derived\fixture.bcc'),
+			      ('BVportable',1,1,'derived/portable.bcc');
+		CREATE TRIGGER reject_unchanged_video_path BEFORE UPDATE OF local_path ON videos
+			WHEN OLD.local_path=NEW.local_path BEGIN SELECT RAISE(ABORT,'unchanged video path'); END;
+		CREATE TRIGGER reject_unchanged_subtitle_path BEFORE UPDATE OF file_path ON subtitles
+			WHEN OLD.file_path=NEW.file_path BEGIN SELECT RAISE(ABORT,'unchanged subtitle path'); END;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "relocated")
+	if err := Relocate(ctx, root, destination); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openReadOnly(ctx, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, tc := range []struct{ table, column, bvid, want string }{
+		{"videos", "local_path", "BVfixture", "media/BVfixture/p1/BVfixture-p1.mp4"},
+		{"videos", "local_path", "BVportable", "media/portable.mp4"},
+		{"subtitles", "file_path", "BVfixture", "derived/fixture.bcc"},
+		{"subtitles", "file_path", "BVportable", "derived/portable.bcc"},
+	} {
+		var got string
+		if err := db.QueryRowContext(ctx, "SELECT "+tc.column+" FROM "+tc.table+" WHERE bvid=?", tc.bvid).Scan(&got); err != nil || got != tc.want {
+			t.Fatalf("%s %s: got %q, want %q, error %v", tc.table, tc.bvid, got, tc.want, err)
+		}
+	}
+}
+
 func TestMaintenanceRefusesActiveWriter(t *testing.T) {
 	root := fixture(t)
 	lock, err := archiveguard.Acquire(root)
