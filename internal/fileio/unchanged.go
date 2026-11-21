@@ -30,7 +30,8 @@ func Write(path string, produce func(io.Writer) error) (changed bool, err error)
 		return false, err
 	}
 	if w.out == nil {
-		if old != nil {
+		// Unconsumed read-ahead means the producer shortened the file.
+		if old != nil && w.next == w.end {
 			var tail [1]byte
 			_, err := old.Read(tail[:])
 			if errors.Is(err, io.EOF) {
@@ -67,11 +68,12 @@ func WriteBytes(path string, data []byte) (bool, error) {
 }
 
 type compareWriter struct {
-	path    string
-	old     *os.File
-	out     *os.File
-	matched int64
-	buf     [32 * 1024]byte
+	path      string
+	old       *os.File
+	out       *os.File
+	matched   int64
+	next, end int
+	buf       [15 * 1024]byte
 }
 
 func (w *compareWriter) start() error {
@@ -99,13 +101,26 @@ func (w *compareWriter) Write(p []byte) (int, error) {
 	total := len(p)
 	for len(p) > 0 && w.out == nil && w.old != nil {
 		n := min(len(p), len(w.buf))
-		got, err := io.ReadFull(w.old, w.buf[:n])
-		if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-			return total - len(p), err
+		if w.next == w.end {
+			size := n
+			// Small writes share a refill. Large writes only read what they compare.
+			if n < 1024 {
+				size = len(w.buf)
+			}
+			got, err := io.ReadAtLeast(w.old, w.buf[:size], n)
+			if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+				return total - len(p), err
+			}
+			if got < n {
+				break
+			}
+			w.next, w.end = 0, got
 		}
-		if got != n || !bytes.Equal(p[:n], w.buf[:n]) {
+		n = min(n, w.end-w.next)
+		if !bytes.Equal(p[:n], w.buf[w.next:w.next+n]) {
 			break
 		}
+		w.next += n
 		w.matched += int64(n)
 		p = p[n:]
 	}
