@@ -310,6 +310,7 @@ func copyExclusive(ctx context.Context, source, destination string, buf []byte, 
 func verifyBackup(ctx context.Context, root string, m Manifest) error {
 	seen := map[string]bool{}
 	database := false
+	var digester assets.Digester
 	for _, entry := range m.Files {
 		key, err := archivepath.Key(root, entry.Key)
 		if err != nil || key != entry.Key || seen[strings.ToLower(key)] {
@@ -330,7 +331,7 @@ func verifyBackup(ctx context.Context, root string, m Manifest) error {
 		if err != nil {
 			return err
 		}
-		hash, size, err := assets.Digest(ctx, p)
+		hash, size, err := digester.Digest(ctx, p)
 		if err != nil {
 			return err
 		}
