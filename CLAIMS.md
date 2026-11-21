@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-21T17:30:50+00:00 cloud-hill-agent（归档文件比较，done）
+- 250 个候选逐个校验并测量，最终保留 15 KiB 缓冲与小于 1 KiB 时预读。混合块大小中位耗时下降 18.8%。完整构建、vet、内部测试和受影响五包 race 通过，Windows amd64 测试程序通过交叉编译。本地提交 be9ecfe，记录见 docs/hill-climb.md。
+
 ### 2026-11-12T17:50:10+08:00 hardening-agent (done)
 - Implemented schema v16–v20 archive observation guards, portable immutable assets, transactional settings, exclusive ownership/recovery, private credentials/capabilities, durable deliveries and owned library outputs. Existing features were preserved separately.
 - Full Windows maintained-source build/vet/tests/race and six target cross-builds passed. Temporary browser/API/recovery CLI checks passed, including config capture and verified restore. Native Linux/macOS runtime and Docker were not run.
@@ -484,6 +487,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 归档文件比较：internal/fileio、基准、docs/hill-climb.md | cloud-hill-agent | done | 2026-11-21T17:30:50+00:00 | 250 轮筛选及独立复核完成；保留 be9ecfe。 |
 | 爬山实验：scripts/hill_climb.py、docs/hill-climb.md、internal/logging 环形日志读取与基准 | cloud-hill-agent | done | 2026-11-21T17:15:29+00:00 | 独立 Cloud 分支，验收基于可复现测量；无远端写入。 |
 | CI/CD: .github/**, scripts/release.py, deploy/Dockerfile, .dockerignore, docs/ci-cd.md, README.md, walkthrough.md | ci-agent | done | 2026-11-12T14:35:16.8756881+08:00 | Completed: actionlint, shell/metadata checks, Windows full build/vet/tests, clean HEAD gates and six target archives passed. Docker and remote publishing await GitHub Actions. Unrelated pending work preserved. |
 | 任务慢因修复：taskflow/jobs 协作排发；collector 评论/进度；store 同步建议；app/admin/UI 视频建议接线与验证；levels 单作者回填、plugin UTF-8 | core-agent | done-review | 2026-10-03T14:17:58+08:00 | 完整开关、阶段进度、页边界处理短任务、评论去重与完整性已修复；低活跃建议7/14/30天仅展示。等级单作者单飞/冷却、插件UTF-8、HTTP测试响应关闭均通过；完整门、七包race、18项页面/API全绿，最终PID31180已部署，详见慢因修复报告与顶部交接。 |
