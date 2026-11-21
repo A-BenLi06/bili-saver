@@ -36,12 +36,12 @@ func BenchmarkStreamWrite(b *testing.B) {
 		{"Short", []int{701}, false},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
-			b.SetBytes(int64(len(body)))
 			path := filepath.Join(b.TempDir(), "archive")
 			contents := body
 			if tc.name == "Short" {
 				contents = body[:4096]
 			}
+			b.SetBytes(int64(len(contents)))
 			if err := os.WriteFile(path, contents, 0o600); err != nil {
 				b.Fatal(err)
 			}
