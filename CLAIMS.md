@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-21T18:13:44+00:00 cloud-data-agent（归档数据操作，done）
+- 原件导出复用扫描空间，离线校验对共享资产合并读取，快照校验复用解压缓冲。三项均通过五对本地基准与完整验收；保留 ac2b85e、213f8ed、afb5be5，详见 docs/hill-climb.md。
+
 ### 2026-11-21T18:05:49+00:00 cloud-ring-agent（日志数据结构，done）
 - 将内存日志移至固定容量环，保留日志序号与分页。第一版因配对延迟未达标撤回，迭代版通过构建、vet、全量内部测试、日志包 race 及五对基准。满载写入 242.6→206.7 ns/op，272→96 B/op。
 
@@ -490,7 +493,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
-| 数据操作：server/core_export.go 与 archiveops/check.go 及相关测试 | cloud-data-agent | active | 2026-11-21T18:09:48+00:00 | 独立 Cloud 分支；原件 ZIP 与离线文件校验的实测优化。 |
+| 数据操作：server/core_export.go 与 archiveops/check.go 及相关测试 | cloud-data-agent | done | 2026-11-21T18:09:48+00:00 | 独立 Cloud 分支；原件 ZIP 与离线文件校验的实测优化。 |
 | 日志数据结构：internal/logging | cloud-ring-agent | done | 2026-11-21T18:03:21+00:00 | 固定容量环，保留快照语义，独立 Cloud 验收。 |
 | 归档文件比较：internal/fileio、基准、docs/hill-climb.md | cloud-hill-agent | done | 2026-11-21T17:30:50+00:00 | 250 轮筛选及独立复核完成；保留 be9ecfe。 |
 | 爬山实验：scripts/hill_climb.py、docs/hill-climb.md、internal/logging 环形日志读取与基准 | cloud-hill-agent | done | 2026-11-21T17:15:29+00:00 | 独立 Cloud 分支，验收基于可复现测量；无远端写入。 |
