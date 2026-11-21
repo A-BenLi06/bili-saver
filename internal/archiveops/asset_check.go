@@ -27,6 +27,7 @@ func checkAssets(ctx context.Context, db *sql.DB, root string, report *Report) e
 	}
 	var issues []assetIssue
 	var current checkedAssetFile
+	var digester assets.Digester
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -39,7 +40,7 @@ func checkAssets(ctx context.Context, db *sql.DB, root string, report *Report) e
 		if current.key != key || !current.initialized {
 			current = inspectAssetFile(root, key)
 		}
-		if err := current.verify(ctx, wantHash, wantSize); err != nil {
+		if err := current.verify(ctx, &digester, wantHash, wantSize); err != nil {
 			issues = append(issues, assetIssue{id, Issue{"asset", key, err.Error()}})
 		}
 		report.FilesChecked++
@@ -72,7 +73,7 @@ func inspectAssetFile(root, key string) checkedAssetFile {
 	return f
 }
 
-func (f *checkedAssetFile) verify(ctx context.Context, wantHash string, wantSize int64) error {
+func (f *checkedAssetFile) verify(ctx context.Context, digester *assets.Digester, wantHash string, wantSize int64) error {
 	if f.statErr != nil {
 		return f.statErr
 	}
@@ -80,7 +81,7 @@ func (f *checkedAssetFile) verify(ctx context.Context, wantHash string, wantSize
 		return fmt.Errorf("asset size mismatch: %s", f.key)
 	}
 	if !f.hashed {
-		f.digest, f.digestSize, f.digestErr = assets.Digest(ctx, f.path)
+		f.digest, f.digestSize, f.digestErr = digester.Digest(ctx, f.path)
 		f.hashed = true
 	}
 	if f.digestErr != nil {
