@@ -32,7 +32,8 @@ func decodeFile(path string) image.Image {
 }
 
 func encodePNG(f *os.File, im image.Image) error {
-	return png.Encode(f, im)
+	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
+	return encoder.Encode(f, im)
 }
 
 func encodeJPEGFile(path string, im image.Image) error {
