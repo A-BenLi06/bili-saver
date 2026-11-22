@@ -520,6 +520,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 私有备份恢复的跨平台路径断言：internal/archiveops/config_backup_test.go | cloud-restore-test-agent | done | 2026-11-22T17:15:33+08:00 | 检查恢复目标的文件身份。常规与符号链接路径、错误原路径拒绝、构建、vet、全量内部测试和 archiveops race 均已验证，Windows amd64 测试程序交叉编译通过。 |
 | teriteri 推荐及卡片读路径：internal/adapter/teriteri | cloud-feed-data-agent | done | 2026-11-22T11:51:49+08:00 | 保留 SQL 抽样与卡片统计窄读，已验证隐藏策略、排除列表及响应形状。 |
 | 评论等级离线回填：internal/levels/levels.go 与相关测试 | cloud-comment-data-agent | done | 2026-11-22T11:18:22+08:00 | 保留解压缓冲复用与已完成归档快检，撤回批量更新。基准和结果见 docs/hill-climb.md。 |
 | 卡片 PNG 编码：internal/card/codec.go 与相关测试 | cloud-card-png-agent | done | 2026-11-22T00:46:20+00:00 | 用合成海报比较编码速度、输出体积和临时内存。 |

@@ -1,11 +1,12 @@
 package archiveops
 
 import (
-	"bili-saver/internal/config"
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"bili-saver/internal/config"
 )
 
 func TestPrivateBackupCapturesStartupPreferencesAndExternalState(t *testing.T) {
@@ -45,14 +46,29 @@ func TestPrivateBackupCapturesStartupPreferencesAndExternalState(t *testing.T) {
 	if next.Download.AutoDownload || next.Media.Enabled || next.Download.Quality != "720p" || next.Collector.CommentsMax != 123 {
 		t.Fatal("startup-only preferences lost")
 	}
-	if next.Bilibili.CookieFile != filepath.Join(restored, "cookies.json") || next.Plugins.Dir != filepath.Join(restored, "plugins") {
-		t.Fatal("old node paths retained")
-	}
+	assertRestoredPath(t, next.Bilibili.CookieFile, filepath.Join(restored, "cookies.json"))
+	assertRestoredPath(t, next.Plugins.Dir, filepath.Join(restored, "plugins"))
 	body, err := os.ReadFile(next.Bilibili.CookieFile)
 	if err != nil || string(body) != "external-cookie-fixture" {
 		t.Fatal("active external cookie not captured", err)
 	}
-	if _, err = os.Stat(filepath.Join(restored, "plugins", "test", "manifest.json")); err != nil {
+	if _, err = os.Stat(filepath.Join(next.Plugins.Dir, "test", "manifest.json")); err != nil {
 		t.Fatal("external plugin not captured", err)
+	}
+}
+
+func assertRestoredPath(t *testing.T, configured, expected string) {
+	t.Helper()
+	actualInfo, err := os.Stat(configured)
+	if err != nil {
+		t.Fatalf("stat configured path %q: %v", configured, err)
+	}
+	expectedInfo, err := os.Stat(expected)
+	if err != nil {
+		t.Fatalf("stat expected path %q: %v", expected, err)
+	}
+	// Restore canonicalizes its destination, so both paths can name the same entry with different spellings.
+	if !os.SameFile(actualInfo, expectedInfo) {
+		t.Fatalf("configured path %q does not point to restored path %q", configured, expected)
 	}
 }
