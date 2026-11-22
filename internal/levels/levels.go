@@ -77,8 +77,16 @@ func collectLevels(rs []snapReply, into map[int64]int) {
 }
 
 // CommentLevelsFromSnapshots 扫全部评论快照回填 member_level（只补 0，幂等）。
-// 返回回填行数；单文件损坏跳过不中断。
+// 返回回填行数；没有待补评论时跳过快照扫描，单文件损坏跳过不中断。
 func (b *Backfiller) CommentLevelsFromSnapshots(ctx context.Context, progress func(done, total int)) (int, error) {
+	var pending bool
+	if err := b.St.DB.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM comments WHERE member_level=0)`).Scan(&pending); err != nil {
+		return 0, err
+	}
+	if !pending {
+		return 0, nil
+	}
+
 	var files []string
 	for _, dir := range snapshotDirs {
 		root := filepath.Join(b.DataDir, "raw", dir)

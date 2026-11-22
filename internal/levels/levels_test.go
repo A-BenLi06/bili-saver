@@ -127,6 +127,41 @@ func TestCommentLevelsFromSnapshots(t *testing.T) {
 	}
 }
 
+func TestCommentLevelsFromSnapshotsSkipsCompletedArchive(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if _, err := st.DB.Exec(`INSERT INTO comments(rpid,bvid,member_level,first_seen_at,last_seen_at)
+		VALUES(1, 'BVLEVELS', 6, 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	writeSnapshot(t, dir, "x_v2_reply_reply", "cached", []snapReply{
+		{Rpid: 1, Member: mkMember(4)},
+		{Rpid: 2, Member: mkMember(5)},
+	})
+	backfill := New(st, dir, nil, nil)
+	n, err := backfill.CommentLevelsFromSnapshots(t.Context(), func(done, total int) {
+		t.Fatalf("completed archive scanned snapshot %d/%d", done, total)
+	})
+	if err != nil || n != 0 {
+		t.Fatalf("completed archive returned %d, %v", n, err)
+	}
+
+	if _, err := st.DB.Exec(`INSERT INTO comments(rpid,bvid,first_seen_at,last_seen_at) VALUES(2, 'BVLEVELS', 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := backfill.CommentLevelsFromSnapshots(t.Context(), nil); err != nil || n != 1 {
+		t.Fatalf("backfill after import updated %d comments: %v", n, err)
+	}
+	var level int
+	if err := st.DB.QueryRow(`SELECT member_level FROM comments WHERE rpid=2`).Scan(&level); err != nil || level != 5 {
+		t.Fatalf("imported comment level = %d, want 5: %v", level, err)
+	}
+}
+
 func mkMember(level int) (m struct {
 	LevelInfo struct {
 		CurrentLevel int `json:"current_level"`

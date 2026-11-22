@@ -13,14 +13,15 @@ import (
 
 func BenchmarkCommentLevelsFromSnapshots(b *testing.B) {
 	for _, tc := range []struct {
-		name      string
-		files     int
-		comments  int
-		remaining bool
+		name     string
+		files    int
+		comments int
+		pending  int
 	}{
-		{"Small", 16, 16, true},
-		{"Backfill", 256, 40, true},
-		{"Complete", 256, 40, false},
+		{"Small", 16, 16, 16 * 16},
+		{"Backfill", 256, 40, 256 * 40},
+		{"Complete", 256, 40, 0},
+		{"Sparse", 256, 40, 1},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
 			dir := b.TempDir()
@@ -38,16 +39,17 @@ func BenchmarkCommentLevelsFromSnapshots(b *testing.B) {
 				b.Fatal(err)
 			}
 			defer tx.Rollback()
-			level := 5
-			if tc.remaining {
-				level = 0
-			}
+			firstPending := tc.files*tc.comments - tc.pending + 1
 			msg := strings.Repeat("这是合成评论正文。", 12)
 			for page := range tc.files {
 				var body strings.Builder
 				body.WriteString(`{"data":{"replies":[`)
 				for i := range tc.comments {
 					id := page*tc.comments + i + 1
+					level := 5
+					if id >= firstPending {
+						level = 0
+					}
 					if _, err := tx.Exec(`INSERT INTO comments(rpid,bvid,member_level,first_seen_at,last_seen_at,raw_json)
 					VALUES(?, 'BVBENCH', ?, 1, 1, ?)`, id, level, msg); err != nil {
 						b.Fatal(err)
@@ -73,21 +75,17 @@ func BenchmarkCommentLevelsFromSnapshots(b *testing.B) {
 				b.Fatal(err)
 			}
 
-			want := 0
-			if tc.remaining {
-				want = tc.files * tc.comments
-			}
 			backfill := New(st, dir, nil, nil)
 			ctx := b.Context()
 			b.ReportAllocs()
 			for b.Loop() {
 				got, err := backfill.CommentLevelsFromSnapshots(ctx, nil)
-				if err != nil || got != want {
-					b.Fatalf("updated %d comments, want %d: %v", got, want, err)
+				if err != nil || got != tc.pending {
+					b.Fatalf("updated %d comments, want %d: %v", got, tc.pending, err)
 				}
-				if tc.remaining {
+				if tc.pending > 0 {
 					b.StopTimer()
-					if _, err := st.DB.Exec(`UPDATE comments SET member_level=0`); err != nil {
+					if _, err := st.DB.Exec(`UPDATE comments SET member_level=0 WHERE rpid>=?`, firstPending); err != nil {
 						b.Fatal(err)
 					}
 					b.StartTimer()
