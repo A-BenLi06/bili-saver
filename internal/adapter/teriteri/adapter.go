@@ -429,8 +429,9 @@ func (a *Adapter) card(v *store.Video) tFeedCard {
 		User: TUser{UID: v.OwnerMid, Nickname: v.OwnerName, AvatarURL: a.faceURL(v.OwnerMid, v.OwnerFace),
 			Exp: levels.LevelExp(v.OwnerLevel)},
 	}
-	play, danmu, _, _, _, _, _ := a.statsOf(v.Bvid)
-	c.Stats.Play, c.Stats.Danmu = play, danmu
+	if last, err := a.St.LatestStats(v.Bvid); err == nil {
+		c.Stats.Play, c.Stats.Danmu = last.View, last.Danmaku
+	}
 	return c
 }
 

@@ -44,13 +44,22 @@ func TestVideoRecommendations(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 	(&Adapter{St: st, DataDir: t.TempDir()}).Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
 	getData := func(path string, into any) {
 		t.Helper()
-		w := httptest.NewRecorder()
-		mux.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil))
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
 		var response envelope
-		if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil || w.Code != http.StatusOK || response.Code != 200 {
-			t.Fatalf("%s: HTTP %d, payload %s: %v", path, w.Code, w.Body, err)
+		if err := json.NewDecoder(res.Body).Decode(&response); err != nil || res.StatusCode != http.StatusOK || response.Code != 200 {
+			t.Fatalf("%s: HTTP %d, payload %+v: %v", path, res.StatusCode, response, err)
 		}
 		if err := json.Unmarshal(response.Data, into); err != nil {
 			t.Fatal(err)
@@ -106,5 +115,14 @@ func TestVideoRecommendations(t *testing.T) {
 	getData(path+url.QueryEscape(strings.Join(ids, ",")), &cumulative)
 	if cumulative.Videos == nil || cumulative.IDs == nil || len(cumulative.Videos) != 0 || len(cumulative.IDs) != 0 || !cumulative.More {
 		t.Fatalf("unexpected empty response: %+v", cumulative)
+	}
+
+	if _, err := st.DB.Exec(`DELETE FROM video_stats_history WHERE bvid=?`, ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	getData(path+url.QueryEscape(strings.Join(ids[1:], ",")), &cumulative)
+	if len(cumulative.Videos) != 1 || cumulative.Videos[0].Video.Vid != ids[0] ||
+		cumulative.Videos[0].Stats.Play != 0 || cumulative.Videos[0].Stats.Danmu != 0 {
+		t.Fatalf("missing snapshot did not produce zero counts: %+v", cumulative)
 	}
 }
