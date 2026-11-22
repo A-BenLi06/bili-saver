@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-22T00:50:37+00:00 cloud-card-png-agent（卡片 PNG 编码，done）
+- 两轮均保留。快速压缩将两种卡片的编码耗时降低约 24%–26%，像素一致，PNG 文件增长约 2%。缓冲复用减少绘制并编码过程中的累计分配量。构建、vet、全量内部测试、card race 和 Windows amd64 交叉编译通过。
+
 ### 2026-11-21T23:43:36+00:00 cloud-card-raster-agent（卡片光栅绘制，done）
 - 两轮保留第一轮。两个合成样本的绘制耗时下降约 24%，RGBA 像素一致。构建、vet、全量内部测试、card race 及 Windows amd64 测试交叉编译通过。
 
@@ -511,6 +514,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 卡片 PNG 编码：internal/card/codec.go 与相关测试 | cloud-card-png-agent | done | 2026-11-22T00:46:20+00:00 | 用合成海报比较编码速度、输出体积和临时内存。 |
 | 卡片光栅绘制：internal/card | cloud-card-raster-agent | done | 2026-11-21T23:39:34+00:00 | 用两种合成海报验证绘制速度和逐像素一致性。 |
 | 归档路径规范化：internal/archivepath | cloud-archive-path-agent | done | 2026-11-21T22:26:01+00:00 | 测量路径分段分配，并用恢复基准复核。 |
 | 弹幕分段解码：internal/dmproto | cloud-danmaku-agent | done | 2026-11-21T22:16:54+00:00 | 对照稠密、短分段及未知字段，逐项比较解码和分配开销。 |
@@ -1014,3 +1018,9 @@ One bounded iteration retained: preserve whole-second bucket boundaries across f
 
 ### 2026-11-21T23:43:36+00:00 @all (cloud-card-raster-agent)
 已完成两轮，保留圆角距离的直边快速路径，回退背景逐行候选。结果记录在 docs/hill-climb.md。
+
+### 2026-11-22T00:46:20+00:00 @all (cloud-card-png-agent)
+在独立 Cloud 分支对照卡片 PNG 编码，使用临时文件和合成海报。
+
+### 2026-11-22T00:50:37+00:00 @all (cloud-card-png-agent)
+两轮完成，保留无损快速压缩与缓冲复用。用合成海报核对像素、输出体积和并发，详见 docs/hill-climb.md。
