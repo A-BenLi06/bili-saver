@@ -21,21 +21,34 @@ type Service struct {
 }
 
 func Digest(ctx context.Context, p string) (string, int64, error) {
+	var digester Digester
+	return digester.Digest(ctx, p)
+}
+
+// Digester computes file checksums sequentially using a reusable read buffer.
+// Its zero value is ready to use. A Digester is not safe for concurrent calls.
+type Digester struct {
+	buf []byte
+}
+
+func (d *Digester) Digest(ctx context.Context, p string) (string, int64, error) {
 	f, err := os.Open(p)
 	if err != nil {
 		return "", 0, err
 	}
 	defer f.Close()
 	h := sha256.New()
-	buf := make([]byte, 256*1024)
+	if d.buf == nil {
+		d.buf = make([]byte, 256*1024)
+	}
 	var size int64
 	for {
 		if err = ctx.Err(); err != nil {
 			return "", 0, err
 		}
-		n, e := f.Read(buf)
+		n, e := f.Read(d.buf)
 		if n > 0 {
-			h.Write(buf[:n])
+			h.Write(d.buf[:n])
 			size += int64(n)
 		}
 		if e == io.EOF {

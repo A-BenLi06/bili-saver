@@ -3,6 +3,7 @@
 package teriteri
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -15,13 +16,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"bili-saver/internal/images"
 	"bili-saver/internal/levels"
 	"bili-saver/internal/nodeauth"
 	"bili-saver/internal/store"
-	"sync"
 )
 
 // Adapter 挂载在核心 HTTP mux 上。
@@ -428,36 +429,56 @@ func (a *Adapter) card(v *store.Video) tFeedCard {
 		User: TUser{UID: v.OwnerMid, Nickname: v.OwnerName, AvatarURL: a.faceURL(v.OwnerMid, v.OwnerFace),
 			Exp: levels.LevelExp(v.OwnerLevel)},
 	}
-	play, danmu, _, _, _, _, _ := a.statsOf(v.Bvid)
-	c.Stats.Play, c.Stats.Danmu = play, danmu
+	if last, err := a.St.LatestStats(v.Bvid); err == nil {
+		c.Stats.Play, c.Stats.Danmu = last.View, last.Danmaku
+	}
 	return c
 }
 
-// randomVideos 随机取样（排除 vids）。
-func (a *Adapter) randomVideos(exclude map[string]bool, n int) []tFeedCard {
-	videos, err := a.St.ListVideos(0, "", 0, 0)
+// randomVideos 在 SQLite 中筛选并随机取样，只读取被选中视频的卡片字段。
+func (a *Adapter) randomVideos(ctx context.Context, exclude map[string]bool, n int) []tFeedCard {
+	ids := make([]string, 0, len(exclude))
+	for id, excluded := range exclude {
+		if excluded {
+			ids = append(ids, id)
+		}
+	}
+	excludedJSON, _ := json.Marshal(ids)
+	rows, err := a.St.DB.QueryContext(ctx, `WITH picked AS MATERIALIZED (
+		SELECT v.bvid, random() AS priority FROM videos v
+		WHERE NOT EXISTS (
+			SELECT 1 FROM video_policies p WHERE p.bvid=v.bvid AND p.hidden IS NOT 0
+		) AND v.bvid NOT IN (SELECT value FROM json_each(?))
+		ORDER BY priority LIMIT ?
+	)
+	SELECT v.bvid, v.title, v.pic, v.owner_mid, v.owner_name, v.owner_face,
+		v.owner_level, v.pubdate, v.duration
+	FROM picked p JOIN videos v ON v.bvid=p.bvid ORDER BY p.priority`, string(excludedJSON), n)
 	if err != nil {
 		return nil
 	}
-	var pool []*store.Video
-	for _, v := range videos {
-		if !exclude[v.Bvid] && !a.St.VideoHidden(v.Bvid) {
-			pool = append(pool, v)
+	defer rows.Close()
+	selected := make([]store.Video, 0, n)
+	for rows.Next() {
+		var v store.Video
+		if err := rows.Scan(&v.Bvid, &v.Title, &v.Pic, &v.OwnerMid, &v.OwnerName, &v.OwnerFace,
+			&v.OwnerLevel, &v.Pubdate, &v.Duration); err != nil {
+			return nil
 		}
+		selected = append(selected, v)
 	}
-	rnd := shuffle(len(pool))
-	out := make([]tFeedCard, 0, n)
-	for _, idx := range rnd {
-		if len(out) >= n {
-			break
-		}
-		out = append(out, a.card(pool[idx]))
+	if rows.Err() != nil {
+		return nil
+	}
+	out := make([]tFeedCard, 0, len(selected))
+	for i := range selected {
+		out = append(out, a.card(&selected[i]))
 	}
 	return out
 }
 
-func (a *Adapter) videoRandom(w http.ResponseWriter, _ *http.Request, _ int64) {
-	a.ok(w, a.randomVideos(nil, 11))
+func (a *Adapter) videoRandom(w http.ResponseWriter, r *http.Request, _ int64) {
+	a.ok(w, a.randomVideos(r.Context(), nil, 11))
 }
 
 func (a *Adapter) videoCumulative(w http.ResponseWriter, r *http.Request, _ int64) {
@@ -474,7 +495,7 @@ func (a *Adapter) videoCumulative(w http.ResponseWriter, r *http.Request, _ int6
 			exclude[strings.TrimSpace(s)] = true
 		}
 	}
-	cards := a.randomVideos(exclude, 20)
+	cards := a.randomVideos(r.Context(), exclude, 20)
 	vids := make([]string, 0, len(cards))
 	for _, c := range cards {
 		vids = append(vids, c.Video.Vid)

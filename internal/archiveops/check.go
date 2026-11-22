@@ -1,19 +1,14 @@
 package archiveops
 
 import (
-	"compress/gzip"
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
 	"bili-saver/internal/archiveguard"
 	"bili-saver/internal/archivepath"
-	"bili-saver/internal/assets"
 	"bili-saver/internal/store"
 )
 
@@ -117,13 +112,14 @@ func checkLocked(ctx context.Context, root string) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
+	var snapshots snapshotVerifier
 	for rows.Next() {
 		var key, want string
 		if err = rows.Scan(&key, &want); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		e := verifySnapshot(ctx, root, key, want)
+		e := snapshots.verify(ctx, root, key, want)
 		if e != nil {
 			r.Issues = append(r.Issues, Issue{"snapshot", key, e.Error()})
 		}
@@ -139,20 +135,8 @@ func checkLocked(ctx context.Context, root string) (*Report, error) {
 		return nil, err
 	}
 	if indexed {
-		st := &store.Store{DB: db}
-		entries, e := st.Assets("")
-		if e != nil {
-			return nil, e
-		}
-		service := assets.Service{Store: st, Root: root}
-		for _, a := range entries {
-			if err = ctx.Err(); err != nil {
-				return nil, err
-			}
-			if e = service.Verify(ctx, &a); e != nil {
-				r.Issues = append(r.Issues, Issue{"asset", a.StorageKey, e.Error()})
-			}
-			r.FilesChecked++
+		if err := checkAssets(ctx, db, root, r); err != nil {
+			return nil, err
 		}
 	}
 	partQuery := `SELECT bvid,page,COUNT(*) FROM pages GROUP BY bvid,page HAVING COUNT(*)>1`
@@ -190,42 +174,6 @@ func checkLocked(ctx context.Context, root string) (*Report, error) {
 		r.DisappearanceReview = append(r.DisappearanceReview, candidate)
 	}
 	return r, rows.Err()
-}
-
-type contextReader struct {
-	ctx context.Context
-	r   io.Reader
-}
-
-func (r contextReader) Read(p []byte) (int, error) {
-	if err := r.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return r.r.Read(p)
-}
-func verifySnapshot(ctx context.Context, root, key, want string) error {
-	p, err := archivepath.Resolve(root, key)
-	if err != nil {
-		return err
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return err
-	}
-	defer gz.Close()
-	h := sha256.New()
-	if _, err = io.Copy(h, contextReader{ctx, gz}); err != nil {
-		return err
-	}
-	if hex.EncodeToString(h.Sum(nil)) != want {
-		return fmt.Errorf("raw response checksum mismatch")
-	}
-	return nil
 }
 
 func hasTable(db *sql.DB, name string) bool {

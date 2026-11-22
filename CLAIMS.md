@@ -4,6 +4,42 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-22T11:56:07+08:00 cloud-feed-data-agent（teriteri 推荐数据读取，done）
+- 两轮均保留。1 万条视频的随机推荐耗时降低 89.4%，累计推荐降低 83.2%。卡片统计由五次查询减到一次。HTTP 回归、构建、vet、全量内部测试、teriteri race 和 Windows amd64 交叉编译通过。
+
+### 2026-11-22T11:25:51+08:00 cloud-comment-data-agent（评论等级离线回填，done）
+- 复用解压缓冲使 256 个快照的累计分配减少 48.6%。SQLite 确认没有待补记录时跳过快照扫描，已完成场景从 48.43 ms 降至 1.36 ms。批量更新因耗时回退而撤回。构建、vet、全量内部测试、levels race 和 Windows amd64 交叉编译通过。
+
+### 2026-11-22T00:50:37+00:00 cloud-card-png-agent（卡片 PNG 编码，done）
+- 两轮均保留。快速压缩将两种卡片的编码耗时降低约 24%–26%，像素一致，PNG 文件增长约 2%。缓冲复用减少绘制并编码过程中的累计分配量。构建、vet、全量内部测试、card race 和 Windows amd64 交叉编译通过。
+
+### 2026-11-21T23:43:36+00:00 cloud-card-raster-agent（卡片光栅绘制，done）
+- 两轮保留第一轮。两个合成样本的绘制耗时下降约 24%，RGBA 像素一致。构建、vet、全量内部测试、card race 及 Windows amd64 测试交叉编译通过。
+
+### 2026-11-21T22:28:04+00:00 cloud-archive-path-agent（归档路径规范化，done）
+- 单次可移植路径规范化降至零分配，恢复路径重写的可移植样本累计分配少 26.5%。混合样本耗时中位数上升 7.7%，在预设上限内。全量门及相关包 race 通过。
+
+### 2026-11-21T22:24:55+00:00 cloud-danmaku-agent（弹幕分段解码，done）
+- 六轮比较保留第 6 轮，1,500 条密集弹幕的解码中位耗时下降 12.0%。构建、vet、全量测试和 dmproto/biliapi race 通过，证据见 docs/hill-climb.md。
+
+### 2026-11-21T19:22:03+00:00 cloud-relocation-agent（恢复路径重写，done）
+- 第一轮因全旧路径分配增加回退，第二轮通过五对基准与完整验收。可移植路径处理耗时由 74.00 ms 降到 10.40 ms，保留 23003c3。
+
+### 2026-11-21T19:02:48+00:00 cloud-verify-agent（文件校验缓冲，done）
+- 备份及离线资产校验顺序复用摘要缓冲，两项均过内存门槛与最终全量内部验收。插件用例的基线偶发 slots leaked 单独记录，复跑通过。
+
+### 2026-11-21T18:34:56+00:00 cloud-backup-agent（备份及资产目录，done）
+- 复制时计算摘要并独立复读暂存数据；资产清单只读公开字段。两项均通过五对基准、完整构建、vet、全量内部测试和相关包 race。
+
+### 2026-11-21T18:13:44+00:00 cloud-data-agent（归档数据操作，done）
+- 原件导出复用扫描空间，离线校验对共享资产合并读取，快照校验复用解压缓冲。三项均通过五对本地基准与完整验收；保留 ac2b85e、213f8ed、afb5be5，详见 docs/hill-climb.md。
+
+### 2026-11-21T18:05:49+00:00 cloud-ring-agent（日志数据结构，done）
+- 将内存日志移至固定容量环，保留日志序号与分页。第一版因配对延迟未达标撤回，迭代版通过构建、vet、全量内部测试、日志包 race 及五对基准。满载写入 242.6→206.7 ns/op，272→96 B/op。
+
+### 2026-11-21T17:30:50+00:00 cloud-hill-agent（归档文件比较，done）
+- 250 个候选逐个校验并测量，最终保留 15 KiB 缓冲与小于 1 KiB 时预读。混合块大小中位耗时下降 18.8%。完整构建、vet、内部测试和受影响五包 race 通过，Windows amd64 测试程序通过交叉编译。本地提交 be9ecfe，记录见 docs/hill-climb.md。
+
 ### 2026-11-12T17:50:10+08:00 hardening-agent (done)
 - Implemented schema v16–v20 archive observation guards, portable immutable assets, transactional settings, exclusive ownership/recovery, private credentials/capabilities, durable deliveries and owned library outputs. Existing features were preserved separately.
 - Full Windows maintained-source build/vet/tests/race and six target cross-builds passed. Temporary browser/API/recovery CLI checks passed, including config capture and verified restore. Native Linux/macOS runtime and Docker were not run.
@@ -484,6 +520,20 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 私有备份恢复的跨平台路径断言：internal/archiveops/config_backup_test.go | cloud-restore-test-agent | done | 2026-11-22T17:15:33+08:00 | 检查恢复目标的文件身份。常规与符号链接路径、错误原路径拒绝、构建、vet、全量内部测试和 archiveops race 均已验证，Windows amd64 测试程序交叉编译通过。 |
+| teriteri 推荐及卡片读路径：internal/adapter/teriteri | cloud-feed-data-agent | done | 2026-11-22T11:51:49+08:00 | 保留 SQL 抽样与卡片统计窄读，已验证隐藏策略、排除列表及响应形状。 |
+| 评论等级离线回填：internal/levels/levels.go 与相关测试 | cloud-comment-data-agent | done | 2026-11-22T11:18:22+08:00 | 保留解压缓冲复用与已完成归档快检，撤回批量更新。基准和结果见 docs/hill-climb.md。 |
+| 卡片 PNG 编码：internal/card/codec.go 与相关测试 | cloud-card-png-agent | done | 2026-11-22T00:46:20+00:00 | 用合成海报比较编码速度、输出体积和临时内存。 |
+| 卡片光栅绘制：internal/card | cloud-card-raster-agent | done | 2026-11-21T23:39:34+00:00 | 用两种合成海报验证绘制速度和逐像素一致性。 |
+| 归档路径规范化：internal/archivepath | cloud-archive-path-agent | done | 2026-11-21T22:26:01+00:00 | 测量路径分段分配，并用恢复基准复核。 |
+| 弹幕分段解码：internal/dmproto | cloud-danmaku-agent | done | 2026-11-21T22:16:54+00:00 | 对照稠密、短分段及未知字段，逐项比较解码和分配开销。 |
+| 恢复路径重写：internal/archiveops/relocate.go 与相关测试 | cloud-relocation-agent | done | 2026-11-21T19:17:37+00:00 | 先测已有可移植键的无效写入，再验收历史路径。 |
+| 备份校验缓冲：internal/assets/assets.go、internal/archiveops/{backup,asset_check}.go | cloud-verify-agent | done | 2026-11-21T18:59:54+00:00 | 本地五对基准验证。 |
+| 备份及目录 I/O：internal/archiveops/backup.go、manifest.go、基准与测试 | cloud-backup-agent | done | 2026-11-21T18:32:30+00:00 | 复制时摘要与暂存复读，保留原归档保护。 |
+| 数据操作：server/core_export.go 与 archiveops/check.go 及相关测试 | cloud-data-agent | done | 2026-11-21T18:09:48+00:00 | 独立 Cloud 分支；原件 ZIP 与离线文件校验的实测优化。 |
+| 日志数据结构：internal/logging | cloud-ring-agent | done | 2026-11-21T18:03:21+00:00 | 固定容量环，保留快照语义，独立 Cloud 验收。 |
+| 归档文件比较：internal/fileio、基准、docs/hill-climb.md | cloud-hill-agent | done | 2026-11-21T17:30:50+00:00 | 250 轮筛选及独立复核完成；保留 be9ecfe。 |
+| 爬山实验：scripts/hill_climb.py、docs/hill-climb.md、internal/logging 环形日志读取与基准 | cloud-hill-agent | done | 2026-11-21T17:15:29+00:00 | 独立 Cloud 分支，验收基于可复现测量；无远端写入。 |
 | CI/CD: .github/**, scripts/release.py, deploy/Dockerfile, .dockerignore, docs/ci-cd.md, README.md, walkthrough.md | ci-agent | done | 2026-11-12T14:35:16.8756881+08:00 | Completed: actionlint, shell/metadata checks, Windows full build/vet/tests, clean HEAD gates and six target archives passed. Docker and remote publishing await GitHub Actions. Unrelated pending work preserved. |
 | 任务慢因修复：taskflow/jobs 协作排发；collector 评论/进度；store 同步建议；app/admin/UI 视频建议接线与验证；levels 单作者回填、plugin UTF-8 | core-agent | done-review | 2026-10-03T14:17:58+08:00 | 完整开关、阶段进度、页边界处理短任务、评论去重与完整性已修复；低活跃建议7/14/30天仅展示。等级单作者单飞/冷却、插件UTF-8、HTTP测试响应关闭均通过；完整门、七包race、18项页面/API全绿，最终PID31180已部署，详见慢因修复报告与顶部交接。 |
 | 运行任务过慢诊断：只读任务/快照/日志与进程采样；docs/performance 诊断报告、本人的 raw | core-agent | done | 2026-10-03T13:44:39+08:00 | 只读诊断完成：4 个不同视频全量评论占满 worker，300ms 全局限速约98%饱和；归档无阶段回调导致0%，FullResyncComments未接线。报告及窗口JSON已交付；无源码/config/data变更，不重启。 |
@@ -939,3 +989,47 @@ Status: done.
 | Configuration/export/migration guide: server/guide.go, core_export.go, static/guide.html and settings entry | guide-agent | done | 2026-11-12T23:12:20.6502552+08:00 | Explicit side-conversation request; isolated tests, no production changes. |
 
 Guide-agent completed configuration/export/migration guidance. Build/vet/full internal tests/server race and isolated Playwright desktop/mobile checks passed. No production changes.
+
+| `internal/metrics/rate.go`, `rate_test.go` | cloud-rate-agent | done | 2026-11-21T16:42:26+00:00 | Isolated Cloud checkout; bounded throughput bucket drift fix, no remote writes or commits before personal login. |
+
+### 2026-11-21T16:42:26+00:00 @all (cloud-rate-agent)
+Starting one isolated metrics timing iteration. Baseline build/vet/full internal tests pass. No active metrics claim; no production services or data touched.
+
+### 2026-11-21T16:43:06+00:00 @all (cloud-rate-agent completion)
+One bounded iteration retained: preserve whole-second bucket boundaries across fractional polling and long idle gaps. Both new regressions fail before the fix and pass after. Baseline and final build/vet/full internal tests pass; focused metrics race and diff/format checks recorded in /workspace/bili-evidence. Changes remain uncommitted pending Ben's personal GitHub login and verified author identity. No remote writes.
+
+### 2026-11-21T17:15:29+00:00 @all (cloud-hill-agent)
+独立 Cloud 工作区登记日志读取实验与本地比较工具；使用合成日志和临时测试数据。
+
+### 2026-11-21T17:19:17+00:00 @all (cloud-hill-agent)
+两轮通过全量构建、vet、内部测试与日志包 race，保留按序号定位和一次性复制。流程、停止规则和测量记录见 docs/hill-climb.md。试验仅在 Cloud 独立分支本地提交。
+
+### 2026-11-21T19:17:37+00:00 @all (cloud-relocation-agent)
+在独立 Cloud 分支评估恢复路径写入，仅使用临时合成数据库。
+
+### 2026-11-21T19:22:03+00:00 @all (cloud-relocation-agent)
+已完成两轮并保留通过原门槛的第二轮。构建、vet、全量内部测试和 archiveops race 通过，详见 docs/hill-climb.md。
+
+### 2026-11-21T22:16:54+00:00 @all (cloud-danmaku-agent)
+在独立 Cloud 分支评估本地弹幕解码，仅使用合成 protobuf 分段。
+
+### 2026-11-21T22:24:55+00:00 @all (cloud-danmaku-agent)
+六轮实验完成，第 6 轮满足原门槛并保留在 Cloud 本地分支。全量验收及受影响包 race 通过。
+
+### 2026-11-21T22:26:01+00:00 @all (cloud-archive-path-agent)
+在独立 Cloud 分支比较路径规范化的分配开销，使用合成路径和临时 SQLite 库。
+
+### 2026-11-21T22:28:04+00:00 @all (cloud-archive-path-agent)
+归档路径规范化候选通过微基准、恢复对照和完整验收，记录见 docs/hill-climb.md。
+
+### 2026-11-21T23:39:34+00:00 @all (cloud-card-raster-agent)
+在独立 Cloud 分支评估卡片绘制，不读取真实归档数据。
+
+### 2026-11-21T23:43:36+00:00 @all (cloud-card-raster-agent)
+已完成两轮，保留圆角距离的直边快速路径，回退背景逐行候选。结果记录在 docs/hill-climb.md。
+
+### 2026-11-22T00:46:20+00:00 @all (cloud-card-png-agent)
+在独立 Cloud 分支对照卡片 PNG 编码，使用临时文件和合成海报。
+
+### 2026-11-22T00:50:37+00:00 @all (cloud-card-png-agent)
+两轮完成，保留无损快速压缩与缓冲复用。用合成海报核对像素、输出体积和并发，详见 docs/hill-climb.md。

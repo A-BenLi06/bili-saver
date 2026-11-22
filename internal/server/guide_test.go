@@ -22,6 +22,12 @@ func TestCoreExportRetainsGoneAndExcludesPrivateState(t *testing.T) {
 	if err := s.Deps.St.AddTags("BVexport", []string{"derived-tag"}, "plugin:test"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.Deps.St.DB.Exec(`INSERT INTO comments
+		(rpid,bvid,content,first_seen_at,last_seen_at,status,deleted_at) VALUES
+		(9007199254740993,'BVexport',CAST('<原件&>' AS BLOB),1,2,'deleted',2),
+		(7,'BVexport','',3,4,'visible',0)`); err != nil {
+		t.Fatal(err)
+	}
 	r := httptest.NewRequest("GET", "/api/v1/archive/export", nil)
 	r.Header.Set("Authorization", "Bearer link-test-token")
 	w := httptest.NewRecorder()
@@ -51,6 +57,19 @@ func TestCoreExportRetainsGoneAndExcludesPrivateState(t *testing.T) {
 	}
 	if !strings.Contains(entries["tags.ndjson"], "original-tag") || strings.Contains(entries["tags.ndjson"], "derived-tag") {
 		t.Fatal("tag origin separation failed")
+	}
+	comments := json.NewDecoder(strings.NewReader(entries["comments.ndjson"]))
+	for _, want := range []struct {
+		id, content, status string
+	}{{"7", "", "visible"}, {"9007199254740993", "<原件&>", "deleted"}} {
+		var row struct {
+			ID      json.Number `json:"rpid"`
+			Content string      `json:"content"`
+			Status  string      `json:"status"`
+		}
+		if err := comments.Decode(&row); err != nil || row.ID.String() != want.id || row.Content != want.content || row.Status != want.status {
+			t.Fatalf("unexpected exported comment: %+v %v", row, err)
+		}
 	}
 	var manifest map[string]any
 	if err = json.Unmarshal([]byte(entries["manifest.json"]), &manifest); err != nil || manifest["kind"] != "origin-record-export" {

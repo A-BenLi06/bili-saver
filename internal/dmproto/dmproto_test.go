@@ -88,3 +88,58 @@ func TestParseSegReplyEmpty(t *testing.T) {
 		t.Fatalf("空输入应返回空: %v %d", err, len(elems))
 	}
 }
+
+func TestParseSegReplyFieldEncoding(t *testing.T) {
+	// A legacy group can include fields with the same numbers as an element.
+	reply := putKey(nil, 15, wireGroupStart)
+	reply = putString(reply, 1, "skipped")
+	reply = putKey(reply, 15, wireGroupEnd)
+
+	var elem []byte
+	elem = putVarint(elem, 1, 1<<63|1) // 10-byte varint
+	elem = putVarint(elem, 2, 1<<14)
+	elem = putVarint(elem, 4, 127)
+	elem = putVarint(elem, 6, 1<<33)
+	elem = putString(elem, 2, "ignored wrong wire type")
+	elem = putString(elem, 7, "first")
+	elem = putString(elem, 7, "最后")
+	elem = putVarint(elem, 7, 42) // Wrong wire leaves the last string intact.
+	reply = putString(reply, 1, string(elem))
+
+	got, err := ParseSegReply(reply)
+	want := DanmakuElem{ID: -1<<63 + 1, Progress: 1 << 14, Fontsize: 127, Mid: 1 << 33, Content: "最后"}
+	if err != nil || len(got) != 1 || got[0] != want {
+		t.Fatalf("ParseSegReply() = %+v, %v, want [%+v]", got, err, want)
+	}
+
+	got, err = ParseSegReply(append(reply, 0x80))
+	if err == nil || got != nil {
+		t.Fatalf("truncated reply = %+v, %v, want no partial results and an error", got, err)
+	}
+}
+
+func TestParseSegReplyLargeWithUnknownFields(t *testing.T) {
+	const count = 400
+	var reply []byte
+	for i := range count {
+		reply = putKey(reply, 15, wireGroupStart)
+		reply = putString(reply, 1, "not an element")
+		reply = putKey(reply, 15, wireGroupEnd)
+		reply = putString(reply, 1, string(putVarint(nil, 1, uint64(i))))
+		reply = putVarint(reply, 1, uint64(i))
+	}
+	got, err := ParseSegReply(reply)
+	if err != nil || len(got) != count {
+		t.Fatalf("parsed %d elements, want %d, error %v", len(got), count, err)
+	}
+	for i, element := range got {
+		if element.ID != int64(i) {
+			t.Fatalf("element %d: got ID %d", i, element.ID)
+		}
+	}
+
+	got, err = ParseSegReply(append(reply, 0x80))
+	if err == nil || got != nil {
+		t.Fatalf("truncated reply returned %d elements, error %v", len(got), err)
+	}
+}

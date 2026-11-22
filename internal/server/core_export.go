@@ -71,16 +71,19 @@ func (s *Server) handleCoreExport(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		encoder := json.NewEncoder(entry)
+		// The encoder consumes one record synchronously. Reuse the scan slots
+		// and record map for all rows in this entry.
+		values := make([]any, len(columns))
+		pointers := make([]any, len(columns))
+		for i := range values {
+			pointers[i] = &values[i]
+		}
+		record := make(map[string]any, len(columns))
+		var count int64
 		for rows.Next() {
-			values := make([]any, len(columns))
-			pointers := make([]any, len(columns))
-			for i := range values {
-				pointers[i] = &values[i]
-			}
 			if e = rows.Scan(pointers...); e != nil {
 				break
 			}
-			record := map[string]any{}
 			for i, key := range columns {
 				if b, ok := values[i].([]byte); ok {
 					record[key] = string(b)
@@ -91,7 +94,10 @@ func (s *Server) handleCoreExport(w http.ResponseWriter, r *http.Request) {
 			if e = encoder.Encode(record); e != nil {
 				break
 			}
-			counts[name]++
+			count++
+		}
+		if count > 0 {
+			counts[name] = count
 		}
 		if e == nil {
 			e = rows.Err()

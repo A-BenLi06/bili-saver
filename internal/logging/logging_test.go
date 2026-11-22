@@ -12,10 +12,7 @@ import (
 )
 
 func TestRingSnapshot(t *testing.T) {
-	ringMu.Lock()
-	ringBuf = nil
-	ringSeq = 0
-	ringMu.Unlock()
+	resetTestRing(t)
 	w := ringWriter{}
 	for i := 0; i < 10; i++ {
 		if _, err := w.Write([]byte("line\n")); err != nil {
@@ -47,6 +44,54 @@ func TestRingSnapshot(t *testing.T) {
 	if len(lines) != 0 {
 		t.Errorf("空行不应入环: %d", len(lines))
 	}
+}
+
+func TestRingSnapshotAfterEviction(t *testing.T) {
+	resetTestRing(t)
+
+	if _, err := (ringWriter{}).Write([]byte(strings.Repeat("line\n", ringCap+2))); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		after, first uint64
+		count        int
+	}{
+		{0, 3, 2},
+		{ringCap - 1, ringCap, 2},
+		{2, 3, 2},
+		{3, 4, 2},
+		{ringCap + 1, ringCap + 2, 1},
+		{ringCap + 2, 0, 0},
+		{ringCap + 3, 0, 0},
+	} {
+		lines, latest := RingSnapshot(test.after, 2)
+		if latest != ringCap+2 || len(lines) != test.count {
+			t.Fatalf("after %d: got %d lines, latest=%d", test.after, len(lines), latest)
+		}
+		for i, line := range lines {
+			if line.Seq != test.first+uint64(i) {
+				t.Fatalf("after %d: unexpected sequence %d", test.after, line.Seq)
+			}
+		}
+	}
+	lines, _ := RingSnapshot(0, 2)
+	lines[0].Text = "modified"
+	unchanged, _ := RingSnapshot(0, 2)
+	if unchanged[0].Text != "line" {
+		t.Fatal("snapshot modifications changed the ring")
+	}
+}
+
+func resetTestRing(t testing.TB) {
+	ringMu.Lock()
+	previous := ring
+	ring = logRing{}
+	ringMu.Unlock()
+	t.Cleanup(func() {
+		ringMu.Lock()
+		ring = previous
+		ringMu.Unlock()
+	})
 }
 
 func TestCompressOldLogs(t *testing.T) {

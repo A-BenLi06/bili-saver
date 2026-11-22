@@ -13,18 +13,15 @@ import (
 	"bili-saver/internal/store"
 )
 
-func writeSnapshot(t *testing.T, dataDir, endpoint, name string, replies []snapReply) {
+func writeSnapshot(t *testing.T, dataDir, endpoint, name string, replies []snapReply, topReplies ...snapReply) {
 	t.Helper()
 	dir := filepath.Join(dataDir, "raw", endpoint, "deadbeef")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := struct {
-		Data struct {
-			Replies []snapReply `json:"replies"`
-		} `json:"data"`
-	}{}
+	var body snapBody
 	body.Data.Replies = replies
+	body.Data.TopReplies = topReplies
 	b, err := json.Marshal(body)
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +60,8 @@ func TestCommentLevelsFromSnapshots(t *testing.T) {
 		{Rpid: 111, Bvid: "BV1LvTest001", Content: "a", MemberMid: 1, FirstSeenAt: now, LastSeenAt: now},
 		{Rpid: 112, Bvid: "BV1LvTest001", Content: "b", MemberMid: 2, FirstSeenAt: now, LastSeenAt: now},
 		{Rpid: 113, Bvid: "BV1LvTest001", Content: "c", MemberMid: 3, FirstSeenAt: now, LastSeenAt: now},
+		{Rpid: 114, Bvid: "BV1LvTest001", Content: "d", MemberMid: 4, FirstSeenAt: now, LastSeenAt: now},
+		{Rpid: 115, Bvid: "BV1LvTest001", Content: "e", MemberMid: 5, MemberLevel: 6, FirstSeenAt: now, LastSeenAt: now},
 	} {
 		if err := st.UpsertComment(c); err != nil {
 			t.Fatal(err)
@@ -80,15 +79,34 @@ func TestCommentLevelsFromSnapshots(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(bad), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_ = os.WriteFile(bad, []byte("not gzip"), 0o644)
+	if err := os.WriteFile(bad, []byte("not gzip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// 仅索引可发现的快照在损坏文件之后，旧 Windows 路径与可移植路径指向同一文件。
+	writeSnapshot(t, dataDir, "indexed", "333", nil,
+		snapReply{Rpid: 111, Member: mkMember(4)},
+		snapReply{Rpid: 114, Member: mkMember(3)},
+		snapReply{Rpid: 115, Member: mkMember(2)},
+	)
+	for _, key := range []string{`C:\previous\data\raw\indexed\deadbeef\333.json.gz`, "raw/indexed/deadbeef/333.json.gz"} {
+		if err := st.AddSnapshot(&store.Snapshot{Endpoint: "/x/v2/reply/wbi/main", BodyPath: key}); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	b := New(st, dataDir, nil, nil)
-	n, err := b.CommentLevelsFromSnapshots(context.Background(), nil)
+	calls := 0
+	n, err := b.CommentLevelsFromSnapshots(context.Background(), func(done, total int) {
+		calls++
+		if done != calls || total != 3 {
+			t.Fatalf("快照进度 %d/%d，预期 %d/3", done, total, calls)
+		}
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 {
-		t.Fatalf("应回填 2 行，实际 %d", n)
+	if n != 3 || calls != 3 {
+		t.Fatalf("应回填 3 行并报告 3 次进度，实际 %d 行、%d 次", n, calls)
 	}
 	cs, err := st.ListComments("BV1LvTest001", "", 0, 0)
 	if err != nil {
@@ -98,7 +116,7 @@ func TestCommentLevelsFromSnapshots(t *testing.T) {
 	for _, c := range cs {
 		got[c.Rpid] = c.MemberLevel
 	}
-	if got[111] != 5 || got[112] != 2 || got[113] != 0 {
+	if got[111] != 4 || got[112] != 2 || got[113] != 0 || got[114] != 3 || got[115] != 6 {
 		t.Fatalf("等级回填结果错误: %v", got)
 	}
 
@@ -106,6 +124,41 @@ func TestCommentLevelsFromSnapshots(t *testing.T) {
 	n, err = b.CommentLevelsFromSnapshots(context.Background(), nil)
 	if err != nil || n != 0 {
 		t.Fatalf("二次回填应为 0: %d %v", n, err)
+	}
+}
+
+func TestCommentLevelsFromSnapshotsSkipsCompletedArchive(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if _, err := st.DB.Exec(`INSERT INTO comments(rpid,bvid,member_level,first_seen_at,last_seen_at)
+		VALUES(1, 'BVLEVELS', 6, 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	writeSnapshot(t, dir, "x_v2_reply_reply", "cached", []snapReply{
+		{Rpid: 1, Member: mkMember(4)},
+		{Rpid: 2, Member: mkMember(5)},
+	})
+	backfill := New(st, dir, nil, nil)
+	n, err := backfill.CommentLevelsFromSnapshots(t.Context(), func(done, total int) {
+		t.Fatalf("completed archive scanned snapshot %d/%d", done, total)
+	})
+	if err != nil || n != 0 {
+		t.Fatalf("completed archive returned %d, %v", n, err)
+	}
+
+	if _, err := st.DB.Exec(`INSERT INTO comments(rpid,bvid,first_seen_at,last_seen_at) VALUES(2, 'BVLEVELS', 1, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := backfill.CommentLevelsFromSnapshots(t.Context(), nil); err != nil || n != 1 {
+		t.Fatalf("backfill after import updated %d comments: %v", n, err)
+	}
+	var level int
+	if err := st.DB.QueryRow(`SELECT member_level FROM comments WHERE rpid=2`).Scan(&level); err != nil || level != 5 {
+		t.Fatalf("imported comment level = %d, want 5: %v", level, err)
 	}
 }
 

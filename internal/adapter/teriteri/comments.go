@@ -6,7 +6,6 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"strconv"
 
@@ -19,16 +18,6 @@ func wsAccept(key string) string {
 	h := sha1.New()
 	h.Write([]byte(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
-}
-
-// shuffle 返回 0..n-1 的随机排列。
-func shuffle(n int) []int {
-	idx := make([]int, n)
-	for i := range idx {
-		idx[i] = i
-	}
-	rand.Shuffle(n, func(i, j int) { idx[i], idx[j] = idx[j], idx[i] })
-	return idx
 }
 
 // danmuItem 对齐 teriteri-client 的弹幕对象字段。

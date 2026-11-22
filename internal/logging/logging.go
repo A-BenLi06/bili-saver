@@ -1,6 +1,4 @@
-// Package logging 统一 slog 初始化：stdout + 用户可选文件 + 按日服务日志
-// （<data_dir>/logs/service-YYYYMMDD.log，供日志页导出）+ 内存环形缓冲
-// （供管理端日志页实时尾随）。捕获器在 writer 层实现，对 slog 零侵入。
+// Package logging 统一 slog 初始化：stdout、可选文件、每次运行的服务日志和内存尾随缓冲。
 package logging
 
 import (
@@ -14,57 +12,11 @@ import (
 	"time"
 )
 
-// Line 内存环形缓冲中的一条日志（整行原文，含 slog 的 time=/level= 前缀）。
-type Line struct {
-	Seq  uint64 `json:"seq"`
-	TS   string `json:"ts"`
-	Text string `json:"text"`
-}
-
-const ringCap = 4000
-
 var (
-	ringMu        sync.Mutex
-	ringBuf       []Line
-	ringSeq       uint64
 	logsDir       string
 	dirOnce       sync.Once
 	activeLogName string
 )
-
-type ringWriter struct{}
-
-func (ringWriter) Write(p []byte) (int, error) {
-	ringMu.Lock()
-	defer ringMu.Unlock()
-	for _, line := range strings.Split(strings.TrimRight(string(p), "\n"), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		ringSeq++
-		ringBuf = append(ringBuf, Line{Seq: ringSeq, TS: time.Now().Format("01-02 15:04:05"), Text: line})
-	}
-	if len(ringBuf) > ringCap {
-		ringBuf = ringBuf[len(ringBuf)-ringCap:]
-	}
-	return len(p), nil
-}
-
-// RingSnapshot 返回 seq 之后的至多 max 行（按序）；after=0 表示从头。
-func RingSnapshot(after uint64, max int) ([]Line, uint64) {
-	ringMu.Lock()
-	defer ringMu.Unlock()
-	var out []Line
-	for _, l := range ringBuf {
-		if l.Seq > after {
-			out = append(out, l)
-			if max > 0 && len(out) >= max {
-				break
-			}
-		}
-	}
-	return out, ringSeq
-}
 
 // LogsDir 按日服务日志所在目录。
 func LogsDir() string { return logsDir }
