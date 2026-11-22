@@ -9,6 +9,7 @@
 package levels
 
 import (
+	"bufio"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -125,6 +126,8 @@ func (b *Backfiller) CommentLevelsFromSnapshots(ctx context.Context, progress fu
 	}
 
 	levels := make(map[int64]int, 4096)
+	var input bufio.Reader
+	var zr gzip.Reader
 	for i, f := range files {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -135,13 +138,13 @@ func (b *Backfiller) CommentLevelsFromSnapshots(ctx context.Context, progress fu
 				return err
 			}
 			defer gz.Close()
-			zr, err := gzip.NewReader(gz)
-			if err != nil {
+			input.Reset(gz)
+			if err := zr.Reset(&input); err != nil {
 				return err
 			}
 			defer zr.Close()
 			var body snapBody
-			if err := json.NewDecoder(zr).Decode(&body); err != nil {
+			if err := json.NewDecoder(&zr).Decode(&body); err != nil {
 				return fmt.Errorf("解析失败: %w", err)
 			}
 			collectLevels(body.Data.Replies, levels)
