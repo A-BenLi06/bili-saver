@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"os"
+	"sync"
 )
 
 func decodeBytes(b []byte) image.Image {
@@ -31,9 +32,28 @@ func decodeFile(path string) image.Image {
 	return im
 }
 
-func encodePNG(f *os.File, im image.Image) error {
-	encoder := png.Encoder{CompressionLevel: png.BestSpeed}
-	return encoder.Encode(f, im)
+type pngBufferPool struct {
+	pool sync.Pool
+}
+
+func (p *pngBufferPool) Get() *png.EncoderBuffer {
+	buffer, _ := p.pool.Get().(*png.EncoderBuffer)
+	return buffer
+}
+
+func (p *pngBufferPool) Put(buffer *png.EncoderBuffer) {
+	p.pool.Put(buffer)
+}
+
+var cardPNGEncoder = png.Encoder{CompressionLevel: png.BestSpeed, BufferPool: &pngBufferPool{}}
+
+func encodePNG(f *os.File, im *image.RGBA) error {
+	// The pooled encoder retains the image interface. Give it a separate
+	// header so the pixel data can be released as soon as encoding finishes.
+	raster := *im
+	err := cardPNGEncoder.Encode(f, &raster)
+	raster.Pix = nil
+	return err
 }
 
 func encodeJPEGFile(path string, im image.Image) error {
