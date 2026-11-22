@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-22T11:25:51+08:00 cloud-comment-data-agent（评论等级离线回填，done）
+- 复用解压缓冲使 256 个快照的累计分配减少 48.6%。SQLite 确认没有待补记录时跳过快照扫描，已完成场景从 48.43 ms 降至 1.36 ms。批量更新因耗时回退而撤回。构建、vet、全量内部测试、levels race 和 Windows amd64 交叉编译通过。
+
 ### 2026-11-22T00:50:37+00:00 cloud-card-png-agent（卡片 PNG 编码，done）
 - 两轮均保留。快速压缩将两种卡片的编码耗时降低约 24%–26%，像素一致，PNG 文件增长约 2%。缓冲复用减少绘制并编码过程中的累计分配量。构建、vet、全量内部测试、card race 和 Windows amd64 交叉编译通过。
 
@@ -514,6 +517,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| 评论等级离线回填：internal/levels/levels.go 与相关测试 | cloud-comment-data-agent | done | 2026-11-22T11:18:22+08:00 | 保留解压缓冲复用与已完成归档快检，撤回批量更新。基准和结果见 docs/hill-climb.md。 |
 | 卡片 PNG 编码：internal/card/codec.go 与相关测试 | cloud-card-png-agent | done | 2026-11-22T00:46:20+00:00 | 用合成海报比较编码速度、输出体积和临时内存。 |
 | 卡片光栅绘制：internal/card | cloud-card-raster-agent | done | 2026-11-21T23:39:34+00:00 | 用两种合成海报验证绘制速度和逐像素一致性。 |
 | 归档路径规范化：internal/archivepath | cloud-archive-path-agent | done | 2026-11-21T22:26:01+00:00 | 测量路径分段分配，并用恢复基准复核。 |
