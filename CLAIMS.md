@@ -4,6 +4,9 @@
 
 ## 晨间交接区（夜间会话结束各 agent 追加；人类 9:00 后从上往下读）
 
+### 2026-11-22T11:56:07+08:00 cloud-feed-data-agent（teriteri 推荐数据读取，done）
+- 两轮均保留。1 万条视频的随机推荐耗时降低 89.4%，累计推荐降低 83.2%。卡片统计由五次查询减到一次。HTTP 回归、构建、vet、全量内部测试、teriteri race 和 Windows amd64 交叉编译通过。
+
 ### 2026-11-22T11:25:51+08:00 cloud-comment-data-agent（评论等级离线回填，done）
 - 复用解压缓冲使 256 个快照的累计分配减少 48.6%。SQLite 确认没有待补记录时跳过快照扫描，已完成场景从 48.43 ms 降至 1.36 ms。批量更新因耗时回退而撤回。构建、vet、全量内部测试、levels race 和 Windows amd64 交叉编译通过。
 
@@ -517,6 +520,7 @@
 
 | 区域 | owner | 状态 | 开始时间 | 说明 |
 | --- | --- | --- | --- | --- |
+| teriteri 推荐及卡片读路径：internal/adapter/teriteri | cloud-feed-data-agent | done | 2026-11-22T11:51:49+08:00 | 保留 SQL 抽样与卡片统计窄读，已验证隐藏策略、排除列表及响应形状。 |
 | 评论等级离线回填：internal/levels/levels.go 与相关测试 | cloud-comment-data-agent | done | 2026-11-22T11:18:22+08:00 | 保留解压缓冲复用与已完成归档快检，撤回批量更新。基准和结果见 docs/hill-climb.md。 |
 | 卡片 PNG 编码：internal/card/codec.go 与相关测试 | cloud-card-png-agent | done | 2026-11-22T00:46:20+00:00 | 用合成海报比较编码速度、输出体积和临时内存。 |
 | 卡片光栅绘制：internal/card | cloud-card-raster-agent | done | 2026-11-21T23:39:34+00:00 | 用两种合成海报验证绘制速度和逐像素一致性。 |

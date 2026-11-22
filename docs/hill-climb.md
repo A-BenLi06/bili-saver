@@ -194,3 +194,16 @@ Cloud 工作区 `/workspace/bili-hill-250-results/` 保留逐轮 JSONL、复跑�
 第三轮先做一次 SQLite 存在性查询。库内仍有任何等级为 0 的行时继续走快照扫描。仅最后一条需要回填的保护场景耗时增加 2.3%，小库增加 0.7%，全量待补场景下降 2.2%。该查询在小库样本中额外分配约 1 KB/op。基准文件提供这四种场景，运行 `go test -run '^$' -bench '^BenchmarkCommentLevelsFromSnapshots$' -benchmem -cpu=2 ./internal/levels` 可重测。
 
 回归测试覆盖嵌套和置顶回复、损坏快照后的继续读取、旧 Windows 路径、索引别名去重、已有等级和后续新入库评论。构建、vet、全量内部测试与 levels race 检查通过，Windows amd64 测试程序已交叉编译。逐对基准和撤回补丁位于 Cloud 工作区 `/workspace/bili-comment-data-results/`。
+
+## teriteri 推荐与卡片数据读取
+
+从 `c20b206` 开始，优先处理首页每次全库加载并逐条检查隐藏状态的问题，再精简卡片共享的统计查询。用注册后的随机和累计推荐 HTTP 路由做配对基准，样本为临时 SQLite 库，含 20% 隐藏视频和每条视频一份统计快照。累计推荐另排除 1,500 个 BVID。每轮交替测五对，下表为中位数。
+
+| 轮次 | 64 条视频，随机推荐 | 10,000 条视频，随机推荐 | 10,000 条视频，累计推荐 |
+| --- | ---: | ---: | ---: |
+| 1 SQLite 抽样，保留 `8218d3b` | 1.45 → 1.04 ms | 110.29 → 11.67 ms（−89.4%） | 102.13 → 17.15 ms（−83.2%） |
+| 2 只查卡片实际展示的统计，保留 `0ba613f` | 1.09 → 0.52 ms（−52.1%） | 11.55 → 11.07 ms | 17.42 → 16.48 ms |
+
+第一轮的 SQLite 查询仍扫描候选 BVID，在库内过滤隐藏和已排除的视频，再取 11 或 20 张卡片所需的字段。1 万条视频的随机推荐累计 Go 内存分配从 21.39 MB 降到 71.52 KB。第二轮将每张卡片的统计查询从五次减到一次，使用最新快照里的播放和弹幕数。两轮的主要场景均有五对达到 10% 改善门槛，保护场景的中位耗时、分配字节数和次数均通过门槛。
+
+HTTP 回归覆盖隐藏和显式取消隐藏、无效隐藏标记、1,200 余项排除列表、结果去重、空数组和缺失统计时的零值。构建、vet、全量内部测试、teriteri race 与 Windows amd64 交叉编译通过。可用 `go test -run '^$' -bench '^BenchmarkVideoRecommendations$' -benchmem -cpu=2 ./internal/adapter/teriteri` 重测。逐对输出位于 Cloud 工作区 `/workspace/bili-feed-data-results/`。
